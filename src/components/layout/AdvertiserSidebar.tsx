@@ -6,10 +6,11 @@ import {
   LogOut,
   User,
   CreditCard,
-  HelpCircle
+  HelpCircle,
+  Sparkles
 } from "lucide-react";
 import AccountSwitcher from "@/components/AccountSwitcher";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import {
   Sidebar,
   SidebarContent,
@@ -29,18 +30,23 @@ const advertiserMenuItems = [
     icon: LayoutDashboard,
   },
   {
+    title: "Campaign Builder",
+    url: "/advertiser/campaign-builder?view=builder",
+    icon: Sparkles,
+  },
+  {
     title: "Campaigns",
-    url: "/advertiser/campaigns",
+    url: "/advertiser/campaign-builder?view=campaigns",
     icon: Megaphone,
   },
   {
     title: "Statistics",
-    url: "/advertiser/statistics",
+    url: "/advertiser/campaign-builder?view=offers",
     icon: BarChart3,
   },
   {
     title: "Billing",
-    url: "/advertiser/billing",
+    url: "/advertiser/campaign-builder?view=deposit",
     icon: CreditCard,
   },
   {
@@ -57,6 +63,7 @@ const advertiserMenuItems = [
 
 export function AdvertiserSidebar() {
   const navigate = useNavigate();
+  const location = useLocation();
   
   // Get advertiser user from localStorage
   const advertiserUser = JSON.parse(localStorage.getItem('advertiser_user') || '{}');
@@ -87,26 +94,37 @@ export function AdvertiserSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {advertiserMenuItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <NavLink
-                      to={item.url}
-                      end={item.url === "/advertiser"}
-                      className={({ isActive }) =>
-                        `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+              {advertiserMenuItems.map((item) => {
+                // Custom active state logic that inspects query parameter view
+                let isActive = false;
+                if (item.url === "/advertiser") {
+                  isActive = location.pathname === "/advertiser";
+                } else if (item.url.includes("?view=")) {
+                  const urlView = new URLSearchParams(item.url.split("?")[1]).get("view");
+                  const currentView = new URLSearchParams(location.search).get("view") || "builder";
+                  isActive = location.pathname === "/advertiser/campaign-builder" && currentView === urlView;
+                } else {
+                  isActive = location.pathname === item.url;
+                }
+
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild>
+                      <NavLink
+                        to={item.url}
+                        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
                           isActive
                             ? "bg-blue-100 text-blue-700 border-r-2 border-blue-500"
                             : "text-muted-foreground hover:text-foreground hover:bg-blue-50"
-                        }`
-                      }
-                    >
-                      <item.icon className="h-5 w-5" />
-                      <span className="font-medium">{item.title}</span>
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+                        }`}
+                      >
+                        <item.icon className="h-5 w-5" />
+                        <span className="font-medium">{item.title}</span>
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

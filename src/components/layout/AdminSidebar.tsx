@@ -102,6 +102,7 @@ const adminMenuStructure = [
       { title: "Users", url: "/admin/users", icon: Users, tab: "publishers" },
       { title: "Publisher Analytics", url: "/admin/publisher-analytics", icon: BarChart3, tab: "publisher-analytics" },
       { title: "Advertisers", url: "/admin/advertisers", icon: Building2, tab: "advertisers" },
+      { title: "Campaign Request", url: "/admin/campaign-requests", icon: CheckSquare, tab: "campaign-requests" },
       { title: "Subadmin Management", url: "/admin/subadmin-management", icon: Shield, tab: "subadmin-management" },
       { title: "Offer Access Requests", url: "/admin/offer-access-requests", icon: UserCheck, tab: "offer-access-requests" },
       { title: "Placement Approval", url: "/admin/placement-approval", icon: CheckSquare, tab: "placement-approval" },

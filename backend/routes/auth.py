@@ -1081,27 +1081,49 @@ def verify_email():
             logging.warning(f"❌ verify-email: Token verification failed for token: {token[:30]}...")
             return jsonify({'error': 'Invalid or expired verification token. Please try registering again or contact support.'}), 400
         
-        # Mark email as verified in user model
+        # Determine if this is a publisher user or advertiser user
+        from models.advertiser import Advertiser
         user_model = User()
-        if user_model.mark_email_verified(user_id):
-            logging.info(f"✅ Email verified for user {user_id} ({email})")
-            
-            # Get updated user data
-            user_data = user_model.find_by_id(user_id)
+        advertiser_model = Advertiser()
+        
+        user_data = user_model.find_by_id(user_id)
+        is_advertiser = False
+        
+        if user_data:
+            user_model.mark_email_verified(user_id)
+            user_data = user_model.find_by_id(user_id) # get fresh
+            success = True
+        else:
+            advertiser_data = advertiser_model.find_by_id(user_id)
+            if advertiser_data:
+                advertiser_model.mark_email_verified(user_id)
+                user_data = advertiser_model.find_by_id(user_id) # get fresh
+                is_advertiser = True
+                success = True
+            else:
+                success = False
+
+        if success and user_data:
+            logging.info(f"✅ Email verified for {'advertiser' if is_advertiser else 'user'} {user_id} ({email})")
             
             # Send Email 2a - "Application Under Review" after email verification
             import threading
-            def send_review_email_async(svc, to_email, to_name):
+            def send_review_email_async(svc, to_email, to_name, is_adv, to_company=''):
                 try:
-                    svc.send_application_under_review_email(to_email, to_name)
+                    if is_adv:
+                        svc.send_advertiser_confirmation_email(to_email, to_name, to_company)
+                        svc.send_advertiser_under_review_email(to_email, to_name, to_company)
+                    else:
+                        svc.send_application_under_review_email(to_email, to_name)
                     logging.info(f"✅ 'Application Under Review' email sent to {to_email}")
                 except Exception as e:
                     logging.error(f"❌ Error sending review email: {str(e)}")
             
-            name = user_data.get('first_name') or user_data.get('username', 'User')
+            name = user_data.get('first_name') or user_data.get('username') or user_data.get('company_name') or 'User'
+            company = user_data.get('company_name', '')
             threading.Thread(
                 target=send_review_email_async,
-                args=(verification_service, email, name),
+                args=(verification_service, email, name, is_advertiser, company),
                 daemon=True
             ).start()
             
@@ -1113,15 +1135,15 @@ def verify_email():
                 'auto_login': False,
                 'user': {
                     'id': str(user_data['_id']),
-                    'username': user_data['username'],
+                    'username': user_data.get('username') or user_data.get('email'),
                     'email': user_data['email'],
                     'email_verified': True,
                     'account_status': user_data.get('account_status', 'pending_approval'),
-                    'role': user_data.get('role', 'user'),
+                    'role': user_data.get('role', 'user') if not is_advertiser else 'advertiser',
                     'first_name': user_data.get('first_name'),
                     'last_name': user_data.get('last_name'),
                     'company_name': user_data.get('company_name'),
-                    'website': user_data.get('website')
+                    'website': user_data.get('website') or user_data.get('website_url')
                 }
             }), 200
         else:
@@ -1142,14 +1164,23 @@ def verify_email_link():
     try:
         import os
         token = request.args.get('token', '').strip()
-        frontend_url = os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
         
         if not token:
+            frontend_url = os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
             logging.warning("Email verification link clicked without token")
             return redirect(f"{frontend_url}/verify-email?error=no_token")
         
         logging.info(f"📧 Email verification link clicked, token length: {len(token)}")
         
+        # Retrieve stored frontend_url if available
+        verification_collection = db_instance.get_collection('email_verifications')
+        v_doc = verification_collection.find_one({'token': token}) if verification_collection is not None else None
+        frontend_url = None
+        if v_doc:
+            frontend_url = v_doc.get('frontend_url')
+        if not frontend_url:
+            frontend_url = os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
+            
         # Verify token
         verification_service = get_email_verification_service()
         is_valid, email, user_id = verification_service.verify_email_token(token)
@@ -1158,36 +1189,58 @@ def verify_email_link():
             logging.warning(f"❌ Invalid or expired verification token")
             return redirect(f"{frontend_url}/verify-email?error=invalid_token")
         
-        # Mark email as verified in user model
+        # Determine if this is a publisher user or advertiser user
+        from models.advertiser import Advertiser
         user_model = User()
-        if user_model.mark_email_verified(user_id):
-            logging.info(f"✅ Email verified for user {user_id} ({email})")
-            
-            # Get updated user data
+        advertiser_model = Advertiser()
+        
+        user_data = user_model.find_by_id(user_id)
+        is_advertiser = False
+        
+        if user_data:
+            user_model.mark_email_verified(user_id)
             user_data = user_model.find_by_id(user_id)
+            success = True
+        else:
+            advertiser_data = advertiser_model.find_by_id(user_id)
+            if advertiser_data:
+                advertiser_model.mark_email_verified(user_id)
+                user_data = advertiser_model.find_by_id(user_id)
+                is_advertiser = True
+                success = True
+            else:
+                success = False
+
+        if success and user_data:
+            logging.info(f"✅ Email verified for {'advertiser' if is_advertiser else 'user'} {user_id} ({email})")
             
             # Send Email 2a - "Application Under Review" after email verification
             import threading
-            def send_review_email(svc, to_email, to_name):
+            def send_review_email(svc, to_email, to_name, is_adv, to_company=''):
                 try:
-                    svc.send_application_under_review_email(to_email, to_name)
+                    if is_adv:
+                        svc.send_advertiser_confirmation_email(to_email, to_name, to_company)
+                        svc.send_advertiser_under_review_email(to_email, to_name, to_company)
+                    else:
+                        svc.send_application_under_review_email(to_email, to_name)
                 except Exception as e:
                     logging.error(f"❌ Error sending review email: {str(e)}")
             
-            name = user_data.get('first_name') or user_data.get('username', 'User')
+            name = user_data.get('first_name') or user_data.get('username') or user_data.get('company_name') or 'User'
+            company = user_data.get('company_name', '')
             threading.Thread(
                 target=send_review_email,
-                args=(verification_service, email, name),
+                args=(verification_service, email, name, is_advertiser, company),
                 daemon=True
             ).start()
             
             # Redirect to frontend success page
-            return redirect(f"{frontend_url}/verify-email?success=true&status=pending_approval")
+            return redirect(f"{frontend_url}/verify-email?success=true&status=pending_approval&user_type={'advertiser' if is_advertiser else 'publisher'}")
         else:
             # mark_email_verified returned False - but token was valid
             # This can happen if user_id is invalid - still show success since token was verified
             logging.warning(f"mark_email_verified returned False for user {user_id}, but token was valid")
-            return redirect(f"{frontend_url}/verify-email?success=true&status=pending_approval")
+            return redirect(f"{frontend_url}/verify-email?success=true&status=pending_approval&user_type={'advertiser' if is_advertiser else 'publisher'}")
         
     except Exception as e:
         logging.error(f"Email verification link error: {str(e)}", exc_info=True)

@@ -71,6 +71,7 @@ const AdminDetailedAnalytics = lazy(() => import("./pages/AdminDetailedAnalytics
 const AdminSearchLogs = lazy(() => import("./pages/AdminSearchLogs"));
 const AdminActivityLogs = lazy(() => import("./pages/AdminActivityLogs"));
 const AdminRecentActivity = lazy(() => import("./pages/AdminRecentActivity"));
+const AdminCampaignRequests = lazy(() => import("./pages/AdminCampaignRequests"));
 const AdminReportsTracking = lazy(() => import("./pages/AdminReportsTracking"));
 const AdminInvoices = lazy(() => import("./pages/AdminInvoices"));
 const AdminReactivation = lazy(() => import("./pages/AdminReactivation"));
@@ -233,6 +234,7 @@ const App = () => (
                 <Route path="promo-analytics-v2" element={<AdminPromoAnalyticsV2 />} />
                 <Route path="offer-access-requests" element={<AdminOfferAccessRequests />} />
                 <Route path="placement-approval" element={<AdminPlacementApproval />} />
+                <Route path="campaign-requests" element={<AdminCampaignRequests />} />
                 <Route path="offerwall-analytics" element={<AdminOfferwallAnalytics />} />
                 <Route path="network-analytics" element={<AdminDetailedAnalytics type="network" />} />
                 <Route path="vertical-analytics" element={<AdminDetailedAnalytics type="vertical" />} />
@@ -286,9 +288,10 @@ const App = () => (
                 element={<AdvertiserLayout />}
               >
                 <Route index element={<AdvertiserDashboard />} />
-                <Route path="campaigns" element={<AdvertiserCampaigns />} />
-                <Route path="statistics" element={<AdvertiserDashboard />} />
-                <Route path="billing" element={<AdvertiserDashboard />} />
+                <Route path="campaigns" element={<Navigate to="/advertiser/campaign-builder?view=campaigns" replace />} />
+                <Route path="campaign-builder" element={<CampaignBuilder />} />
+                <Route path="statistics" element={<Navigate to="/advertiser/campaign-builder?view=offers" replace />} />
+                <Route path="billing" element={<Navigate to="/advertiser/campaign-builder?view=deposit" replace />} />
                 <Route path="profile" element={<AdvertiserDashboard />} />
                 <Route path="settings" element={<AdvertiserDashboard />} />
               </Route>

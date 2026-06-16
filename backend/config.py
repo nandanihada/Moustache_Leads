@@ -48,3 +48,9 @@ class Config:
 
     # fal.ai API key for AI image generation
     FAL_API_KEY = os.getenv('FAL_API_KEY', '')
+
+    # PayPal Configuration
+    PAYPAL_CLIENT_ID = os.getenv('PAYPAL_CLIENT_ID', 'sb')
+    PAYPAL_CLIENT_SECRET = os.getenv('PAYPAL_CLIENT_SECRET', '')
+    PAYPAL_MODE = os.getenv('PAYPAL_MODE', 'sandbox')
+

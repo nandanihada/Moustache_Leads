@@ -11,7 +11,9 @@ import {
   Eye,
   Target,
   AlertCircle,
-  Clock
+  Clock,
+  Wallet,
+  ArrowDownCircle
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
@@ -33,6 +35,8 @@ interface AdvertiserInfo {
   company_name: string;
   email: string;
   first_name: string;
+  balance?: number;
+  total_deposited?: number;
 }
 
 export default function AdvertiserDashboard() {
@@ -109,7 +113,7 @@ export default function AdvertiserDashboard() {
   // Show pending approval message
   if (accountStatus !== 'approved') {
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 p-4 md:p-6">
         <div>
           <h1 className="text-2xl font-bold">
             Welcome{advertiser?.first_name ? `, ${advertiser.first_name}` : ''}!
@@ -164,7 +168,7 @@ export default function AdvertiserDashboard() {
 
   // Approved account - show full dashboard
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-4 md:p-6">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold">
@@ -180,55 +184,94 @@ export default function AdvertiserDashboard() {
         </Button>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Campaigns
-            </CardTitle>
-            <Megaphone className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.total_campaigns || 0}</div>
-          </CardContent>
-        </Card>
+      {/* Financial Overview */}
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold text-foreground">Financial Overview</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card className="border-l-4 border-l-emerald-500 shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Wallet Balance (Remaining)
+              </CardTitle>
+              <Wallet className="h-5 w-5 text-emerald-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-emerald-600">
+                ${(advertiser?.balance || 0).toFixed(2)}
+              </div>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Running Campaigns
-            </CardTitle>
-            <Play className="h-4 w-4 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats?.running_campaigns || 0}</div>
-          </CardContent>
-        </Card>
+          <Card className="border-l-4 border-l-blue-500 shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Total Deposited (Added)
+              </CardTitle>
+              <ArrowDownCircle className="h-5 w-5 text-blue-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-600">
+                ${(advertiser?.total_deposited || 0).toFixed(2)}
+              </div>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Paused Campaigns
-            </CardTitle>
-            <Pause className="h-4 w-4 text-yellow-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">{stats?.paused_campaigns || 0}</div>
-          </CardContent>
-        </Card>
+          <Card className="border-l-4 border-l-amber-500 shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Total Spent
+              </CardTitle>
+              <DollarSign className="h-5 w-5 text-amber-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-amber-600">
+                ${(stats?.total_spent || 0).toFixed(2)}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Spent
-            </CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">${(stats?.total_spent || 0).toFixed(2)}</div>
-          </CardContent>
-        </Card>
+      {/* Campaign Overview */}
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold text-foreground">Campaign Overview</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card className="shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Total Campaigns
+              </CardTitle>
+              <Megaphone className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats?.total_campaigns || 0}</div>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Running Campaigns
+              </CardTitle>
+              <Play className="h-4 w-4 text-green-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">{stats?.running_campaigns || 0}</div>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Paused Campaigns
+              </CardTitle>
+              <Pause className="h-4 w-4 text-yellow-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-yellow-600">{stats?.paused_campaigns || 0}</div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       {/* Performance Stats */}

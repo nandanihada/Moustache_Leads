@@ -295,7 +295,7 @@ export default function AdvertiserCampaigns() {
           <h1 className="text-2xl font-bold">Campaigns</h1>
           <p className="text-muted-foreground">Manage your advertising campaigns</p>
         </div>
-        <Button onClick={() => setShowCreateModal(true)} className="bg-blue-600 hover:bg-blue-700">
+        <Button onClick={() => navigate("/advertiser/campaign-builder")} className="bg-blue-600 hover:bg-blue-700">
           <Plus className="h-4 w-4 mr-2" />
           Create Campaign
         </Button>
@@ -312,7 +312,7 @@ export default function AdvertiserCampaigns() {
               <Megaphone className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
               <h3 className="text-lg font-medium mb-2">No campaigns yet</h3>
               <p className="text-muted-foreground mb-4">Create your first campaign to start advertising</p>
-              <Button onClick={() => setShowCreateModal(true)}>
+              <Button onClick={() => navigate("/advertiser/campaign-builder")}>
                 <Plus className="h-4 w-4 mr-2" />
                 Create Campaign
               </Button>

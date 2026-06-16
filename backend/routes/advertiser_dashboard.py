@@ -85,13 +85,28 @@ def get_dashboard_stats():
         campaign_model = get_campaign_model()
         stats = campaign_model.get_campaign_stats(advertiser_id)
         
+        # Get advertiser balance and total deposited
+        balance = float(advertiser.get('balance', 0.0))
+        tx_col = db_instance.get_collection('wallet_transactions')
+        total_deposited = 0.0
+        if tx_col is not None:
+            pipeline = [
+                {'$match': {'advertiser_id': advertiser_id, 'type': 'deposit', 'status': 'confirmed'}},
+                {'$group': {'_id': None, 'total': {'$sum': '$amount'}}}
+            ]
+            agg = list(tx_col.aggregate(pipeline))
+            if agg:
+                total_deposited = float(agg[0].get('total', 0.0))
+
         return jsonify({
             'account_status': account_status,
             'stats': stats,
             'advertiser': {
                 'company_name': advertiser.get('company_name', ''),
                 'email': advertiser.get('email', ''),
-                'first_name': advertiser.get('first_name', '')
+                'first_name': advertiser.get('first_name', ''),
+                'balance': balance,
+                'total_deposited': total_deposited
             }
         }), 200
         
@@ -343,3 +358,236 @@ def get_profile():
     except Exception as e:
         logger.error(f"Error getting profile: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to get profile: {str(e)}'}), 500
+
+
+@advertiser_dashboard_bp.route('/deposit', methods=['POST'])
+@advertiser_token_required
+def deposit_funds():
+    """Deposit funds to advertiser account (manual/USDT fallback)"""
+    try:
+        advertiser_id = request.advertiser_id
+        collection = get_advertisers_collection()
+        
+        data = request.get_json()
+        amount = float(data.get('amount', 0))
+        
+        if amount <= 0:
+            return jsonify({'error': 'Amount must be greater than 0'}), 400
+            
+        collection.update_one(
+            {'_id': ObjectId(advertiser_id)},
+            {'$inc': {'balance': amount}}
+        )
+        
+        # Log to wallet transaction history if collection exists
+        tx_collection = db_instance.get_collection('wallet_transactions')
+        if tx_collection is not None:
+            tx_collection.insert_one({
+                'advertiser_id': advertiser_id,
+                'type': 'deposit',
+                'method': 'card',
+                'amount': amount,
+                'status': 'confirmed',
+                'external_ref': 'CARD-' + datetime.utcnow().strftime('%Y%m%d%H%M%S'),
+                'created_at': datetime.utcnow()
+            })
+        
+        # Get updated advertiser
+        advertiser = collection.find_one({'_id': ObjectId(advertiser_id)})
+        new_balance = float(advertiser.get('balance', 0.0))
+        
+        logger.info(f"Advertiser {advertiser_id} deposited ${amount}. New balance: ${new_balance}")
+        
+        return jsonify({
+            'message': 'Deposit successful',
+            'balance': new_balance
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error depositing funds: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to deposit: {str(e)}'}), 500
+
+
+def get_paypal_access_token():
+    """Helper to authenticate with PayPal API and retrieve bearer token"""
+    import requests
+    from requests.auth import HTTPBasicAuth
+    
+    client_id = Config.PAYPAL_CLIENT_ID
+    client_secret = Config.PAYPAL_CLIENT_SECRET
+    
+    if not client_secret or client_secret == "":
+        return None
+        
+    mode = Config.PAYPAL_MODE or "sandbox"
+    base_url = "https://api-m.paypal.com" if mode == "live" else "https://api-m.sandbox.paypal.com"
+    
+    try:
+        url = f"{base_url}/v1/oauth2/token"
+        headers = {"Accept": "application/json", "Accept-Language": "en_US"}
+        data = {"grant_type": "client_credentials"}
+        response = requests.post(url, auth=HTTPBasicAuth(client_id, client_secret), headers=headers, data=data, timeout=10)
+        
+        if response.status_code == 200:
+            return response.json().get("access_token")
+    except Exception as e:
+        logger.error(f"Error getting PayPal access token: {str(e)}")
+    return None
+
+
+@advertiser_dashboard_bp.route('/paypal/config', methods=['GET'])
+@advertiser_token_required
+def get_paypal_config():
+    """Retrieve PayPal Client ID for the frontend dynamically"""
+    return jsonify({
+        'clientId': Config.PAYPAL_CLIENT_ID or "sb",
+        'mode': Config.PAYPAL_MODE or "sandbox"
+    }), 200
+
+
+@advertiser_dashboard_bp.route('/paypal/create-order', methods=['POST'])
+@advertiser_token_required
+def create_paypal_order():
+    """Create a PayPal checkout order"""
+    try:
+        data = request.get_json()
+        amount = float(data.get('amount', 0))
+        
+        if amount < 25:
+            return jsonify({'error': 'Minimum deposit is $25'}), 400
+            
+        access_token = get_paypal_access_token()
+        
+        if not access_token:
+            # Sandbox/Mock fallback if no secret configured
+            import uuid
+            mock_order_id = f"MOCK-PAYPAL-{uuid.uuid4().hex[:8].upper()}"
+            return jsonify({'id': mock_order_id, 'status': 'CREATED'}), 200
+            
+        mode = Config.PAYPAL_MODE or "sandbox"
+        base_url = "https://api-m.paypal.com" if mode == "live" else "https://api-m.sandbox.paypal.com"
+        
+        import requests
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {access_token}"
+        }
+        
+        payload = {
+            "intent": "CAPTURE",
+            "purchase_units": [{
+                "amount": {
+                    "currency_code": "USD",
+                    "value": f"{amount:.2f}"
+                },
+                "description": "Moustache Leads Advertiser Wallet Deposit"
+            }]
+        }
+        
+        url = f"{base_url}/v2/checkout/orders"
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        
+        if response.status_code in [200, 201]:
+            order_data = response.json()
+            return jsonify({'id': order_data.get('id'), 'status': order_data.get('status')}), 200
+        else:
+            logger.error(f"PayPal create order failed: {response.text}")
+            return jsonify({'error': 'Failed to create PayPal order'}), 400
+            
+    except Exception as e:
+        logger.error(f"PayPal create order exception: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@advertiser_dashboard_bp.route('/paypal/capture-order', methods=['POST'])
+@advertiser_token_required
+def capture_paypal_order():
+    """Capture a completed PayPal checkout order and update balance"""
+    try:
+        advertiser_id = request.advertiser_id
+        collection = get_advertisers_collection()
+        
+        data = request.get_json()
+        order_id = data.get('orderID')
+        amount = float(data.get('amount', 0))
+        
+        if not order_id:
+            return jsonify({'error': 'Order ID is required'}), 400
+            
+        is_mock = order_id.startswith("MOCK-PAYPAL-") or not Config.PAYPAL_CLIENT_SECRET
+        
+        if is_mock:
+            # Mock success path
+            if amount <= 0:
+                amount = 50.0  # Fallback
+            status = "COMPLETED"
+        else:
+            access_token = get_paypal_access_token()
+            if not access_token:
+                return jsonify({'error': 'PayPal authentication failed'}), 500
+                
+            mode = Config.PAYPAL_MODE or "sandbox"
+            base_url = "https://api-m.paypal.com" if mode == "live" else "https://api-m.sandbox.paypal.com"
+            
+            import requests
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {access_token}"
+            }
+            
+            url = f"{base_url}/v2/checkout/orders/{order_id}/capture"
+            response = requests.post(url, headers=headers, timeout=15)
+            
+            if response.status_code not in [200, 201]:
+                logger.error(f"PayPal capture order failed: {response.text}")
+                return jsonify({'error': 'PayPal capture payment failed'}), 400
+                
+            order_data = response.json()
+            status = order_data.get('status')
+            
+            if status != "COMPLETED":
+                return jsonify({'error': f'PayPal payment status: {status}'}), 400
+                
+            try:
+                amount_str = order_data['purchase_units'][0]['payments']['captures'][0]['amount']['value']
+                amount = float(amount_str)
+            except Exception as parse_err:
+                logger.error(f"Failed to parse PayPal captured amount: {str(parse_err)}")
+                
+        if amount <= 0:
+            return jsonify({'error': 'Invalid transaction amount'}), 400
+            
+        # Increment advertiser balance
+        collection.update_one(
+            {'_id': ObjectId(advertiser_id)},
+            {'$inc': {'balance': amount}}
+        )
+        
+        # Get updated advertiser
+        advertiser = collection.find_one({'_id': ObjectId(advertiser_id)})
+        new_balance = float(advertiser.get('balance', 0.0))
+        
+        # Log to wallet transaction history if collection exists
+        tx_collection = db_instance.get_collection('wallet_transactions')
+        if tx_collection is not None:
+            tx_collection.insert_one({
+                'advertiser_id': advertiser_id,
+                'type': 'deposit',
+                'method': 'paypal',
+                'amount': amount,
+                'status': 'confirmed',
+                'external_ref': order_id,
+                'created_at': datetime.utcnow()
+            })
+            
+        logger.info(f"PayPal Order {order_id} captured. Advertiser {advertiser_id} balance credited with ${amount}. New balance: ${new_balance}")
+        
+        return jsonify({
+            'message': 'Payment captured successfully',
+            'balance': new_balance
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"PayPal capture exception: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+

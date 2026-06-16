@@ -95,43 +95,49 @@ def register_advertiser():
         if error:
             return jsonify({'error': error}), 400
         
-        # Generate token with user_type
-        token = generate_token(advertiser_data, user_type='advertiser')
+        # Generate verification token SYNCHRONOUSLY
+        frontend_url = request.headers.get('Origin') or os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
+        verification_service = get_email_verification_service()
+        verification_token = verification_service.generate_verification_token(
+            advertiser_data['email'],
+            str(advertiser_data['_id']),
+            frontend_url=frontend_url
+        )
         
-        logging.info(f"✅ Advertiser registered: {advertiser_data['email']}")
-        
-        # Send emails asynchronously (non-blocking)
-        def send_emails_async():
-            """Send confirmation and under review emails in background"""
+        if not verification_token:
+            logging.warning(f"⚠️ Failed to generate verification token for advertiser {advertiser_data['email']}")
+        else:
+            logging.info(f"✅ Verification token generated for advertiser {advertiser_data['email']}")
+            
+        # Capture the base URL from request in the request context thread
+        base_url = request.url_root.rstrip('/')
+
+        # Send verification email asynchronously
+        def send_email_async(token_to_send, email_to, username_to, base_url_to):
             try:
-                verification_service = get_email_verification_service()
-                email = advertiser_data['email']
-                name = advertiser_data.get('first_name') or advertiser_data.get('company_name', 'Advertiser')
-                company = advertiser_data.get('company_name', '')
-                
-                # Email 1: Confirmation email (registration received)
-                logging.info(f"📧 Sending Advertiser Confirmation email to {email}")
-                confirmation_sent = verification_service.send_advertiser_confirmation_email(email, name, company)
-                if confirmation_sent:
-                    logging.info(f"✅ Advertiser Confirmation email sent to {email}")
-                else:
-                    logging.warning(f"⚠️ Failed to send Advertiser Confirmation email to {email}")
-                
-                # Email 2: Under Review email
-                logging.info(f"📧 Sending Advertiser Under Review email to {email}")
-                review_sent = verification_service.send_advertiser_under_review_email(email, name, company)
-                if review_sent:
-                    logging.info(f"✅ Advertiser Under Review email sent to {email}")
-                else:
-                    logging.warning(f"⚠️ Failed to send Advertiser Under Review email to {email}")
-                    
+                email_service = get_email_verification_service()
+                if token_to_send:
+                    email_sent = email_service.send_verification_email(
+                        email_to,
+                        token_to_send,
+                        username_to,
+                        base_url=base_url_to
+                    )
+                    if email_sent:
+                        logging.info(f"✅ Verification email sent to advertiser {email_to} with base_url {base_url_to}")
+                    else:
+                        logging.warning(f"⚠️ Failed to send verification email to advertiser {email_to}")
             except Exception as e:
-                logging.error(f"❌ Background email error for advertiser: {str(e)}")
-        
-        # Start email sending in background thread
-        email_thread = threading.Thread(target=send_emails_async, daemon=True)
-        email_thread.start()
-        logging.info(f"📧 Advertiser emails queued for {advertiser_data['email']}")
+                logging.error(f"❌ Background email error for advertiser verification: {str(e)}")
+                
+        if verification_token:
+            email_thread = threading.Thread(
+                target=send_email_async,
+                args=(verification_token, advertiser_data['email'], advertiser_data.get('first_name', 'Advertiser'), base_url),
+                daemon=True
+            )
+            email_thread.start()
+            logging.info(f"📧 Verification email queued for advertiser {advertiser_data['email']}")
         
         # Handle referral code if provided (P2 — Commission Share for advertisers)
         referral_code = data.get('referral_code', '').strip() if data else ''
@@ -161,15 +167,15 @@ def register_advertiser():
                                 'referral_code_used': referral_code,
                                 'referral_program': referral_program,
                                 'referred_at': datetime.utcnow()
-                            }}
+                             }}
                         )
                     logging.info(f"✅ Referral P{referral_program} processed for advertiser {advertiser_data['email']}")
             except Exception as ref_err:
                 logging.error(f"⚠️ Advertiser referral processing error (non-blocking): {ref_err}")
         
         return jsonify({
-            'message': 'Advertiser registered successfully. Your application is under review.',
-            'token': token,
+            'message': 'Advertiser registered successfully. Please check your email to verify your account.',
+            'email_verification_required': True,
             'user': {
                 'id': str(advertiser_data['_id']),
                 'email': advertiser_data['email'],
@@ -177,7 +183,8 @@ def register_advertiser():
                 'last_name': advertiser_data['last_name'],
                 'company_name': advertiser_data['company_name'],
                 'user_type': 'advertiser',
-                'account_status': advertiser_data.get('account_status', 'pending_approval')
+                'account_status': advertiser_data.get('account_status', 'pending_approval'),
+                'email_verified': False
             }
         }), 201
         
@@ -227,6 +234,22 @@ def login_advertiser():
                 ip_address=public_ip
             )
             return jsonify({'error': 'Invalid email or password'}), 401
+        
+        # Check email verification
+        if not advertiser_data.get('email_verified', False):
+            activity_tracking_service.track_login_attempt(
+                advertiser_data,
+                request,
+                status='failed',
+                failure_reason='email_not_verified',
+                login_method='password',
+                ip_address=public_ip
+            )
+            return jsonify({
+                'error': 'Please verify your email before logging in. Check your inbox for the verification link.',
+                'email_not_verified': True,
+                'email': advertiser_data.get('email', '')
+            }), 403
         
         # Check if account is active
         if not advertiser_data.get('is_active', True):

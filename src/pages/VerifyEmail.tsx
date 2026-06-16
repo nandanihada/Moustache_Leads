@@ -10,6 +10,7 @@ export default function VerifyEmail() {
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
   const [accountStatus, setAccountStatus] = useState<string>('');
+  const [userType, setUserType] = useState<string>(searchParams.get('user_type') || searchParams.get('userType') || 'publisher');
   
   // Get parameters from URL
   const token = searchParams.get('token');
@@ -23,6 +24,10 @@ export default function VerifyEmail() {
       setStatus('success');
       setAccountStatus(urlStatus || 'pending_approval');
       setMessage('Email verified successfully!');
+      const type = searchParams.get('user_type') || searchParams.get('userType');
+      if (type) {
+        setUserType(type);
+      }
       return;
     }
     
@@ -82,6 +87,11 @@ export default function VerifyEmail() {
           setStatus('success');
           setAccountStatus(data.account_status || 'pending_approval');
           setMessage(data.message || 'Email verified successfully!');
+          if (data.user?.role === 'advertiser' || data.user?.user_type === 'advertiser') {
+            setUserType('advertiser');
+          } else {
+            setUserType('publisher');
+          }
         } else {
           setStatus('error');
           // Provide more helpful error messages
@@ -171,13 +181,13 @@ export default function VerifyEmail() {
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-indigo-600 font-bold">3.</span>
-                      <span>Then you can log in and create your placement</span>
+                      <span>Then you can log in and {userType === 'advertiser' ? 'create campaigns' : 'create your placement'}</span>
                     </li>
                   </ul>
                 </div>
 
                 <Button
-                  onClick={() => navigate('/login')}
+                  onClick={() => navigate(userType === 'advertiser' ? '/advertiser/signin' : '/publisher/signin')}
                   variant="outline"
                   className="w-full"
                 >

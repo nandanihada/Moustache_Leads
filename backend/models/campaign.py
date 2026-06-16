@@ -43,7 +43,7 @@ class Campaign:
             'advertiser_id': advertiser_id,
             'name': campaign_data.get('name', 'Untitled Campaign'),
             'campaign_type': campaign_data.get('campaign_type', 'classic_push'),
-            'status': self.STATUS_DRAFT,
+            'status': campaign_data.get('status', self.STATUS_DRAFT),
             
             # Bidding
             'bid_type': campaign_data.get('bid_type', self.BID_TYPE_CPC),
@@ -88,6 +88,11 @@ class Campaign:
             'updated_at': now
         }
         
+        # Allow any other custom fields passed in campaign_data (e.g. form_data)
+        for k, v in campaign_data.items():
+            if k not in campaign:
+                campaign[k] = v
+                
         result = self.collection.insert_one(campaign)
         campaign['_id'] = str(result.inserted_id)
         return campaign

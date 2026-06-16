@@ -65,6 +65,9 @@ export default function AdvertiserSignIn() {
         
         // Redirect to advertiser dashboard
         navigate("/advertiser");
+      } else if (data.email_not_verified) {
+        setError(data.error || "Please verify your email before logging in. Check your inbox for the verification link.");
+        toast.error(data.error || "Please verify your email first. Check your inbox for the verification link.");
       } else {
         setError(data.error || "Invalid email or password");
       }

@@ -77,7 +77,8 @@ class Advertiser:
                 'is_active': True,
                 'email_verified': False,
                 'account_status': 'pending_approval',
-                'user_type': 'advertiser'
+                'user_type': 'advertiser',
+                'balance': 0.0
             }
             
             result = self.collection.insert_one(advertiser_doc)

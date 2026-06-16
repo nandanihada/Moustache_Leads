@@ -83,20 +83,25 @@ def register_publisher():
         if error:
             return jsonify({'error': error}), 400
         
+        # Capture base URL and frontend URL in request context thread
+        base_url = request.url_root.rstrip('/')
+        frontend_url = request.headers.get('Origin') or os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
+
         # Send verification email asynchronously
-        def send_email_async():
+        def send_email_async(base_url_to, frontend_url_to):
             try:
                 verification_service = get_email_verification_service()
                 verification_token = verification_service.generate_verification_token(
                     email, 
-                    str(user_data['_id'])
+                    str(user_data['_id']),
+                    frontend_url=frontend_url_to
                 )
                 if verification_token:
-                    verification_service.send_verification_email(email, verification_token, username)
+                    verification_service.send_verification_email(email, verification_token, username, base_url=base_url_to)
             except Exception as e:
                 logging.error(f"Background email error: {str(e)}")
         
-        email_thread = threading.Thread(target=send_email_async, daemon=True)
+        email_thread = threading.Thread(target=send_email_async, args=(base_url, frontend_url), daemon=True)
         email_thread.start()
         
         # Generate token with user_type = publisher

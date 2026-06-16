@@ -79,7 +79,7 @@ class EmailVerificationService:
         except Exception as e:
             logger.error(f"Send error: {e}")
             return False
-    def generate_verification_token(self, email, user_id):
+    def generate_verification_token(self, email, user_id, frontend_url=None):
         """Generate a verification token and store it in the database."""
         token = secrets.token_urlsafe(32)
         try:
@@ -93,9 +93,10 @@ class EmailVerificationService:
                 'user_id': user_id,
                 'created_at': datetime.utcnow(),
                 'expires_at': datetime.utcnow() + timedelta(hours=24),
-                'verified': False
+                'verified': False,
+                'frontend_url': frontend_url
             })
-            logger.info(f"Token generated for {email}, len={len(token)}")
+            logger.info(f"Token generated for {email}, len={len(token)}, frontend_url={frontend_url}")
             return token
         except Exception as e:
             logger.error(f"Token generation error: {e}")
@@ -147,13 +148,13 @@ class EmailVerificationService:
             logger.error(f"Token verification error: {e}", exc_info=True)
             return False, None, None
 
-    def send_verification_email(self, email, token, username):
+    def send_verification_email(self, email, token, username, base_url=None):
         """Send verification email with clickable link pointing to backend GET endpoint."""
         if not self.is_configured:
             logger.warning("Email not configured - skipping verification email")
             return False
 
-        backend_url = os.getenv('BACKEND_URL', 'https://api.moustacheleads.com')
+        backend_url = base_url or os.getenv('BACKEND_URL', 'https://api.moustacheleads.com')
         link = f"{backend_url}/api/auth/verify-email-link?token={token}"
         frontend_link = f"{self.frontend_url}/verify-email?token={token}"
         year = datetime.now().year

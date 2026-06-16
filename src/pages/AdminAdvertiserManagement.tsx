@@ -52,6 +52,23 @@ interface Advertiser {
   email_verified: boolean;
   created_at: string;
   account_status_updated_at?: string;
+  balance?: number;
+}
+
+interface DepositTransaction {
+  _id: string;
+  advertiser_id: string;
+  advertiser: {
+    company_name: string;
+    email: string;
+    first_name: string;
+    last_name: string;
+  };
+  amount: number;
+  method: string;
+  status: string;
+  external_ref: string;
+  created_at: string;
 }
 
 interface AdvertiserCounts {
@@ -65,8 +82,10 @@ const AdminAdvertiserManagement = () => {
   const [activeTab, setActiveTab] = useState("pending_approval");
   const [searchTerm, setSearchTerm] = useState("");
   const [advertisers, setAdvertisers] = useState<Advertiser[]>([]);
+  const [deposits, setDeposits] = useState<DepositTransaction[]>([]);
   const [counts, setCounts] = useState<AdvertiserCounts>({ pending: 0, approved: 0, rejected: 0, total: 0 });
   const [loading, setLoading] = useState(true);
+  const [depositsLoading, setDepositsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
@@ -108,9 +127,38 @@ const AdminAdvertiserManagement = () => {
     }
   };
 
+  const fetchDeposits = async () => {
+    try {
+      setDepositsLoading(true);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/api/admin/advertisers/deposits`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (!response.ok) throw new Error('Failed to fetch deposits');
+      const data = await response.json();
+      setDeposits(data.deposits || []);
+    } catch (error) {
+      console.error('Error fetching deposits:', error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch deposits",
+        variant: "destructive"
+      });
+    } finally {
+      setDepositsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const status = activeTab === 'all' ? undefined : activeTab;
-    fetchAdvertisers(status);
+    if (activeTab === 'deposits') {
+      fetchDeposits();
+    } else {
+      const status = activeTab === 'all' ? undefined : activeTab;
+      fetchAdvertisers(status);
+    }
   }, [activeTab]);
 
   const handleApprove = async (advertiserId: string) => {
@@ -249,6 +297,15 @@ const AdminAdvertiserManagement = () => {
            adv._id.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
+  const filteredDeposits = deposits.filter(dep => {
+    const term = searchTerm.toLowerCase();
+    const advName = `${dep.advertiser?.first_name || ''} ${dep.advertiser?.last_name || ''} ${dep.advertiser?.company_name || ''}`.toLowerCase();
+    return advName.includes(term) ||
+           dep.advertiser?.email?.toLowerCase().includes(term) ||
+           dep.external_ref?.toLowerCase().includes(term) ||
+           dep._id.toLowerCase().includes(term);
+  });
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "approved":
@@ -345,6 +402,7 @@ const AdminAdvertiserManagement = () => {
               </TabsTrigger>
               <TabsTrigger value="approved">Approved ({counts.approved})</TabsTrigger>
               <TabsTrigger value="rejected">Rejected ({counts.rejected})</TabsTrigger>
+              <TabsTrigger value="deposits">PayPal Deposits</TabsTrigger>
               <TabsTrigger value="all">All Advertisers</TabsTrigger>
             </TabsList>
 
@@ -352,7 +410,10 @@ const AdminAdvertiserManagement = () => {
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search advertisers by name, company, email, or ID..."
+                  placeholder={activeTab === 'deposits'
+                    ? "Search deposits by advertiser name, company, email, or reference..."
+                    : "Search advertisers by name, company, email, or ID..."
+                  }
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"
@@ -361,128 +422,202 @@ const AdminAdvertiserManagement = () => {
             </div>
 
             <TabsContent value={activeTab} className="space-y-4">
-              {loading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : filteredAdvertisers.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">
-                  No advertisers found
-                </div>
-              ) : (
-                <div className="overflow-x-auto -mx-4 sm:mx-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="whitespace-nowrap">Advertiser</TableHead>
-                      <TableHead className="whitespace-nowrap">Company</TableHead>
-                      <TableHead className="whitespace-nowrap">Contact</TableHead>
-                      <TableHead className="whitespace-nowrap">Status</TableHead>
-                      <TableHead className="whitespace-nowrap">Join Date</TableHead>
-                      <TableHead className="whitespace-nowrap">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredAdvertisers.map((adv) => (
-                      <TableRow key={adv._id}>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <Avatar className="bg-gradient-to-br from-purple-500 to-indigo-600">
-                              <AvatarFallback className="text-white">
-                                {(adv.first_name?.[0] || 'A').toUpperCase()}
-                                {(adv.last_name?.[0] || '').toUpperCase()}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div>
-                              <p className="font-medium">
-                                {adv.first_name} {adv.last_name}
-                              </p>
-                              <p className="text-sm text-muted-foreground">{adv.email}</p>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <Building2 className="h-4 w-4 text-muted-foreground" />
-                              <span className="font-medium">{adv.company_name}</span>
-                            </div>
-                            {adv.website_url && (
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <Globe className="h-3 w-3" />
-                                <a href={adv.website_url} target="_blank" rel="noopener noreferrer" className="hover:underline truncate max-w-[150px]">
-                                  {adv.website_url.replace(/^https?:\/\//, '')}
-                                </a>
+              {activeTab === 'deposits' ? (
+                depositsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                  </div>
+                ) : filteredDeposits.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    No deposits found
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto -mx-4 sm:mx-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="whitespace-nowrap">Advertiser / Company</TableHead>
+                          <TableHead className="whitespace-nowrap">Amount</TableHead>
+                          <TableHead className="whitespace-nowrap">Method</TableHead>
+                          <TableHead className="whitespace-nowrap">PayPal Order ID</TableHead>
+                          <TableHead className="whitespace-nowrap">Deposit Date</TableHead>
+                          <TableHead className="whitespace-nowrap">Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredDeposits.map((dep) => (
+                          <TableRow key={dep._id}>
+                            <TableCell>
+                              <div className="flex items-center gap-3">
+                                <Avatar className="bg-gradient-to-br from-orange-400 to-pink-500">
+                                  <AvatarFallback className="text-white">
+                                    {(dep.advertiser?.first_name?.[0] || 'A').toUpperCase()}
+                                    {(dep.advertiser?.last_name?.[0] || '').toUpperCase()}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <p className="font-medium">
+                                    {dep.advertiser?.first_name} {dep.advertiser?.last_name}
+                                  </p>
+                                  <p className="text-xs font-semibold text-orange-600">{dep.advertiser?.company_name}</p>
+                                  <p className="text-xs text-muted-foreground">{dep.advertiser?.email}</p>
+                                </div>
                               </div>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2 text-sm">
-                              <Phone className="h-4 w-4 text-muted-foreground" />
-                              <span>{adv.phone_number}</span>
-                            </div>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <MapPin className="h-3 w-3" />
-                              <span>{adv.city}, {adv.country}</span>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {getStatusBadge(adv.account_status)}
-                        </TableCell>
-                        <TableCell className="text-sm">
-                          {formatDate(adv.created_at)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => openDetailsDialog(adv)}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            {adv.account_status === "pending_approval" && (
-                              <>
-                                <Button 
-                                  size="sm" 
+                            </TableCell>
+                            <TableCell className="font-semibold text-green-600 font-mono">
+                              ${dep.amount.toFixed(2)}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="capitalize bg-orange-50 border-orange-200 text-orange-700">
+                                {dep.method === 'paypal' ? 'PayPal / Card' : dep.method}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="font-mono text-xs text-muted-foreground select-all">
+                              {dep.external_ref || dep._id}
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {formatDate(dep.created_at)}
+                            </TableCell>
+                            <TableCell>
+                              <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
+                                <CheckCircle className="w-3 h-3 mr-1" />
+                                {dep.status}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )
+              ) : (
+                loading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                  </div>
+                ) : filteredAdvertisers.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    No advertisers found
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto -mx-4 sm:mx-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="whitespace-nowrap">Advertiser</TableHead>
+                          <TableHead className="whitespace-nowrap">Company</TableHead>
+                          <TableHead className="whitespace-nowrap">Contact</TableHead>
+                          <TableHead className="whitespace-nowrap">Wallet Balance</TableHead>
+                          <TableHead className="whitespace-nowrap">Status</TableHead>
+                          <TableHead className="whitespace-nowrap">Join Date</TableHead>
+                          <TableHead className="whitespace-nowrap">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredAdvertisers.map((adv) => (
+                          <TableRow key={adv._id}>
+                            <TableCell>
+                              <div className="flex items-center gap-3">
+                                <Avatar className="bg-gradient-to-br from-purple-500 to-indigo-600">
+                                  <AvatarFallback className="text-white">
+                                    {(adv.first_name?.[0] || 'A').toUpperCase()}
+                                    {(adv.last_name?.[0] || '').toUpperCase()}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <p className="font-medium">
+                                    {adv.first_name} {adv.last_name}
+                                  </p>
+                                  <p className="text-sm text-muted-foreground">{adv.email}</p>
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                                  <span className="font-medium">{adv.company_name}</span>
+                                </div>
+                                {adv.website_url && (
+                                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                    <Globe className="h-3 w-3" />
+                                    <a href={adv.website_url} target="_blank" rel="noopener noreferrer" className="hover:underline truncate max-w-[150px]">
+                                      {adv.website_url.replace(/^https?:\/\//, '')}
+                                    </a>
+                                  </div>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 text-sm">
+                                  <Phone className="h-4 w-4 text-muted-foreground" />
+                                  <span>{adv.phone_number}</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                  <MapPin className="h-3 w-3" />
+                                  <span>{adv.city}, {adv.country}</span>
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-semibold font-mono text-green-700">
+                              ${adv.balance !== undefined ? adv.balance.toFixed(2) : "0.00"}
+                            </TableCell>
+                            <TableCell>
+                              {getStatusBadge(adv.account_status)}
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {formatDate(adv.created_at)}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
                                   variant="outline"
-                                  className="text-green-600 hover:text-green-700 hover:bg-green-50"
-                                  onClick={() => handleApprove(adv._id)}
-                                  disabled={actionLoading === adv._id}
+                                  onClick={() => openDetailsDialog(adv)}
                                 >
-                                  {actionLoading === adv._id ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <UserCheck className="h-4 w-4" />
-                                  )}
+                                  <Eye className="h-4 w-4" />
                                 </Button>
-                                <Button 
-                                  size="sm" 
-                                  variant="outline"
-                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                  onClick={() => openRejectDialog(adv)}
-                                  disabled={actionLoading === adv._id}
-                                >
-                                  <UserX className="h-4 w-4" />
-                                </Button>
-                              </>
-                            )}
-                            {adv.account_status === "approved" && (
-                              <Badge variant="outline" className="text-green-600">Active</Badge>
-                            )}
-                            {adv.account_status === "rejected" && (
-                              <Badge variant="outline" className="text-red-600">Rejected</Badge>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                </div>
+                                {adv.account_status === "pending_approval" && (
+                                  <>
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline"
+                                      className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                                      onClick={() => handleApprove(adv._id)}
+                                      disabled={actionLoading === adv._id}
+                                    >
+                                      {actionLoading === adv._id ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <UserCheck className="h-4 w-4" />
+                                      )}
+                                    </Button>
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline"
+                                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                      onClick={() => openRejectDialog(adv)}
+                                      disabled={actionLoading === adv._id}
+                                    >
+                                      <UserX className="h-4 w-4" />
+                                    </Button>
+                                  </>
+                                )}
+                                {adv.account_status === "approved" && (
+                                  <Badge variant="outline" className="text-green-600">Active</Badge>
+                                )}
+                                {adv.account_status === "rejected" && (
+                                  <Badge variant="outline" className="text-red-600">Rejected</Badge>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )
               )}
             </TabsContent>
           </Tabs>
@@ -645,6 +780,12 @@ const AdminAdvertiserManagement = () => {
                   <div>
                     <p className="text-muted-foreground">EIN/VAT Number</p>
                     <p className="font-medium">{selectedAdvertiser.ein_vat_number}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Wallet Balance</p>
+                    <p className="font-semibold text-green-700 font-mono">
+                      ${selectedAdvertiser.balance !== undefined ? selectedAdvertiser.balance.toFixed(2) : "0.00"}
+                    </p>
                   </div>
                 </div>
               </div>

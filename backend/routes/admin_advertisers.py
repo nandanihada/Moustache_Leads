@@ -282,3 +282,198 @@ def run_advertiser_auto_approval():
     except Exception as e:
         logger.error(f"Error in auto-approval: {str(e)}", exc_info=True)
         return jsonify({'error': f'Auto-approval failed: {str(e)}'}), 500
+
+
+def get_campaigns_collection():
+    return db_instance.get_collection('campaigns')
+
+
+@admin_advertisers_bp.route('/advertiser-campaigns', methods=['GET'])
+@token_required
+@admin_required
+def get_advertiser_campaigns():
+    """Get all advertiser campaigns with advertiser company/name info"""
+    try:
+        campaigns_col = get_campaigns_collection()
+        advertisers_col = get_advertisers_collection()
+        
+        if campaigns_col is None or advertisers_col is None:
+            return jsonify({'error': 'Database not connected'}), 500
+            
+        status_filter = request.args.get('status')
+        query = {}
+        if status_filter and status_filter != 'all':
+            query['status'] = status_filter
+            
+        campaigns = list(campaigns_col.find(query).sort('created_at', -1))
+        
+        # Build lookup dict for advertiser info
+        advertiser_ids = []
+        for c in campaigns:
+            adv_id = c.get('advertiser_id')
+            if adv_id:
+                try:
+                    advertiser_ids.append(ObjectId(adv_id))
+                except Exception:
+                    pass
+                    
+        advertisers = list(advertisers_col.find({'_id': {'$in': advertiser_ids}}))
+        adv_map = {str(a['_id']): {
+            'company_name': a.get('company_name', ''),
+            'email': a.get('email', ''),
+            'first_name': a.get('first_name', ''),
+            'last_name': a.get('last_name', '')
+        } for a in advertisers}
+        
+        for c in campaigns:
+            c['_id'] = str(c['_id'])
+            if c.get('created_at') and isinstance(c['created_at'], datetime):
+                c['created_at'] = c['created_at'].isoformat() + 'Z'
+            if c.get('updated_at') and isinstance(c['updated_at'], datetime):
+                c['updated_at'] = c['updated_at'].isoformat() + 'Z'
+            if c.get('approved_date') and isinstance(c['approved_date'], datetime):
+                c['approved_date'] = c['approved_date'].isoformat() + 'Z'
+            adv_id = c.get('advertiser_id')
+            c['advertiser'] = adv_map.get(adv_id, {
+                'company_name': 'Unknown',
+                'email': 'Unknown',
+                'first_name': 'Unknown',
+                'last_name': 'Unknown'
+            })
+            
+        return jsonify({
+            'campaigns': campaigns,
+            'total': len(campaigns)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting advertiser campaigns: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to get advertiser campaigns: {str(e)}'}), 500
+
+
+@admin_advertisers_bp.route('/advertiser-campaigns/<campaign_id>/status', methods=['PUT'])
+@token_required
+@admin_required
+def update_advertiser_campaign_status(campaign_id):
+    """Approve, reject or mark a campaign for review"""
+    try:
+        campaigns_col = get_campaigns_collection()
+        if campaigns_col is None:
+            return jsonify({'error': 'Database not connected'}), 500
+            
+        data = request.get_json() or {}
+        new_status = data.get('status')
+        rejection_reason = data.get('rejection_reason', '')
+        
+        if not new_status:
+            return jsonify({'error': 'Status is required'}), 400
+            
+        update_doc = {
+            'status': new_status,
+            'updated_at': datetime.utcnow(),
+            'approved_date': datetime.utcnow()
+        }
+        if rejection_reason and new_status == 'rejected':
+            update_doc['rejection_reason'] = rejection_reason
+            
+        result = campaigns_col.update_one(
+            {'_id': ObjectId(campaign_id)},
+            {'$set': update_doc}
+        )
+        
+        if result.matched_count == 0:
+            return jsonify({'error': 'Campaign not found'}), 404
+            
+        logger.info(f"Campaign {campaign_id} status updated to {new_status} by admin")
+        return jsonify({
+            'success': True,
+            'message': f'Campaign status updated to {new_status}',
+            'status': new_status,
+            'approved_date': update_doc['approved_date'].isoformat() + 'Z'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error updating advertiser campaign status: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to update campaign status: {str(e)}'}), 500
+
+
+@admin_advertisers_bp.route('/advertisers/deposits', methods=['GET'])
+@token_required
+@admin_required
+def get_advertiser_deposits():
+    """Retrieve all wallet deposit transactions for all advertisers"""
+    try:
+        tx_col = db_instance.get_collection('wallet_transactions')
+        adv_col = get_advertisers_collection()
+        
+        if tx_col is None or adv_col is None:
+            return jsonify({'error': 'Database not connected'}), 500
+            
+        # Get all deposit transactions
+        transactions = list(tx_col.find({'type': 'deposit'}).sort('created_at', -1))
+        
+        # Resolve advertisers
+        adv_ids = list(set([t.get('advertiser_id') for t in transactions if t.get('advertiser_id')]))
+        
+        # Fetch advertisers details
+        adv_map = {}
+        if adv_ids:
+            object_ids = []
+            for a_id in adv_ids:
+                try:
+                    object_ids.append(ObjectId(a_id))
+                except Exception:
+                    pass
+            
+            advertisers = list(adv_col.find({
+                '$or': [
+                    {'_id': {'$in': object_ids}},
+                    {'_id': {'$in': [str(oid) for oid in object_ids]}}
+                ]
+            }))
+            
+            for a in advertisers:
+                adv_map[str(a['_id'])] = {
+                    'company_name': a.get('company_name', 'Unknown'),
+                    'email': a.get('email', ''),
+                    'first_name': a.get('first_name', ''),
+                    'last_name': a.get('last_name', '')
+                }
+                
+        # Format transaction list
+        formatted_txs = []
+        for t in transactions:
+            adv_id = str(t.get('advertiser_id'))
+            advertiser_info = adv_map.get(adv_id, {
+                'company_name': 'Unknown Advertiser',
+                'email': 'Unknown',
+                'first_name': '',
+                'last_name': ''
+            })
+            
+            created_at_val = t.get('created_at')
+            if created_at_val and isinstance(created_at_val, datetime):
+                created_at_val = created_at_val.isoformat() + 'Z'
+                
+            formatted_txs.append({
+                '_id': str(t.get('_id')),
+                'advertiser_id': adv_id,
+                'advertiser': advertiser_info,
+                'amount': float(t.get('amount', 0.0)),
+                'method': t.get('method', 'paypal'),
+                'status': t.get('status', 'confirmed'),
+                'external_ref': t.get('external_ref', ''),
+                'created_at': created_at_val
+            })
+            
+        return jsonify({
+            'success': True,
+            'deposits': formatted_txs,
+            'total': len(formatted_txs)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting advertiser deposits: {str(e)}", exc_info=True)
+        return jsonify({'error': f"Failed to get deposits: {str(e)}"}), 500
+
+

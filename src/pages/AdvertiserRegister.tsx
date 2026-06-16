@@ -167,7 +167,10 @@ export default function AdvertiserRegister() {
 
       const data = await res.json();
 
-      if (data.token) {
+      if (data.email_verification_required) {
+        alert(data.message || "Registration successful! Please check your email to verify your account before logging in.");
+        navigate("/advertiser/signin");
+      } else if (data.token) {
         login(data.token, data.user);
         alert("Application submitted successfully! Your account is under review.");
         navigate("/dashboard");
