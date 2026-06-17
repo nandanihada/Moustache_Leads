@@ -161,29 +161,6 @@ export function TopBar() {
         <div className="flex items-center gap-2 sm:gap-4 md:gap-8 min-w-0 flex-1">
           {/* Sidebar toggle — always visible */}
           <SidebarTrigger className="h-9 w-9" />
-          
-          {/* Only show earnings for users with approved placement */}
-          {hasApprovedPlacement && earnings && (
-            <div className="flex items-center gap-3 sm:gap-6 text-xs sm:text-sm">
-              <div className="hidden sm:block">
-                <span className="text-muted-foreground">Monthly Earnings:</span>
-                <span className="ml-2 font-semibold text-primary">${earnings.monthly.toFixed(2)}</span>
-              </div>
-              <div className="sm:hidden">
-                <span className="font-semibold text-primary">${earnings.monthly.toFixed(2)}</span>
-              </div>
-              <div className="hidden md:block">
-                <span className="text-muted-foreground">Next Payout:</span>
-                <span className="ml-2 font-semibold">{earnings.nextPayout}</span>
-              </div>
-            </div>
-          )}
-          {!hasApprovedPlacement && user && (
-            <div className="text-xs sm:text-sm text-muted-foreground truncate">
-              <span className="hidden sm:inline">Create a placement to start earning</span>
-              <span className="sm:hidden">Create placement</span>
-            </div>
-          )}
         </div>
 
         <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">

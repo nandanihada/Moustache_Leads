@@ -360,6 +360,41 @@ def get_profile():
         return jsonify({'error': f'Failed to get profile: {str(e)}'}), 500
 
 
+@advertiser_dashboard_bp.route('/transactions', methods=['GET'])
+@advertiser_token_required
+def get_transactions():
+    """Get wallet transactions history for the logged-in advertiser"""
+    try:
+        advertiser_id = request.advertiser_id
+        tx_collection = db_instance.get_collection('wallet_transactions')
+        if tx_collection is None:
+            return jsonify({'transactions': []}), 200
+            
+        txs = list(tx_collection.find({'advertiser_id': advertiser_id}).sort('created_at', -1))
+        
+        transactions_list = []
+        for tx in txs:
+            transactions_list.append({
+                'id': str(tx['_id']),
+                'type': tx.get('type', 'deposit'),
+                'method': tx.get('method', 'usdt'),
+                'amount': float(tx.get('amount', 0.0)),
+                'deposit_amount': float(tx.get('deposit_amount', tx.get('amount', 0.0))),
+                'charge_amount': float(tx.get('charge_amount', tx.get('amount', 0.0))),
+                'fee': float(tx.get('fee', 0.0)),
+                'bonus': float(tx.get('bonus', 0.0)),
+                'status': tx.get('status', 'pending'),
+                'external_ref': tx.get('external_ref', ''),
+                'created_at': tx.get('created_at').isoformat() if tx.get('created_at') else None
+            })
+            
+        return jsonify({'transactions': transactions_list}), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting transactions: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to get transactions: {str(e)}'}), 500
+
+
 @advertiser_dashboard_bp.route('/deposit', methods=['POST'])
 @advertiser_token_required
 def deposit_funds():
@@ -437,6 +472,10 @@ def deposit_manual_funds():
                 'type': 'deposit',
                 'method': method,
                 'amount': amount,
+                'deposit_amount': float(data.get('deposit_amount', amount)),
+                'charge_amount': float(data.get('charge_amount', amount)),
+                'fee': float(data.get('fee', 0.0)),
+                'bonus': float(data.get('bonus', 0.0)),
                 'status': 'pending',
                 'external_ref': txid,
                 'created_at': datetime.utcnow()
@@ -596,7 +635,15 @@ def capture_paypal_order():
                 
             try:
                 amount_str = order_data['purchase_units'][0]['payments']['captures'][0]['amount']['value']
-                amount = float(amount_str)
+                captured_amount = float(amount_str)
+                
+                # Check expected fee and charge
+                expected_fee_pct = 0.07 if amount < 1000 else (0.03 if amount < 2000 else 0.02)
+                expected_charge = amount + (amount * expected_fee_pct)
+                
+                # Verify captured_amount matches expected_charge within a small margin
+                if abs(captured_amount - expected_charge) > 0.1:
+                    logger.warning(f"PayPal captured amount {captured_amount} does not match expected charge {expected_charge} for deposit {amount}. Crediting calculated deposit amount instead.")
             except Exception as parse_err:
                 logger.error(f"Failed to parse PayPal captured amount: {str(parse_err)}")
                 

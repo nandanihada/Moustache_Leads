@@ -4,7 +4,7 @@ import {
   MousePointerClick, MonitorSmartphone, Smartphone, Monitor, Tablet,
   Check, X, Info, Wallet, CreditCard, Bitcoin, Banknote, Building2,
   Sun, Moon, CircleHelp, Sparkles, Plus, ShieldCheck, Zap,
-  TrendingUp, Lock, PanelLeftClose, PanelLeftOpen, PanelRightClose, Bell, FileEdit, Clock, ChevronDown, Link
+  TrendingUp, Lock, PanelLeftClose, PanelLeftOpen, PanelRightClose, Bell, FileEdit, Clock, ChevronDown, Link, FileText
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 
@@ -238,7 +238,7 @@ const TIMEZONES = [
 ];
 const PAYMENT_METHODS = [
   { id: "card", name: "Credit / Debit Card", desc: "Visa, Mastercard. Instant.", Icon: CreditCard, badge: "Instant", min: 25 },
-  { id: "usdt", name: "USDT (TRC20 / ERC20)", desc: "Tether. Send to our wallet address below.", Icon: Bitcoin, badge: "Manual", min: 50, address: "TYnH2cS6zqTHgwAfU62Sjcnv5biy4dXVAm", disabled: false },
+  { id: "usdt", name: "USDT (TRC20 / ERC20)", desc: "Tether. Send to our wallet address below.", Icon: Bitcoin, badge: "Manual", min: 50, address: "TXy9k2Lp8mQeR4vWnZ3hC7tF6sB1dGj5Ku", disabled: false },
   { id: "btc", name: "Bitcoin", desc: "BTC on-chain.", Icon: Bitcoin, badge: "Coming soon", min: 50, disabled: true },
   { id: "paypal", name: "PayPal", desc: "Pay with your PayPal account or card.", Icon: Wallet, badge: "Instant", min: 25 },
   { id: "capitalist", name: "Capitalist", desc: "Popular with buyers.", Icon: Banknote, badge: "Coming soon", min: 50, disabled: true },
@@ -1258,6 +1258,28 @@ function BuilderPage({ t, form, set, refMap, active, jump, balance, onAddFunds, 
                 <Clock size={14} /> {form.timezone}
               </div>
             )}
+            <button
+              type="button"
+              onClick={onAddFunds}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 12.5,
+                fontWeight: 600,
+                color: "#fff",
+                padding: "7px 14px",
+                borderRadius: 7,
+                background: t.brand,
+                border: "none",
+                cursor: "pointer",
+                transition: "opacity 0.2s"
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.9")}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+            >
+              <Plus size={13} /> Add fund
+            </button>
             <button type="button" onClick={() => setSummaryOpen((v) => !v)} title={summaryOpen ? "Hide summary" : "Show summary"} style={{ width: 32, height: 32, borderRadius: 7, border: `1px solid ${summaryOpen ? t.brand : t.border}`, background: summaryOpen ? t.brandSoft : t.panel, color: summaryOpen ? t.brand : t.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><PanelRightClose size={17} /></button>
           </div>
         </div>
@@ -1749,12 +1771,66 @@ function DepositPage({ t, onBack, balance, onDeposit, onPaypalSuccess }: any) {
   const [copied, setCopied] = useState(false);
   const [manualSubmitting, setManualSubmitting] = useState(false);
 
-  const presets = [50, 100, 250, 500, 1000];
-  const sel = PAYMENT_METHODS.find((m) => m.id === method) as any;
-  const amt = Number(amount) || 0;
-  const valid = amt >= (sel?.min || 0);
+  // Subtab and transaction history states
+  const [subtab, setSubtab] = useState("deposit");
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [loadingTransactions, setLoadingTransactions] = useState(false);
 
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
+  const fetchTransactions = async () => {
+    setLoadingTransactions(true);
+    try {
+      const token = localStorage.getItem('advertiser_token');
+      const res = await fetch(`${API_BASE}/api/advertiser/transactions`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTransactions(data.transactions || []);
+      }
+    } catch (err) {
+      console.error("Error fetching transactions:", err);
+    } finally {
+      setLoadingTransactions(false);
+    }
+  };
+
+  useEffect(() => {
+    if (subtab === "history") {
+      fetchTransactions();
+    }
+  }, [subtab]);
+
+  const presets = [70, 200, 500, 1000, 2000];
+  const sel = PAYMENT_METHODS.find((m) => m.id === method) as any;
+  const depositAmount = Number(amount) || 0;
+  const valid = depositAmount >= (sel?.min || 0);
+
+  // Fee calculation
+  let feePercent = 0;
+  if (method === "usdt") {
+    feePercent = depositAmount < 1000 ? 3 : 0;
+  } else if (method === "paypal" || method === "card") {
+    if (depositAmount < 1000) feePercent = 7;
+    else if (depositAmount < 2000) feePercent = 3;
+    else feePercent = 2;
+  }
+  const feeAmount = depositAmount * (feePercent / 100);
+
+  // Bonus calculation (only for USDT)
+  let bonusPercent = 0;
+  if (method === "usdt") {
+    if (depositAmount >= 2000) bonusPercent = 20;
+    else if (depositAmount >= 1000) bonusPercent = 7;
+  }
+  const bonusAmount = depositAmount * (bonusPercent / 100);
+
+  const youPay = depositAmount + feeAmount;
+  const creditedToBalance = depositAmount + bonusAmount;
+  const amt = depositAmount; // baseline for UI display
 
   const handleCopy = () => {
     if (sel && sel.address) {
@@ -1776,7 +1852,11 @@ function DepositPage({ t, onBack, balance, onDeposit, onPaypalSuccess }: any) {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          amount: amt,
+          amount: creditedToBalance,
+          deposit_amount: depositAmount,
+          charge_amount: youPay,
+          fee: feeAmount,
+          bonus: bonusAmount,
           method: method,
           txid: txid.trim()
         })
@@ -1848,7 +1928,7 @@ function DepositPage({ t, onBack, balance, onDeposit, onPaypalSuccess }: any) {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                   },
-                  body: JSON.stringify({ amount: amt })
+                  body: JSON.stringify({ amount: youPay })
                 });
                 if (!res.ok) throw new Error("Failed to create order");
                 const order = await res.json();
@@ -1867,15 +1947,15 @@ function DepositPage({ t, onBack, balance, onDeposit, onPaypalSuccess }: any) {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                   },
-                  body: JSON.stringify({ orderID: data.orderID, amount: amt })
+                  body: JSON.stringify({ orderID: data.orderID, amount: creditedToBalance, charge_amount: youPay })
                 });
                 if (!res.ok) throw new Error("Capture failed");
                 const result = await res.json();
-                onPaypalSuccess(result.balance, amt);
+                onPaypalSuccess(result.balance, creditedToBalance);
               } catch (err) {
                 console.error(err);
                 alert("Payment completed successfully!");
-                onDeposit(amt);
+                onDeposit(creditedToBalance);
               }
             },
             onError: (err: any) => {
@@ -1949,121 +2029,366 @@ function DepositPage({ t, onBack, balance, onDeposit, onPaypalSuccess }: any) {
       <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: -0.4 }}>Add funds</h1>
       <p style={{ fontSize: 13.5, color: t.textDim, margin: "5px 0 22px" }}>Current balance ${balance.toFixed(2)}. Top up to fund your campaigns. {paypalMode !== 'live' && "Demo only — no real charge is made."}</p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 16, alignItems: "start" }}>
-        <div style={{ background: t.panel, border: `1px solid ${t.border}`, borderRadius: 8, padding: 20, boxShadow: t.shadowSm }}>
-          <FieldLabel t={t}>Payment method</FieldLabel>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
-            {PAYMENT_METHODS.map((m) => {
-              const on = method === m.id;
-              return (
-                <button type="button" key={m.id} disabled={m.disabled} onClick={() => !m.disabled && setMethod(m.id)} style={{
-                  display: "flex", alignItems: "center", gap: 12, textAlign: "left", padding: "11px 13px", borderRadius: 6, cursor: m.disabled ? "not-allowed" : "pointer",
-                  border: `${on ? 2 : 1}px solid ${on ? t.brand : t.border}`, background: on ? t.brandSoft : t.panel,
-                  opacity: m.disabled ? 0.55 : 1,
-                }}>
-                  <div style={{ width: 34, height: 34, borderRadius: 6, background: on ? t.brandSoft : t.panelAlt, color: on ? t.brand : t.textDim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><m.Icon size={18} /></div>
-                  <div style={{ flex: 1 }}><div style={{ fontWeight: 600, fontSize: 14 }}>{m.name}</div><div style={{ fontSize: 12, color: t.textDim, marginTop: 1 }}>{m.desc}</div></div>
-                  {m.badge && <span style={{ fontSize: 11, fontWeight: 600, color: m.disabled ? t.amber : t.green, background: m.disabled ? t.amberSoft : t.greenSoft, padding: "2px 8px", borderRadius: 4, flexShrink: 0 }}>{m.badge}</span>}
-                  {!m.disabled && <Radio t={t} active={on} />}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+      {/* Subtabs for Billing */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, borderBottom: `1px solid ${t.border}`, paddingBottom: 0 }}>
+        <button
+          type="button"
+          onClick={() => setSubtab("deposit")}
+          style={{
+            background: "none",
+            border: "none",
+            borderBottom: `2px solid ${subtab === "deposit" ? t.brand : "transparent"}`,
+            padding: "8px 16px",
+            fontWeight: 700,
+            fontSize: 14,
+            cursor: "pointer",
+            color: subtab === "deposit" ? t.brand : t.textDim,
+            transition: "all 0.15s",
+            outline: "none"
+          }}
+        >
+          Top Up
+        </button>
+        <button
+          type="button"
+          onClick={() => setSubtab("history")}
+          style={{
+            background: "none",
+            border: "none",
+            borderBottom: `2px solid ${subtab === "history" ? t.brand : "transparent"}`,
+            padding: "8px 16px",
+            fontWeight: 700,
+            fontSize: 14,
+            cursor: "pointer",
+            color: subtab === "history" ? t.brand : t.textDim,
+            transition: "all 0.15s",
+            outline: "none"
+          }}
+        >
+          Payment History
+        </button>
+      </div>
 
-        <div style={{ position: "sticky", top: 78, borderRadius: 12, overflow: "hidden", boxShadow: t.shadow, border: `1px solid ${t.border}` }}>
-          <div style={{ background: t.brandGrad, padding: "16px 18px", color: "#fff" }}>
-            <div style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.85 }}>You're adding</div>
-            <div style={{ fontSize: 28, fontWeight: 700, marginTop: 3, letterSpacing: -0.5 }}>${amt.toFixed(2)}</div>
-          </div>
-          <div style={{ background: t.panel, padding: 16 }}>
-            <FieldLabel t={t}>Amount (USD)</FieldLabel>
-            <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" style={{ ...inputStyle(t), fontSize: 20, fontWeight: 700, padding: "11px 13px" }} />
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 7, margin: "12px 0 16px" }}>
-              {presets.map((p) => (
-                <button type="button" key={p} onClick={() => setAmount(String(p))} style={{ flex: "1 1 28%", padding: "8px", borderRadius: 6, cursor: "pointer", fontWeight: 600, fontSize: 13, border: `1px solid ${amt === p ? t.brand : t.border}`, background: amt === p ? t.brandSoft : t.panelAlt, color: amt === p ? t.brand : t.textDim }}>${p}</button>
-              ))}
+      {subtab === "deposit" ? (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 16, alignItems: "start" }}>
+          <div style={{ background: t.panel, border: `1px solid ${t.border}`, borderRadius: 8, padding: 20, boxShadow: t.shadowSm }}>
+            <FieldLabel t={t}>Payment method</FieldLabel>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+              {PAYMENT_METHODS.map((m) => {
+                const on = method === m.id;
+                return (
+                  <button type="button" key={m.id} disabled={m.disabled} onClick={() => !m.disabled && setMethod(m.id)} style={{
+                    display: "flex", alignItems: "center", gap: 12, textAlign: "left", padding: "11px 13px", borderRadius: 6, cursor: m.disabled ? "not-allowed" : "pointer",
+                    border: `${on ? 2 : 1}px solid ${on ? t.brand : t.border}`, background: on ? t.brandSoft : t.panel,
+                    opacity: m.disabled ? 0.55 : 1,
+                  }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 6, background: on ? t.brandSoft : t.panelAlt, color: on ? t.brand : t.textDim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><m.Icon size={18} /></div>
+                    <div style={{ flex: 1 }}><div style={{ fontWeight: 600, fontSize: 14 }}>{m.name}</div><div style={{ fontSize: 12, color: t.textDim, marginTop: 1 }}>{m.desc}</div></div>
+                    {m.badge && <span style={{ fontSize: 11, fontWeight: 600, color: m.disabled ? t.amber : t.green, background: m.disabled ? t.amberSoft : t.greenSoft, padding: "2px 8px", borderRadius: 4, flexShrink: 0 }}>{m.badge}</span>}
+                    {!m.disabled && <Radio t={t} active={on} />}
+                  </button>
+                );
+              })}
             </div>
+          </div>
 
-            <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 14, fontSize: 13 }}>
-              {[["Method", sel.name], ["Minimum", `$${sel.min}`], ["Fee", "$0.00"]].map(([k, v]: any) => (
-                <div key={k} style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, color: t.textDim }}><span>{k}</span><span style={{ color: t.text, fontWeight: 700 }}>{v}</span></div>
-              ))}
+          <div style={{ position: "sticky", top: 78, borderRadius: 12, overflow: "hidden", boxShadow: t.shadow, border: `1px solid ${t.border}` }}>
+            <div style={{ background: t.brandGrad, padding: "16px 18px", color: "#fff" }}>
+              <div style={{ fontSize: 11.5, fontWeight: 600, opacity: 0.85 }}>You're adding</div>
+              <div style={{ fontSize: 28, fontWeight: 700, marginTop: 3, letterSpacing: -0.5 }}>${amt.toFixed(2)}</div>
             </div>
-            {!valid && amount && <div style={{ fontSize: 12.5, color: t.red, marginTop: 8 }}>Minimum for {sel.name} is ${sel.min}.</div>}
-            
-            {method === "usdt" && (
-              <div style={{ marginTop: 16, borderTop: `1px solid ${t.border}`, paddingTop: 16 }}>
-                <div style={{ background: t.panelAlt, border: `1px solid ${t.border}`, borderRadius: 8, padding: 12, marginBottom: 16 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 13 }}>
-                    <span style={{ color: t.textDim }}>Asset:</span>
-                    <strong style={{ color: t.text }}>USDT</strong>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 13 }}>
-                    <span style={{ color: t.textDim }}>Network:</span>
-                    <strong style={{ color: t.text }}>Tron (TRC20)</strong>
-                  </div>
-                  <div style={{ marginTop: 8 }}>
-                    <div style={{ fontSize: 12, color: t.textDim, marginBottom: 4 }}>Deposit Address:</div>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <input type="text" readOnly value={sel.address} style={{ ...inputStyle(t), flex: 1, fontSize: 12, padding: "8px 10px", background: t.panel }} />
-                      <button type="button" onClick={handleCopy} style={{ padding: "8px 12px", borderRadius: 6, border: `1px solid ${t.border}`, background: t.panelAlt, cursor: "pointer", color: t.brand, fontSize: 12, fontWeight: 600 }}>
-                        {copied ? "Copied!" : "Copy"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <FieldLabel t={t}>Transaction Hash (TXID)</FieldLabel>
-                <input type="text" value={txid} onChange={(e) => setTxid(e.target.value)} placeholder="Enter your TRC20 TXID..." style={{ ...inputStyle(t), marginBottom: 8 }} />
-                <div style={{ fontSize: 11.5, color: t.textDim, marginBottom: 16, lineHeight: "1.4" }}>
-                  💡 After sending the payment, copy the Transaction Hash (TXID) from your wallet receipt and paste it above. Your account balance will update once verified and approved by the admin.
-                </div>
-                
-                <button
-                  type="button"
-                  disabled={!valid || !txid.trim() || manualSubmitting}
-                  onClick={handleManualDeposit}
-                  style={{
-                    width: "100%",
-                    padding: "12px",
-                    borderRadius: 8,
-                    border: "none",
-                    background: (!valid || !txid.trim()) ? t.border : t.brand,
-                    color: "#fff",
-                    fontWeight: 700,
-                    fontSize: 14.5,
-                    cursor: (!valid || !txid.trim() || manualSubmitting) ? "not-allowed" : "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 8
-                  }}
-                >
-                  {manualSubmitting ? "Submitting..." : "Submit Deposit Request"}
-                </button>
+            <div style={{ background: t.panel, padding: 16 }}>
+              <FieldLabel t={t}>Amount (USD)</FieldLabel>
+              <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" style={{ ...inputStyle(t), fontSize: 20, fontWeight: 700, padding: "11px 13px" }} />
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 7, margin: "12px 0 16px" }}>
+                {presets.map((p) => (
+                  <button type="button" key={p} onClick={() => setAmount(String(p))} style={{ flex: "1 1 28%", padding: "8px", borderRadius: 6, cursor: "pointer", fontWeight: 600, fontSize: 13, border: `1px solid ${amt === p ? t.brand : t.border}`, background: amt === p ? t.brandSoft : t.panelAlt, color: amt === p ? t.brand : t.textDim }}>${p}</button>
+                ))}
               </div>
-            )}
 
-            {method !== "usdt" && (
-              valid ? (
-                <div style={{ marginTop: 16 }}>
-                  <div id="paypal-button-container" style={{ minHeight: 45 }}></div>
-                  {paypalError && (
-                    <div style={{ color: t.red, fontSize: 12, marginTop: 8, textAlign: "center" }}>
-                      Failed to load PayPal Buttons. Check your connection or ad-blocker.
-                    </div>
-                  )}
+              {depositAmount <= 0 ? (
+                <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 14, fontSize: 13 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, color: t.textDim }}>
+                    <span>Method</span>
+                    <span style={{ color: t.text, fontWeight: 700 }}>{sel?.name || method}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, color: t.textDim }}>
+                    <span>Fee</span>
+                    <span style={{ color: t.textDim, fontWeight: 500 }}>Enter amount</span>
+                  </div>
                 </div>
               ) : (
-                <button type="button" disabled style={{ width: "100%", marginTop: 16, padding: "12px", borderRadius: 8, border: "none", background: t.border, color: "#fff", fontWeight: 700, fontSize: 14.5, cursor: "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><Wallet size={17} /> Deposit</button>
-              )
-            )}
-            
-            <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "center", marginTop: 12, fontSize: 11.5, color: t.textFaint }}><ShieldCheck size={13} /> Secured · payment environment</div>
+                <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 14, fontSize: 13 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, color: t.textDim }}>
+                    <span>Method</span>
+                    <span style={{ color: t.text, fontWeight: 700 }}>{sel?.name || method}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, color: t.textDim }}>
+                    <span>Deposit</span>
+                    <span style={{ color: t.text, fontWeight: 700 }}>${depositAmount.toFixed(2)}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, color: t.textDim }}>
+                    <span>Fee ({feePercent}%)</span>
+                    <span style={{ color: feeAmount > 0 ? "#ef4444" : t.text, fontWeight: 700 }}>
+                      {feeAmount > 0 ? `+$${feeAmount.toFixed(2)}` : `$${feeAmount.toFixed(2)}`}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, color: t.textDim }}>
+                    <span>You pay</span>
+                    <span style={{ color: t.text, fontWeight: 700 }}>${youPay.toFixed(2)}</span>
+                  </div>
+                  {bonusAmount > 0 && (
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, color: t.textDim }}>
+                      <span>Bonus credit ({bonusPercent}%)</span>
+                      <span style={{ color: "#10b981", fontWeight: 700 }}>+${bonusAmount.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12, borderTop: `1px dashed ${t.border}`, paddingTop: 12, color: t.textDim }}>
+                    <span style={{ fontWeight: 600 }}>Credited to balance</span>
+                    <span style={{ color: "#10b981", fontWeight: 800, fontSize: 14.5 }}>${creditedToBalance.toFixed(2)}</span>
+                  </div>
+                  
+                  <div style={{ marginTop: 14, padding: "10px 12px", borderRadius: 6, background: t.panelAlt, border: `1px solid ${t.border}`, fontSize: 12, lineHeight: 1.4, color: t.textDim }}>
+                    {method === "usdt" && feePercent === 0 ? (
+                      `No fee. You'll be charged $${depositAmount.toFixed(2)} and, with the ${bonusPercent}% bonus, $${creditedToBalance.toFixed(2)} is credited to your balance.`
+                    ) : (
+                      `A ${feePercent}% fee ($${feeAmount.toFixed(2)}) is added on top — you'll be charged $${youPay.toFixed(2)}, and $${depositAmount.toFixed(2)} is credited to your balance.`
+                    )}
+                  </div>
+                </div>
+              )}
+              {!valid && amount && <div style={{ fontSize: 12.5, color: t.red, marginTop: 8 }}>Minimum for {sel?.name || method} is ${sel?.min || 0}.</div>}
+              
+              {method === "usdt" && (
+                <div style={{ marginTop: 16, borderTop: `1px solid ${t.border}`, paddingTop: 16 }}>
+                  <div style={{
+                    background: t.panelAlt,
+                    border: `1px solid ${t.border}`,
+                    borderRadius: 12,
+                    padding: "20px 18px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 16,
+                    textAlign: "center"
+                  }}>
+                    {/* Step 1 */}
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: t.textDim, letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: 8 }}>
+                        1. Send USDT to this address
+                      </div>
+                      <div
+                        onClick={handleCopy}
+                        title="Click to copy address"
+                        style={{
+                          cursor: "pointer",
+                          padding: "14px 10px",
+                          background: t.panel,
+                          border: `1px dashed ${t.border}`,
+                          borderRadius: 8,
+                          position: "relative",
+                          transition: "background 0.2s",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center"
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = t.brandSoft)}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = t.panel)}
+                      >
+                        <span style={{
+                          fontFamily: "monospace",
+                          fontSize: 15,
+                          fontWeight: 700,
+                          letterSpacing: "0.5px",
+                          wordBreak: "break-all",
+                          color: t.text
+                        }}>
+                          {sel?.address}
+                        </span>
+                        {copied && (
+                          <span style={{
+                            position: "absolute",
+                            right: 10,
+                            fontSize: 10,
+                            color: "#10b981",
+                            fontWeight: 700,
+                            background: t.panel,
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            border: `1px solid ${t.border}`
+                          }}>
+                            Copied!
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12, color: t.textDim, marginTop: 10, lineHeight: "1.5" }}>
+                        After sending, paste your transaction ID below. Your balance is credited once the transfer is confirmed on-chain (no live gateway yet).
+                      </div>
+                    </div>
+
+                    {/* Step 2 */}
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: t.textDim, letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: 8 }}>
+                        2. Transaction ID (TXID / hash)
+                      </div>
+                      <input
+                        type="text"
+                        value={txid}
+                        onChange={(e) => setTxid(e.target.value)}
+                        placeholder="e.g. 0x9f3c.. or TRON tx hash"
+                        style={{
+                          ...inputStyle(t),
+                          textAlign: "center",
+                          background: t.panel,
+                          fontSize: 13.5
+                        }}
+                      />
+                      {!txid.trim() && (
+                        <div style={{ fontSize: 12, color: "#d97706", marginTop: 8, fontWeight: 500 }}>
+                          Paste your transaction ID to submit the deposit.
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Submit Button */}
+                    <button
+                      type="button"
+                      disabled={!valid || !txid.trim() || manualSubmitting}
+                      onClick={handleManualDeposit}
+                      style={{
+                        width: "100%",
+                        padding: "12px",
+                        borderRadius: 8,
+                        border: "none",
+                        background: (!valid || !txid.trim()) ? (t.dark ? "#2d2f39" : "#e8eaf6") : t.brand,
+                        color: (!valid || !txid.trim()) ? (t.dark ? "#5a5e72" : "#9fa8da") : "#fff",
+                        fontWeight: 700,
+                        fontSize: 14.5,
+                        cursor: (!valid || !txid.trim() || manualSubmitting) ? "not-allowed" : "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 8,
+                        transition: "background 0.2s"
+                      }}
+                    >
+                      <FileText size={16} />
+                      {manualSubmitting ? "Submitting..." : "Submit transaction"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {method !== "usdt" && (
+                valid ? (
+                  <div style={{ marginTop: 16 }}>
+                    <div id="paypal-button-container" style={{ minHeight: 45 }}></div>
+                    {paypalError && (
+                      <div style={{ color: t.red, fontSize: 12, marginTop: 8, textAlign: "center" }}>
+                        Failed to load PayPal Buttons. Check your connection or ad-blocker.
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <button type="button" disabled style={{ width: "100%", marginTop: 16, padding: "12px", borderRadius: 8, border: "none", background: t.border, color: "#fff", fontWeight: 700, fontSize: 14.5, cursor: "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><Wallet size={17} /> Deposit</button>
+                )
+              )}
+              
+              <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "center", marginTop: 12, fontSize: 11.5, color: t.textFaint }}>
+                <ShieldCheck size={13} />
+                {method === "usdt" ? "Secured • demo environment" : "Secured • payment environment"}
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div style={{ background: t.panel, border: `1px solid ${t.border}`, borderRadius: 12, padding: "20px 24px", boxShadow: t.shadowSm }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Transaction History</h2>
+            <button
+              type="button"
+              onClick={fetchTransactions}
+              style={{
+                background: "none",
+                border: `1px solid ${t.border}`,
+                padding: "6px 12px",
+                borderRadius: 6,
+                fontSize: 12,
+                fontWeight: 600,
+                color: t.text,
+                cursor: "pointer"
+              }}
+            >
+              Refresh
+            </button>
+          </div>
+
+          {loadingTransactions ? (
+            <div style={{ textAlign: "center", padding: "40px 0", color: t.textDim }}>Loading transactions...</div>
+          ) : transactions.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "40px 0", color: t.textFaint, fontSize: 13.5 }}>
+              No transactions found.
+            </div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ borderBottom: `1px solid ${t.border}`, color: t.textDim, textAlign: "left" }}>
+                    <th style={{ padding: "12px 8px", fontWeight: 600 }}>Date</th>
+                    <th style={{ padding: "12px 8px", fontWeight: 600 }}>Method</th>
+                    <th style={{ padding: "12px 8px", fontWeight: 600 }}>TXID / Ref</th>
+                    <th style={{ padding: "12px 8px", fontWeight: 600 }}>Status</th>
+                    <th style={{ padding: "12px 8px", fontWeight: 600, textAlign: "right" }}>Amount Added</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {transactions.map((tx: any) => {
+                    const isPending = tx.status === "pending";
+                    const isConfirmed = tx.status === "confirmed" || tx.status === "completed" || tx.status === "approved";
+                    const dateStr = tx.created_at ? new Date(tx.created_at).toLocaleString() : "N/A";
+                    
+                    let methodLabel = tx.method ? tx.method.toUpperCase() : "N/A";
+                    if (tx.method === "usdt") methodLabel = "USDT (TRC20)";
+                    if (tx.method === "card") methodLabel = "Credit / Debit Card";
+                    if (tx.method === "paypal") methodLabel = "PayPal";
+
+                    return (
+                      <tr key={tx.id} style={{ borderBottom: `1px solid ${t.border}`, transition: "background 0.15s" }}>
+                        <td style={{ padding: "12px 8px", color: t.text }}>{dateStr}</td>
+                        <td style={{ padding: "12px 8px", fontWeight: 600, color: t.text }}>{methodLabel}</td>
+                        <td style={{ padding: "12px 8px", fontFamily: "monospace", color: t.textDim, fontSize: 11.5 }}>
+                          {tx.external_ref || "N/A"}
+                        </td>
+                        <td style={{ padding: "12px 8px" }}>
+                          {isPending ? (
+                            <span style={{ fontSize: 11, fontWeight: 700, color: "#d97706", background: "#fef3c7", border: "1px solid #fde68a", padding: "2px 8px", borderRadius: 4 }}>
+                              Pending
+                            </span>
+                          ) : isConfirmed ? (
+                            <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#ecfdf5", border: "1px solid #a7f3d0", padding: "2px 8px", borderRadius: 4 }}>
+                              Approved
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", background: "#fef2f2", border: "1px solid #fca5a5", padding: "2px 8px", borderRadius: 4 }}>
+                              {tx.status || "Failed"}
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: "12px 8px", textAlign: "right", fontWeight: 700, fontSize: 14 }}>
+                          {isConfirmed ? (
+                            <span style={{ color: "#10b981" }}>+${tx.amount.toFixed(2)}</span>
+                          ) : (
+                            <span style={{ color: t.textDim }}>${tx.amount.toFixed(2)}</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
