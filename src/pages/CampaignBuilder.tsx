@@ -6,7 +6,7 @@ import {
   Sun, Moon, CircleHelp, Sparkles, Plus, ShieldCheck, Zap,
   TrendingUp, Lock, PanelLeftClose, PanelLeftOpen, PanelRightClose, Bell, FileEdit, Clock, ChevronDown, Link, FileText
 } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 
 /* ====================================================================
    DEV NOTES — Tier 1 CPA onboarding + Offers/Stats + Wallet
@@ -588,12 +588,13 @@ function Tour({ t, step, total, rect, side, title, body, onNext, onPrev, onClose
    MAIN
    ==================================================================== */
 export default function CampaignBuilder() {
+  const navigate = useNavigate();
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
   const [dark, setDark] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const view = searchParams.get("view") || "builder";
   const setView = (newView: string) => {
-    setSearchParams({ view: newView });
+    navigate(`/advertiser/campaign-builder?view=${newView}`);
   };
   const [balance, setBalance] = useState(0);
   const [active, setActive] = useState("main");
@@ -1106,6 +1107,13 @@ export default function CampaignBuilder() {
         )}
         {view === "notes" && <ImplementationNotesPage t={t} />}
         {view === "campaigns" && <CampaignsPage t={t} offers={offers} onRefresh={fetchInitialData} />}
+        {view === "postback" && (
+          <PostbackPage
+            t={t}
+            onBack={() => setView("builder")}
+            pushNotification={pushNotification}
+          />
+        )}
         {view === "builder" && (
           <BuilderPage
             t={t} form={form} set={set} refMap={refMap} active={active} jump={jump}
@@ -2389,6 +2397,442 @@ function DepositPage({ t, onBack, balance, onDeposit, onPaypalSuccess }: any) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+const PREDEFINED_PARAMS = [
+  { key: "user_id", label: "user_id (Publisher)" },
+  { key: "sub1", label: "sub1 (End User)" },
+  { key: "payout", label: "payout" },
+  { key: "transaction_id", label: "transaction_id" },
+  { key: "click_id", label: "click_id" },
+  { key: "offer_id", label: "offer_id" },
+  { key: "offer_name", label: "offer_name" },
+  { key: "cid", label: "cid" },
+  { key: "cname", label: "cname" },
+  { key: "status", label: "status" },
+  { key: "event_type", label: "event_type" },
+  { key: "sub_id1", label: "sub_id1" },
+  { key: "sub_id2", label: "sub_id2" },
+  { key: "sub_id3", label: "sub_id3" },
+  { key: "sub_id4", label: "sub_id4" },
+  { key: "sub_id5", label: "sub_id5" },
+  { key: "ip_address", label: "ip_address" },
+  { key: "country", label: "country" },
+  { key: "user_agent", label: "user_agent" }
+];
+
+function PostbackPage({ t, onBack, pushNotification }: any) {
+  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const [profile, setProfile] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
+  const [testClickId, setTestClickId] = useState("test_click_" + Math.random().toString(36).substring(2, 8));
+  const [testPayout, setTestPayout] = useState("1.50");
+  const [testStatus, setTestStatus] = useState("lead");
+  const [testResults, setTestResults] = useState<any>(null);
+  const [testing, setTesting] = useState(false);
+
+  // Parameter Mapping States
+  const [editingRows, setEditingRows] = useState<{ paramKey: string, macroName: string }[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const token = localStorage.getItem('advertiser_token');
+        if (!token) return;
+        const res = await fetch(`${API_BASE}/api/advertiser/profile`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setProfile(data.profile);
+          const params = data.profile.postback_parameters || [];
+          const maps = data.profile.postback_parameter_mappings || {};
+          const rows = params.map((p: string) => ({
+            paramKey: p,
+            macroName: maps[p] || p
+          }));
+          setEditingRows(rows);
+        }
+      } catch (err) {
+        console.error("Error fetching postback profile:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchProfile();
+  }, []);
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const addRow = () => {
+    const unusedKey = PREDEFINED_PARAMS.find(p => !editingRows.some(r => r.paramKey === p.key))?.key || PREDEFINED_PARAMS[0].key;
+    setEditingRows([...editingRows, { paramKey: unusedKey, macroName: "" }]);
+  };
+
+  const deleteRow = (index: number) => {
+    setEditingRows(editingRows.filter((_, i) => i !== index));
+  };
+
+  const updateRowKey = (index: number, newKey: string) => {
+    setEditingRows(editingRows.map((r, i) => i === index ? { ...r, paramKey: newKey } : r));
+  };
+
+  const updateRowMacro = (index: number, newVal: string) => {
+    setEditingRows(editingRows.map((r, i) => i === index ? { ...r, macroName: newVal } : r));
+  };
+
+  const handleSaveSettings = async () => {
+    try {
+      setIsSaving(true);
+      const token = localStorage.getItem('advertiser_token');
+      if (!token) return;
+
+      const parameters = editingRows.map(r => r.paramKey);
+      const parameter_mappings: Record<string, string> = {};
+      editingRows.forEach(r => {
+        parameter_mappings[r.paramKey] = r.macroName.trim() || r.paramKey;
+      });
+
+      const res = await fetch(`${API_BASE}/api/advertiser/postback`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          parameters,
+          custom_params: [],
+          parameter_mappings
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setProfile((prev: any) => ({
+          ...prev,
+          postback_receiver_url: data.full_url,
+          postback_parameters: data.parameters,
+          postback_parameter_mappings: data.parameter_mappings
+        }));
+        if (pushNotification) {
+          pushNotification("Postback configuration saved successfully!");
+        } else {
+          alert("Postback configuration saved successfully!");
+        }
+      } else {
+        const errData = await res.json();
+        alert(errData.error || "Failed to save postback configuration");
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert("Error: " + err.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const getDisplayPostbackUrl = () => {
+    if (!profile) return "";
+    const uniqueKey = profile.unique_postback_key;
+    const base_url = `https://postback.moustacheleads.com/postback/${uniqueKey}`;
+    if (editingRows.length > 0) {
+      const param_parts = editingRows.map(row => {
+        const key = row.paramKey;
+        const macro = row.macroName.trim() || key;
+        return `${key}={${macro}}`;
+      });
+      return `${base_url}?${param_parts.join('&')}`;
+    }
+    return base_url;
+  };
+
+  const getTestFireUrl = () => {
+    if (!profile) return "";
+    const uniqueKey = profile.unique_postback_key;
+    const base_url = `https://postback.moustacheleads.com/postback/${uniqueKey}`;
+    
+    const replacements: Record<string, string> = {
+      click_id: testClickId,
+      payout: testPayout,
+      status: testStatus,
+      user_id: profile.user_id || "pub_12345",
+      transaction_id: "tx_12345",
+      offer_id: "off_99",
+      offer_name: "test_offer",
+      cid: "c_88",
+      cname: "campaign_test",
+      event_type: "registration",
+      sub_id1: "s1",
+      sub_id2: "s2",
+      sub_id3: "s3",
+      sub_id4: "s4",
+      sub_id5: "s5",
+      ip_address: "127.0.0.1",
+      country: "US",
+      user_agent: "Mozilla"
+    };
+
+    if (editingRows.length > 0) {
+      const param_parts = editingRows.map(row => {
+        const key = row.paramKey;
+        const testVal = replacements[key] || "test";
+        return `${key}=${testVal}`;
+      });
+      return `${base_url}?${param_parts.join('&')}`;
+    }
+    
+    return base_url;
+  };
+
+  const handleFireTestPostback = async () => {
+    try {
+      setTesting(true);
+      setTestResults(null);
+      
+      const fireUrl = getTestFireUrl();
+      const res = await fetch(fireUrl);
+      const isJson = res.headers.get('content-type')?.includes('application/json');
+      const data = isJson ? await res.json() : await res.text();
+      
+      setTestResults({
+        success: res.ok,
+        data: data
+      });
+    } catch (err: any) {
+      setTestResults({
+        success: false,
+        data: { error: err.message || "Failed to establish request link" }
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "300px", color: t.textDim }}>
+        Loading postback configuration...
+      </div>
+    );
+  }
+
+  if (!profile || !profile.postback_receiver_url) {
+    return (
+      <div style={{ padding: 40, textAlign: "center", color: t.textDim }}>
+        <p style={{ fontSize: 16, marginBottom: 20 }}>Postback is not configured for your account yet.</p>
+        <button
+          type="button"
+          onClick={onBack}
+          style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: t.brand, color: "#fff", cursor: "pointer" }}
+        >
+          Go Back
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ width: "100%", padding: "24px 24px 60px", boxSizing: "border-box", color: t.text }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, borderBottom: `1px solid ${t.border}`, paddingBottom: 15 }}>
+        <div>
+          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Global Postback Configuration</h1>
+          <p style={{ fontSize: 13.5, color: t.textDim, marginTop: 4 }}>Automatically notify your system of conversions generated on Moustache Leads</p>
+        </div>
+        <button
+          type="button"
+          onClick={onBack}
+          style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${t.border}`, background: t.panel, color: t.text, cursor: "pointer", fontWeight: 600, fontSize: 13 }}
+        >
+          Back to builder
+        </button>
+      </div>
+
+      <div style={{ background: t.panel, border: `1px solid ${t.border}`, borderRadius: 12, padding: 24, marginBottom: 24, boxShadow: t.shadowSm }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ width: 8, height: 8, background: "#10b981", borderRadius: "50%", display: "inline-block" }}></span>
+          Your Global Postback URL
+        </h2>
+        <p style={{ fontSize: 13, color: t.textDim, marginBottom: 16 }}>
+          Set this URL as the postback destination in your tracking system (like HasOffers, Voluum, or your custom server).
+        </p>
+
+        <div style={{ display: "flex", gap: 10, background: t.bg, border: `1px solid ${t.border}`, padding: 12, borderRadius: 8 }}>
+          <input
+            type="text"
+            readOnly
+            value={getDisplayPostbackUrl()}
+            style={{ flex: 1, background: "transparent", border: "none", color: t.text, fontFamily: "monospace", fontSize: 13, outline: "none" }}
+          />
+          <button
+            type="button"
+            onClick={() => copyToClipboard(getDisplayPostbackUrl())}
+            style={{ background: t.brandSoft, color: t.brand, border: "none", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontWeight: 600, fontSize: 12.5 }}
+          >
+            {copied ? "Copied!" : "Copy URL"}
+          </button>
+        </div>
+
+        <div style={{ marginTop: 20, padding: 15, background: t.bg, borderRadius: 8, borderLeft: `4px solid ${t.brand}` }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: t.brand, display: "block", marginBottom: 4 }}>Security Key</span>
+          <code style={{ fontSize: 12.5, color: t.textDim, wordBreak: "break-all" }}>{profile.unique_postback_key}</code>
+        </div>
+      </div>
+
+      {/* Active Parameter Mapping Section */}
+      <div style={{ background: t.panel, border: `1px solid ${t.border}`, borderRadius: 12, padding: 24, boxShadow: t.shadowSm, marginBottom: 24 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div>
+            <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Active Parameter Mapping</h2>
+            <p style={{ fontSize: 13, color: t.textDim, marginTop: 4 }}>
+              Define the parameters you want to receive and map them to your tracker macros.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={addRow}
+            style={{ padding: "6px 12px", background: t.brandSoft, color: t.brand, border: "none", borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+          >
+            <span style={{ fontSize: 14 }}>+</span> Add Parameter
+          </button>
+        </div>
+
+        {editingRows.length === 0 ? (
+          <div style={{ padding: "20px 0", textAlign: "center", color: t.textDim, fontSize: 13, fontStyle: "italic", border: `1px dashed ${t.border}`, borderRadius: 8 }}>
+            No parameter mappings configured. Click "+ Add Parameter" to start.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", gap: 12, marginBottom: 4 }}>
+              <div style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: t.textDim }}>Our Parameter</div>
+              <div style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: t.textDim }}>Advertiser Parameter</div>
+              <div style={{ width: 80 }}></div>
+            </div>
+            {editingRows.map((row, index) => (
+              <div key={index} style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                <div style={{ flex: 1 }}>
+                  <select
+                    value={row.paramKey}
+                    onChange={(e) => updateRowKey(index, e.target.value)}
+                    style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${t.border}`, background: t.bg, color: t.text, outline: "none", fontSize: 13 }}
+                  >
+                    {PREDEFINED_PARAMS.map(p => (
+                      <option key={p.key} value={p.key}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <input
+                    type="text"
+                    placeholder="Their param name, e.g. sub1"
+                    value={row.macroName}
+                    onChange={(e) => updateRowMacro(index, e.target.value)}
+                    style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${t.border}`, background: t.bg, color: t.text, outline: "none", fontSize: 13 }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => deleteRow(index)}
+                  style={{ width: 80, padding: "8px 0", background: "#fef2f2", border: "none", borderRadius: 6, color: "#ef4444", cursor: "pointer", fontSize: 13, fontWeight: 600, textAlign: "center" }}
+                  title="Remove Parameter"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ marginTop: 24, borderTop: `1px solid ${t.border}`, paddingTop: 16, display: "flex", justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            disabled={isSaving}
+            onClick={handleSaveSettings}
+            style={{ padding: "10px 20px", background: t.brand, color: "#fff", border: "none", borderRadius: 8, cursor: isSaving ? "not-allowed" : "pointer", fontWeight: 700, fontSize: 13.5 }}
+          >
+            {isSaving ? "Saving Settings..." : "Save Mappings"}
+          </button>
+        </div>
+      </div>
+
+      {/* Test Conversion Section */}
+      <div style={{ background: t.panel, border: `1px solid ${t.border}`, borderRadius: 12, padding: 24, marginTop: 24, boxShadow: t.shadowSm }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Test conversion</h2>
+        <p style={{ fontSize: 13, color: t.textDim, marginBottom: 20 }}>
+          Fire a test postback to confirm your setup before spending budget.
+        </p>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 15, marginBottom: 20 }}>
+          <div>
+            <label style={{ fontSize: 12.5, fontWeight: 600, display: "block", marginBottom: 6 }}>Test click ID</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                type="text"
+                value={testClickId}
+                onChange={(e) => setTestClickId(e.target.value)}
+                style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: `1px solid ${t.border}`, background: t.bg, color: t.text, outline: "none" }}
+              />
+              <button
+                type="button"
+                onClick={() => setTestClickId("test_click_" + Math.random().toString(36).substring(2, 8))}
+                style={{ padding: "0 10px", background: t.bg, border: `1px solid ${t.border}`, borderRadius: 6, color: t.text, cursor: "pointer" }}
+                title="Generate random ID"
+              >
+                🔄
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: 12.5, fontWeight: 600, display: "block", marginBottom: 6 }}>Goal / Status</label>
+            <select
+              value={testStatus}
+              onChange={(e) => setTestStatus(e.target.value)}
+              style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${t.border}`, background: t.bg, color: t.text, outline: "none" }}
+            >
+              <option value="lead">1 - Registration (Lead)</option>
+              <option value="conversion">2 - First Deposit (FTD)</option>
+              <option value="approved">3 - Purchase (Approved)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 12.5, fontWeight: 600, display: "block", marginBottom: 6 }}>Request that will fire</label>
+          <div style={{ background: t.bg, border: `1px solid ${t.border}`, padding: 12, borderRadius: 8, fontFamily: "monospace", fontSize: 12, color: t.brand, wordBreak: "break-all" }}>
+            GET: {getTestFireUrl()}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          disabled={testing}
+          onClick={handleFireTestPostback}
+          style={{ width: "100%", padding: "12px", background: t.brand, color: "#fff", border: "none", borderRadius: 8, cursor: testing ? "not-allowed" : "pointer", fontWeight: 700, transition: "background 0.2s" }}
+        >
+          {testing ? "Firing Test Conversion..." : "Fire test conversion"}
+        </button>
+
+        {testResults && (
+          <div style={{ marginTop: 20, padding: 15, background: testResults.success ? "#f0fdf4" : "#fef2f2", border: `1px solid ${testResults.success ? "#bbf7d0" : "#fecaca"}`, borderRadius: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: testResults.success ? "#166534" : "#991b1b", display: "block", marginBottom: 6 }}>
+              {testResults.success ? "✅ Request completed successfully" : "❌ Request failed"}
+            </span>
+            <pre style={{ fontSize: 12, margin: 0, padding: 10, background: "#fff", border: `1px solid ${testResults.success ? "#dcfce7" : "#fee2e2"}`, borderRadius: 4, overflowX: "auto", fontFamily: "monospace", color: "#333" }}>
+              {JSON.stringify(testResults.data, null, 2)}
+            </pre>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

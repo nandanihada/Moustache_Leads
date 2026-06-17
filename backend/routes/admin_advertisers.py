@@ -619,4 +619,140 @@ def revert_manual_deposit(tx_id):
         return jsonify({'error': f"Failed to revert deposit: {str(e)}"}), 500
 
 
+@admin_advertisers_bp.route('/advertisers/<advertiser_id>/postback', methods=['POST'])
+@token_required
+@admin_required
+def save_advertiser_postback(advertiser_id):
+    """Save or update advertiser postback settings and generate receiver URL"""
+    try:
+        data = request.get_json() or {}
+        parameters = data.get('parameters', [])
+        custom_params = data.get('custom_params', [])
+        parameter_mappings = data.get('parameter_mappings', {})
+        
+        collection = get_advertisers_collection()
+        if collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+            
+        advertiser = collection.find_one({'_id': ObjectId(advertiser_id)})
+        if not advertiser:
+            return jsonify({'error': 'Advertiser not found'}), 404
+            
+        unique_key = advertiser.get('unique_postback_key')
+        if not unique_key or data.get('regenerate'):
+            import secrets
+            unique_key = secrets.token_urlsafe(24)
+            
+        # Build base URL and full URL
+        base_url = f"https://postback.moustacheleads.com/postback/{unique_key}"
+        all_params = parameters + custom_params
+        
+        if all_params:
+            param_parts = []
+            for param in all_params:
+                if param.strip():
+                    partner_macro = parameter_mappings.get(param.strip(), param.strip())
+                    param_parts.append(f"{param.strip()}={{{partner_macro}}}")
+            if param_parts:
+                full_url = f"{base_url}?{'&'.join(param_parts)}"
+            else:
+                full_url = base_url
+        else:
+            full_url = base_url
+            
+        # Update advertiser document
+        collection.update_one(
+            {'_id': ObjectId(advertiser_id)},
+            {'$set': {
+                'unique_postback_key': unique_key,
+                'postback_receiver_url': full_url,
+                'postback_parameters': parameters,
+                'postback_custom_params': custom_params,
+                'postback_parameter_mappings': parameter_mappings,
+                'updated_at': datetime.utcnow()
+            }}
+        )
+        
+        # Also sync to partners collection so name resolves correctly in received postback logs
+        partners_collection = db_instance.get_collection('partners')
+        if partners_collection is not None:
+            partner_id = f"adv_{advertiser_id}"
+            partner_name = advertiser.get('company_name') or f"{advertiser.get('first_name', '')} {advertiser.get('last_name', '')}".strip()
+            if not partner_name:
+                partner_name = f"Advertiser {advertiser_id}"
+            partner_name = f"{partner_name} (Advertiser)"
+            
+            partner_doc = {
+                'partner_id': partner_id,
+                'partner_name': partner_name,
+                'postback_url': '',
+                'method': 'GET',
+                'status': 'active',
+                'description': f"Advertiser postback for {partner_name}",
+                'unique_postback_key': unique_key,
+                'postback_receiver_url': full_url,
+                'parameter_mapping': parameter_mappings,
+                'is_advertiser_postback': True,
+                'advertiser_id': advertiser_id,
+                'updated_at': datetime.utcnow()
+            }
+            
+            partners_collection.update_one(
+                {'partner_id': partner_id},
+                {'$set': partner_doc, '$setOnInsert': {'created_at': datetime.utcnow()}},
+                upsert=True
+            )
+            
+        return jsonify({
+            'success': True,
+            'unique_key': unique_key,
+            'base_url': base_url,
+            'full_url': full_url,
+            'parameters': parameters,
+            'custom_params': custom_params,
+            'parameter_mappings': parameter_mappings
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error saving advertiser postback: {str(e)}", exc_info=True)
+        return jsonify({'error': f"Failed to save postback: {str(e)}"}), 500
+
+
+@admin_advertisers_bp.route('/advertisers/<advertiser_id>/postback', methods=['DELETE'])
+@token_required
+@admin_required
+def delete_advertiser_postback(advertiser_id):
+    """Delete advertiser postback settings"""
+    try:
+        collection = get_advertisers_collection()
+        if collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+            
+        result = collection.update_one(
+            {'_id': ObjectId(advertiser_id)},
+            {'$unset': {
+                'unique_postback_key': '',
+                'postback_receiver_url': '',
+                'postback_parameters': '',
+                'postback_custom_params': '',
+                'postback_parameter_mappings': ''
+            }}
+        )
+        
+        if result.matched_count == 0:
+            return jsonify({'error': 'Advertiser not found'}), 404
+            
+        # Delete from partners collection
+        partners_collection = db_instance.get_collection('partners')
+        if partners_collection is not None:
+            partners_collection.delete_one({'partner_id': f"adv_{advertiser_id}"})
+            
+        return jsonify({'success': True, 'message': 'Postback deleted successfully'}), 200
+        
+    except Exception as e:
+        logger.error(f"Error deleting advertiser postback: {str(e)}", exc_info=True)
+        return jsonify({'error': f"Failed to delete postback: {str(e)}"}), 500
+
+
+
 

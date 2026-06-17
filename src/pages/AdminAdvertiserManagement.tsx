@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Search, UserCheck, UserX, Mail, Clock, CheckCircle, XCircle, Loader2, Building2, Globe, Phone, MapPin, CreditCard, Eye } from "lucide-react";
+import { Search, UserCheck, UserX, Mail, Clock, CheckCircle, XCircle, Loader2, Building2, Globe, Phone, MapPin, CreditCard, Eye, Link, Copy, Plus, Key, TestTube, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { API_BASE_URL } from "@/services/apiConfig";
+import { Label } from "@/components/ui/label";
 
 interface Advertiser {
   _id: string;
@@ -53,6 +54,11 @@ interface Advertiser {
   created_at: string;
   account_status_updated_at?: string;
   balance?: number;
+  unique_postback_key?: string;
+  postback_receiver_url?: string;
+  postback_parameters?: string[];
+  postback_custom_params?: string[];
+  postback_parameter_mappings?: Record<string, string>;
 }
 
 interface DepositTransaction {
@@ -81,6 +87,38 @@ interface AdvertiserCounts {
 const AdminAdvertiserManagement = () => {
   const [activeTab, setActiveTab] = useState("pending_approval");
   const [searchTerm, setSearchTerm] = useState("");
+  const [postbackFilter, setPostbackFilter] = useState("all");
+  const [isPostbackModalOpen, setIsPostbackModalOpen] = useState(false);
+  const [selectedAdvertiserForPostback, setSelectedAdvertiserForPostback] = useState<Advertiser | null>(null);
+  const [selectedParameters, setSelectedParameters] = useState<string[]>([]);
+  const [parameterMappings, setParameterMappings] = useState<Record<string, string>>({});
+  const [customParams, setCustomParams] = useState<string[]>([]);
+  const [generatingPostback, setGeneratingPostback] = useState(false);
+  const [deletingPostback, setDeletingPostback] = useState(false);
+  const [isTestModalOpen, setIsTestModalOpen] = useState(false);
+  const [testParams, setTestParams] = useState<Record<string, string>>({});
+  
+  const predefinedParameters = [
+    { key: 'user_id', label: 'User ID (Publisher)', placeholder: '{user_id}' },
+    { key: 'sub1', label: 'Sub1 (End User)', placeholder: '{sub1}' },
+    { key: 'payout', label: 'Payout', placeholder: '{payout}' },
+    { key: 'transaction_id', label: 'Transaction ID', placeholder: '{transaction_id}' },
+    { key: 'click_id', label: 'Click ID', placeholder: '{click_id}' },
+    { key: 'offer_id', label: 'Offer ID', placeholder: '{offer_id}' },
+    { key: 'offer_name', label: 'Offer Name', placeholder: '{offer_name}' },
+    { key: 'cid', label: 'Campaign ID (cid)', placeholder: '{cid}' },
+    { key: 'cname', label: 'Campaign Name (cname)', placeholder: '{cname}' },
+    { key: 'status', label: 'Status', placeholder: '{status}' },
+    { key: 'event_type', label: 'Event Type', placeholder: '{event_type}' },
+    { key: 'sub_id1', label: 'Sub ID 1', placeholder: '{sub_id1}' },
+    { key: 'sub_id2', label: 'Sub ID 2', placeholder: '{sub_id2}' },
+    { key: 'sub_id3', label: 'Sub ID 3', placeholder: '{sub_id3}' },
+    { key: 'sub_id4', label: 'Sub ID 4', placeholder: '{sub_id4}' },
+    { key: 'sub_id5', label: 'Sub ID 5', placeholder: '{sub_id5}' },
+    { key: 'ip_address', label: 'IP Address', placeholder: '{ip_address}' },
+    { key: 'country', label: 'Country', placeholder: '{country}' },
+    { key: 'user_agent', label: 'User Agent', placeholder: '{user_agent}' }
+  ];
   const [advertisers, setAdvertisers] = useState<Advertiser[]>([]);
   const [deposits, setDeposits] = useState<DepositTransaction[]>([]);
   const [counts, setCounts] = useState<AdvertiserCounts>({ pending: 0, approved: 0, rejected: 0, total: 0 });
@@ -410,11 +448,217 @@ const AdminAdvertiserManagement = () => {
 
 
 
+  const openPostbackModal = (adv: Advertiser) => {
+    setSelectedAdvertiserForPostback(adv);
+    setSelectedParameters(adv.postback_parameters || ['click_id', 'payout']);
+    setCustomParams(adv.postback_custom_params || ['']);
+    setParameterMappings(adv.postback_parameter_mappings || { click_id: 'click_id', payout: 'payout' });
+    setIsPostbackModalOpen(true);
+  };
+
+  const handleParameterToggle = (key: string) => {
+    if (selectedParameters.includes(key)) {
+      setSelectedParameters(selectedParameters.filter(p => p !== key));
+      const newMappings = { ...parameterMappings };
+      delete newMappings[key];
+      setParameterMappings(newMappings);
+    } else {
+      setSelectedParameters([...selectedParameters, key]);
+      setParameterMappings({ ...parameterMappings, [key]: key });
+    }
+  };
+
+  const handleParameterMappingChange = (key: string, value: string) => {
+    setParameterMappings({ ...parameterMappings, [key]: value });
+  };
+
+  const handleCustomParamChange = (index: number, value: string) => {
+    const newParams = [...customParams];
+    newParams[index] = value;
+    setCustomParams(newParams);
+  };
+
+  const addCustomParam = () => {
+    setCustomParams([...customParams, '']);
+  };
+
+  const removeCustomParam = (index: number) => {
+    setCustomParams(customParams.filter((_, i) => i !== index));
+  };
+
+  const handleSavePostback = async (regenerate = false) => {
+    if (!selectedAdvertiserForPostback) return;
+    
+    try {
+      setGeneratingPostback(true);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/api/admin/advertisers/${selectedAdvertiserForPostback._id}/postback`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          parameters: selectedParameters,
+          custom_params: customParams.filter(p => p.trim() !== ''),
+          parameter_mappings: parameterMappings,
+          regenerate
+        })
+      });
+      
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to save postback configuration');
+      
+      toast({
+        title: 'Success',
+        description: 'Postback configuration saved successfully',
+      });
+      
+      // Update local advertisers state
+      setAdvertisers(prev => prev.map(a => {
+        if (a._id === selectedAdvertiserForPostback._id) {
+          return {
+            ...a,
+            unique_postback_key: data.unique_key,
+            postback_receiver_url: data.full_url,
+            postback_parameters: data.parameters,
+            postback_custom_params: data.custom_params,
+            postback_parameter_mappings: data.parameter_mappings
+          };
+        }
+        return a;
+      }));
+      
+      // Update the selected advertiser for postback state to show the result
+      setSelectedAdvertiserForPostback(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          unique_postback_key: data.unique_key,
+          postback_receiver_url: data.full_url,
+          postback_parameters: data.parameters,
+          postback_custom_params: data.custom_params,
+          postback_parameter_mappings: data.parameter_mappings
+        };
+      });
+      
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive'
+      });
+    } finally {
+      setGeneratingPostback(false);
+    }
+  };
+
+  const handleDeletePostback = async () => {
+    if (!selectedAdvertiserForPostback) return;
+    if (!confirm('Are you sure you want to delete the postback configuration? This cannot be undone.')) return;
+    
+    try {
+      setDeletingPostback(true);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/api/admin/advertisers/${selectedAdvertiserForPostback._id}/postback`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to delete postback configuration');
+      
+      toast({
+        title: 'Success',
+        description: 'Postback configuration deleted successfully',
+      });
+      
+      // Update local state
+      setAdvertisers(prev => prev.map(a => {
+        if (a._id === selectedAdvertiserForPostback._id) {
+          const updated = { ...a };
+          delete updated.unique_postback_key;
+          delete updated.postback_receiver_url;
+          delete updated.postback_parameters;
+          delete updated.postback_custom_params;
+          delete updated.postback_parameter_mappings;
+          return updated;
+        }
+        return a;
+      }));
+      
+      setIsPostbackModalOpen(false);
+      setSelectedAdvertiserForPostback(null);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive'
+      });
+    } finally {
+      setDeletingPostback(false);
+    }
+  };
+
+  const testPostbackUrl = async () => {
+    if (!selectedAdvertiserForPostback || !selectedAdvertiserForPostback.unique_postback_key) return;
+    
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/api/admin/postback-receiver/test-quick`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          unique_key: selectedAdvertiserForPostback.unique_postback_key,
+          params: testParams
+        })
+      });
+      
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to generate test URL');
+      
+      window.open(data.test_url, '_blank');
+      
+      toast({
+        title: 'Success',
+        description: 'Test postback opened in new tab',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({
+      title: "Copied",
+      description: "URL copied to clipboard",
+    });
+  };
+
   const filteredAdvertisers = advertisers.filter(adv => {
     const name = `${adv.first_name || ''} ${adv.last_name || ''} ${adv.company_name || ''}`.toLowerCase();
-    return name.includes(searchTerm.toLowerCase()) ||
-           adv.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-           adv._id.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = name.includes(searchTerm.toLowerCase()) ||
+                          adv.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          adv._id.toLowerCase().includes(searchTerm.toLowerCase());
+                          
+    let matchesPostback = true;
+    if (postbackFilter === 'configured') {
+      matchesPostback = !!adv.postback_receiver_url;
+    } else if (postbackFilter === 'not_configured') {
+      matchesPostback = !adv.postback_receiver_url;
+    }
+    
+    return matchesSearch && matchesPostback;
   });
 
   const filteredDeposits = deposits.filter(dep => {
@@ -592,6 +836,19 @@ const AdminAdvertiserManagement = () => {
                   className="pl-10"
                 />
               </div>
+              {activeTab !== 'deposits' && (
+                <div className="w-56">
+                  <select 
+                    value={postbackFilter} 
+                    onChange={e => setPostbackFilter(e.target.value)}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    <option value="all">All Postbacks</option>
+                    <option value="configured">Postback Configured</option>
+                    <option value="not_configured">No Postback</option>
+                  </select>
+                </div>
+              )}
             </div>
 
             <TabsContent value={activeTab} className="space-y-4">
@@ -840,6 +1097,7 @@ const AdminAdvertiserManagement = () => {
                           <TableHead className="whitespace-nowrap">Contact</TableHead>
                           <TableHead className="whitespace-nowrap">Wallet Balance</TableHead>
                           <TableHead className="whitespace-nowrap">Status</TableHead>
+                          <TableHead className="whitespace-nowrap">Postback</TableHead>
                           <TableHead className="whitespace-nowrap">Join Date</TableHead>
                           <TableHead className="whitespace-nowrap">Actions</TableHead>
                         </TableRow>
@@ -897,6 +1155,21 @@ const AdminAdvertiserManagement = () => {
                             <TableCell>
                               {getStatusBadge(adv.account_status)}
                             </TableCell>
+                            <TableCell>
+                              {adv.account_status === "approved" ? (
+                                adv.postback_receiver_url ? (
+                                  <Badge className="bg-green-100 text-green-800 hover:bg-green-200 border-green-200">
+                                    Configured
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="secondary" className="bg-gray-100 text-gray-400">
+                                    No Postback
+                                  </Badge>
+                                )
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
                             <TableCell className="text-sm">
                               {formatDate(adv.created_at)}
                             </TableCell>
@@ -936,7 +1209,18 @@ const AdminAdvertiserManagement = () => {
                                   </>
                                 )}
                                 {adv.account_status === "approved" && (
-                                  <Badge variant="outline" className="text-green-600">Active</Badge>
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant="outline" className="text-green-600">Active</Badge>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                      onClick={() => openPostbackModal(adv)}
+                                    >
+                                      <Link className="h-4 w-4 mr-1" />
+                                      Postback
+                                    </Button>
+                                  </div>
                                 )}
                                 {adv.account_status === "rejected" && (
                                   <Badge variant="outline" className="text-red-600">Rejected</Badge>
@@ -1169,6 +1453,200 @@ const AdminAdvertiserManagement = () => {
               </>
             )}
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Advertiser Postback Configuration Modal */}
+      <Dialog open={isPostbackModalOpen} onOpenChange={setIsPostbackModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Advertiser Postback Generator</DialogTitle>
+            <DialogDescription>
+              Set up parameters and generate a postback URL for {selectedAdvertiserForPostback?.company_name || selectedAdvertiserForPostback?.first_name}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 my-4">
+            {/* Advertiser Info */}
+            <div>
+              <Label className="text-base font-semibold mb-2 block">Advertiser Information</Label>
+              <div className="grid grid-cols-2 gap-4 p-3 bg-gray-50 rounded-lg text-sm">
+                <div>
+                  <span className="text-gray-500">Company:</span>{' '}
+                  <span className="font-semibold">{selectedAdvertiserForPostback?.company_name || 'N/A'}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Email:</span>{' '}
+                  <span className="font-semibold">{selectedAdvertiserForPostback?.email}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Parameter Selection */}
+            <div>
+              <Label className="text-base font-semibold mb-2 block">Select Parameters</Label>
+              <p className="text-xs text-gray-500 mb-4">
+                Check the parameters Moustache Leads needs, then enter what the advertiser calls each parameter in their system.
+              </p>
+              <div className="grid grid-cols-1 gap-3">
+                {predefinedParameters.map((param) => {
+                  const isSelected = selectedParameters.includes(param.key);
+                  return (
+                    <div key={param.key} className="flex items-center gap-3 p-2 rounded-lg border border-gray-100 hover:bg-gray-50">
+                      <input
+                        type="checkbox"
+                        id={`param-${param.key}`}
+                        checked={isSelected}
+                        onChange={() => handleParameterToggle(param.key)}
+                        className="rounded border-gray-300 h-4 w-4"
+                      />
+                      <div className="flex-shrink-0 w-32">
+                        <Label htmlFor={`param-${param.key}`} className="text-sm font-medium cursor-pointer">
+                          {param.label}
+                        </Label>
+                      </div>
+                      {isSelected ? (
+                        <div className="flex-1 flex items-center gap-2">
+                          <span className="text-xs text-gray-500">Advertiser's macro name:</span>
+                          <Input
+                            value={parameterMappings[param.key] || ''}
+                            onChange={(e) => handleParameterMappingChange(param.key, e.target.value)}
+                            placeholder={`e.g. ${param.key}`}
+                            className="h-8 text-sm flex-1"
+                          />
+                          <code className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded whitespace-nowrap">
+                            {param.key}={`{${parameterMappings[param.key] || param.key}}`}
+                          </code>
+                        </div>
+                      ) : (
+                        <code className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-400">
+                          {param.placeholder}
+                        </code>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+
+
+            {/* URL Display */}
+            {selectedAdvertiserForPostback?.postback_receiver_url && (
+              <div className="p-4 bg-green-50 border border-green-200 rounded-lg space-y-3">
+                <Label className="text-sm font-semibold text-green-800 block">Generated Postback URL</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={selectedAdvertiserForPostback.postback_receiver_url}
+                    readOnly
+                    className="font-mono text-sm bg-white border-green-300"
+                  />
+                  <Button
+                    variant="outline"
+                    className="border-green-300 text-green-700 hover:bg-green-100"
+                    onClick={() => copyToClipboard(selectedAdvertiserForPostback.postback_receiver_url!)}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-green-300 text-green-700 hover:bg-green-100"
+                    onClick={() => {
+                      setTestParams(selectedParameters.reduce((acc, p) => ({ ...acc, [p]: `test_${p}` }), {}));
+                      setIsTestModalOpen(true);
+                    }}
+                  >
+                    <TestTube className="h-4 w-4 mr-2" />
+                    Test URL
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    disabled={deletingPostback}
+                    onClick={handleDeletePostback}
+                  >
+                    {deletingPostback ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <Trash2 className="h-4 w-4 mr-2" />
+                    )}
+                    Delete URL
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsPostbackModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={() => handleSavePostback(false)}
+              disabled={generatingPostback}
+            >
+              {generatingPostback && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              {selectedAdvertiserForPostback?.postback_receiver_url ? 'Update' : 'Generate'} URL
+            </Button>
+            {selectedAdvertiserForPostback?.postback_receiver_url && (
+              <Button
+                variant="outline"
+                className="border-blue-300 text-blue-700"
+                onClick={() => handleSavePostback(true)}
+                disabled={generatingPostback}
+              >
+                Regenerate Key
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Test Postback Modal */}
+      <Dialog open={isTestModalOpen} onOpenChange={setIsTestModalOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Test Postback URL</DialogTitle>
+            <DialogDescription>
+              Enter test values to trigger the advertiser postback receiver
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 my-2">
+            <div className="grid grid-cols-2 gap-4">
+              {selectedParameters.map((param) => (
+                <div key={param} className="space-y-1">
+                  <Label htmlFor={`test-${param}`}>{param}</Label>
+                  <Input
+                    id={`test-${param}`}
+                    value={testParams[param] || ''}
+                    onChange={(e) => setTestParams(prev => ({ ...prev, [param]: e.target.value }))}
+                    placeholder={`Enter test value for ${param}`}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <DialogFooter className="pt-4">
+              <Button
+                variant="outline"
+                onClick={() => setIsTestModalOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={testPostbackUrl}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                <TestTube className="h-4 w-4 mr-2" />
+                Fire Test Postback
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

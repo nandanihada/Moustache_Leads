@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
   Megaphone,
@@ -7,7 +8,8 @@ import {
   User,
   CreditCard,
   HelpCircle,
-  Sparkles
+  Sparkles,
+  Link
 } from "lucide-react";
 import AccountSwitcher from "@/components/AccountSwitcher";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
@@ -64,10 +66,33 @@ const advertiserMenuItems = [
 export function AdvertiserSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [hasPostback, setHasPostback] = useState(false);
   
   // Get advertiser user from localStorage
   const advertiserUser = JSON.parse(localStorage.getItem('advertiser_user') || '{}');
   const displayName = advertiserUser?.first_name || advertiserUser?.company_name || advertiserUser?.email || 'Advertiser';
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const token = localStorage.getItem('advertiser_token');
+        if (!token) return;
+        const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+        const res = await fetch(`${API_BASE}/api/advertiser/profile`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.profile?.postback_receiver_url) {
+            setHasPostback(true);
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching profile in sidebar:", err);
+      }
+    };
+    fetchProfile();
+  }, []);
 
   const handleLogout = () => {
     // Clear advertiser-specific tokens
@@ -75,6 +100,16 @@ export function AdvertiserSidebar() {
     localStorage.removeItem('advertiser_user');
     navigate("/advertiser/signin");
   };
+
+  const menuItems = [
+    ...advertiserMenuItems.slice(0, 4),
+    ...(hasPostback ? [{
+      title: "Postback",
+      url: "/advertiser/campaign-builder?view=postback",
+      icon: Link,
+    }] : []),
+    ...advertiserMenuItems.slice(4)
+  ];
 
   return (
     <Sidebar className="w-56 lg:w-64 border-r border-border/60 flex-shrink-0">
@@ -94,7 +129,7 @@ export function AdvertiserSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {advertiserMenuItems.map((item) => {
+              {menuItems.map((item) => {
                 // Custom active state logic that inspects query parameter view
                 let isActive = false;
                 if (item.url === "/advertiser") {

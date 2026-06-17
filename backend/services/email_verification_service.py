@@ -203,7 +203,7 @@ MoustacheLeads Team
 <p style="font-size:11px;color:#333333;word-break:break-all;margin:0;font-family:monospace;background-color:#ffffff;padding:10px;border-radius:4px;">
 <a href="{link}" target="_blank" style="color:#0066cc;text-decoration:underline;">{link}</a>
 </p>
-<p style="font-size:12px;color:#cc3300;margin:15px 0 0 0;font-weight:bold;">⚠️ Note: Please check your Spam/Junk folder if you do not receive our emails. Mark us as "Not Spam" to ensure you receive future approvals and notifications.</p>
+<p style="font-size:12px;color:#cc3300;margin:15px 0 0 0;font-weight:bold;">⚠️ Note: Please check your Spam/Junk folder (and verify the advertiser folder/tab also if you are registering as an advertiser, because emails can sometimes land in spam). Mark us as "Not Spam" to ensure you receive future approvals and notifications.</p>
 </div>
 </td></tr>
 <tr><td style="background-color:#1a1a1a;padding:30px;text-align:center;">
@@ -319,7 +319,7 @@ MoustacheLeads Team
 <p style="color:#333333;font-size:16px;line-height:1.6;">Dear {name},</p>
 <p style="color:#333333;font-size:16px;line-height:1.6;">Thank you for registering as an advertiser with MoustacheLeads!</p>
 <p style="color:#cc3300;font-size:15px;line-height:1.6;font-weight:bold;margin:20px 0;background-color:#fff5f5;padding:15px;border-left:4px solid #cc3300;border-radius:4px;">
-⚠️ IMPORTANT: Please check your Spam/Junk folder for future updates from us. If our emails end up in your spam folder, please mark them as "Not Spam" to ensure you receive future approvals, transaction details, and invoicing notifications.
+⚠️ IMPORTANT: Please check your Spam/Junk folder (check your spam for advertiser folder also because emails might end up there). If our emails end up in your spam folder, please mark them as "Not Spam" to ensure you receive future approvals, transaction details, and invoicing notifications.
 </p>
 <p style="color:#333333;font-size:16px;line-height:1.6;">Your application is currently under review by our onboarding team. We will activate your account as soon as possible.</p>
 </td></tr>

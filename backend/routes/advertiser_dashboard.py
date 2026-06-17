@@ -350,7 +350,12 @@ def get_profile():
             'city': advertiser.get('city', ''),
             'account_status': advertiser.get('account_status', 'pending_approval'),
             'email_verified': advertiser.get('email_verified', False),
-            'created_at': advertiser.get('created_at').isoformat() if advertiser.get('created_at') else None
+            'created_at': advertiser.get('created_at').isoformat() if advertiser.get('created_at') else None,
+            'unique_postback_key': advertiser.get('unique_postback_key'),
+            'postback_receiver_url': advertiser.get('postback_receiver_url'),
+            'postback_parameters': advertiser.get('postback_parameters'),
+            'postback_parameter_mappings': advertiser.get('postback_parameter_mappings'),
+            'balance': float(advertiser.get('balance', 0.0))
         }
         
         return jsonify({'profile': profile}), 200
@@ -683,4 +688,91 @@ def capture_paypal_order():
     except Exception as e:
         logger.error(f"PayPal capture exception: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+
+@advertiser_dashboard_bp.route('/postback', methods=['POST'])
+@advertiser_token_required
+def save_own_postback():
+    """Advertiser saves or updates their own postback configuration"""
+    try:
+        data = request.get_json() or {}
+        parameters = data.get('parameters', [])
+        custom_params = data.get('custom_params', [])
+        parameter_mappings = data.get('parameter_mappings', {})
+        
+        advertiser = request.current_advertiser
+        advertiser_id = request.advertiser_id
+        
+        unique_key = advertiser.get('unique_postback_key')
+        if not unique_key:
+            import secrets
+            unique_key = secrets.token_urlsafe(24)
+            
+        # Build base URL and full URL
+        base_url = f"https://postback.moustacheleads.com/postback/{unique_key}"
+        all_params = parameters + custom_params
+        
+        if all_params:
+            param_parts = []
+            for param in all_params:
+                if param.strip():
+                    partner_macro = parameter_mappings.get(param.strip(), param.strip())
+                    param_parts.append(f"{param.strip()}={{{partner_macro}}}")
+            if param_parts:
+                full_url = f"{base_url}?{'&'.join(param_parts)}"
+            else:
+                full_url = base_url
+        else:
+            full_url = base_url
+            
+        collection = get_advertisers_collection()
+        collection.update_one(
+            {'_id': ObjectId(advertiser_id)},
+            {'$set': {
+                'unique_postback_key': unique_key,
+                'postback_receiver_url': full_url,
+                'postback_parameters': parameters,
+                'postback_custom_params': custom_params,
+                'postback_parameter_mappings': parameter_mappings,
+                'updated_at': datetime.utcnow()
+            }}
+        )
+        
+        # Also sync to partners collection so name resolves correctly in received postback logs
+        partners_collection = db_instance.get_collection('partners')
+        if partners_collection is not None:
+            partner_id = f"adv_{advertiser_id}"
+            partner_name = advertiser.get('company_name') or f"{advertiser.get('first_name', '')} {advertiser.get('last_name', '')}".strip()
+            if not partner_name:
+                partner_name = f"Advertiser {advertiser_id}"
+            partner_name = f"{partner_name} (Advertiser)"
+            
+            partners_collection.update_one(
+                {'partner_id': partner_id},
+                {'$set': {
+                    'partner_id': partner_id,
+                    'partner_name': partner_name,
+                    'postback_url': '',
+                    'method': 'GET',
+                    'status': 'active',
+                    'description': f"Advertiser postback for {partner_name}",
+                    'unique_postback_key': unique_key,
+                    'updated_at': datetime.utcnow()
+                }},
+                upsert=True
+            )
+            
+        return jsonify({
+            'message': 'Postback configuration saved successfully',
+            'unique_key': unique_key,
+            'full_url': full_url,
+            'parameters': parameters,
+            'custom_params': custom_params,
+            'parameter_mappings': parameter_mappings
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error saving own postback: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
 
