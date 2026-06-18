@@ -180,6 +180,7 @@ const AdminOffers = () => {
   const [adCampaignsLoading, setAdCampaignsLoading] = useState(false);
   const [adCampaignsSearchTerm, setAdCampaignsSearchTerm] = useState('');
   const [adCampaignsPagination, setAdCampaignsPagination] = useState({ page: 1, per_page: 20, total: 0, pages: 0 });
+  const [selectedAdCampaigns, setSelectedAdCampaigns] = useState<Set<string>>(new Set());
   const [bulkDeleteWarningOpen, setBulkDeleteWarningOpen] = useState(false);
   const [bulkDeleteRunningDetails, setBulkDeleteRunningDetails] = useState<Array<{ offer_id: string; name: string; total_clicks: number; days_remaining: number; sub_statuses: string[] }>>([]);
   const [bulkDeleteNonRunningIds, setBulkDeleteNonRunningIds] = useState<string[]>([]);
@@ -784,6 +785,55 @@ const AdminOffers = () => {
       });
     } finally {
       setAdCampaignsLoading(false);
+    }
+  };
+
+  const handleDeleteAdCampaign = async (offerId: string, offerName?: string) => {
+    if (!confirm(`Are you sure you want to delete "${offerName || offerId}"?`)) return;
+    try {
+      await adminOfferApi.deleteOffer(offerId);
+      toast({ title: "Success", description: "Campaign deleted successfully" });
+      fetchAdCampaigns();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete campaign",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleBulkDeleteAdCampaigns = async () => {
+    if (selectedAdCampaigns.size === 0) return;
+    if (!confirm(`Are you sure you want to delete ${selectedAdCampaigns.size} campaign(s)?`)) return;
+    try {
+      await adminOfferApi.bulkDeleteOffers(Array.from(selectedAdCampaigns));
+      toast({ title: "Success", description: `${selectedAdCampaigns.size} campaign(s) deleted` });
+      setSelectedAdCampaigns(new Set());
+      fetchAdCampaigns();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to bulk delete campaigns",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const toggleAdCampaignSelection = (offerId: string) => {
+    setSelectedAdCampaigns(prev => {
+      const next = new Set(prev);
+      if (next.has(offerId)) next.delete(offerId);
+      else next.add(offerId);
+      return next;
+    });
+  };
+
+  const toggleAllAdCampaigns = () => {
+    if (selectedAdCampaigns.size === adCampaigns.length) {
+      setSelectedAdCampaigns(new Set());
+    } else {
+      setSelectedAdCampaigns(new Set(adCampaigns.map(o => o.offer_id)));
     }
   };
 
@@ -3581,89 +3631,134 @@ const AdminOffers = () => {
                   <p className="text-sm text-muted-foreground mt-1">Campaigns submitted by advertisers will appear here once approved</p>
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Image</TableHead>
-                      <TableHead>Campaign ID</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Allowed Countries</TableHead>
-                      <TableHead>Payout</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {adCampaigns.map((offer) => (
-                      <TableRow key={offer.offer_id}>
-                        <TableCell>
-                          <img
-                            src={getOfferImage(offer as any)}
-                            alt={offer.name}
-                            className="w-12 h-12 object-cover rounded border"
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><rect fill="%23e5e7eb" width="48" height="48"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%239ca3af" font-size="10">No Img</text></svg>';
-                            }}
+                <>
+                  {/* Bulk Delete Bar */}
+                  {selectedAdCampaigns.size > 0 && (
+                    <div className="flex items-center gap-3 p-3 mb-4 bg-red-50 border border-red-200 rounded-lg">
+                      <span className="text-sm font-medium text-red-800">{selectedAdCampaigns.size} selected</span>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={handleBulkDeleteAdCampaigns}
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" />
+                        Delete Selected
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedAdCampaigns(new Set())}
+                      >
+                        Clear Selection
+                      </Button>
+                    </div>
+                  )}
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-10">
+                          <input
+                            type="checkbox"
+                            checked={selectedAdCampaigns.size === adCampaigns.length && adCampaigns.length > 0}
+                            onChange={toggleAllAdCampaigns}
+                            className="rounded border-gray-300"
                           />
-                        </TableCell>
-                        <TableCell className="font-mono font-medium">
-                          {offer.campaign_id || offer.offer_id}
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-medium">{offer.name}</div>
-                          <div className="text-xs text-muted-foreground">{offer.vertical}</div>
-                        </TableCell>
-                        <TableCell className="text-sm">
-                          {offer.allowed_countries && offer.allowed_countries.length > 0 ? (
-                            <div className="flex flex-wrap gap-1 max-w-[200px]">
-                              {offer.allowed_countries.map((c: string) => (
-                                <Badge key={c} variant="secondary" className="text-[10px] px-1 py-0">
-                                  {c}
-                                </Badge>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">Global</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="font-semibold text-emerald-600">
-                          ${offer.payout?.toFixed(2)}
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={
-                            offer.status === 'active' 
-                              ? 'bg-green-100 text-green-800 hover:bg-green-200' 
-                              : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
-                          }>
-                            {offer.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleEditOffer(offer)}
-                            >
-                              <Edit className="h-4 w-4 mr-1" />
-                              Edit
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleDeleteOffer(offer.offer_id, offer.name)}
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            >
-                              <Trash2 className="h-4 w-4 mr-1" />
-                              Delete
-                            </Button>
-                          </div>
-                        </TableCell>
+                        </TableHead>
+                        <TableHead>Image</TableHead>
+                        <TableHead>Campaign ID</TableHead>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Advertiser</TableHead>
+                        <TableHead>Allowed Countries</TableHead>
+                        <TableHead>Spent</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {adCampaigns.map((offer) => (
+                        <TableRow key={offer.offer_id} className={selectedAdCampaigns.has(offer.offer_id) ? 'bg-blue-50' : ''}>
+                          <TableCell>
+                            <input
+                              type="checkbox"
+                              checked={selectedAdCampaigns.has(offer.offer_id)}
+                              onChange={() => toggleAdCampaignSelection(offer.offer_id)}
+                              className="rounded border-gray-300"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <img
+                              src={getOfferImage(offer as any)}
+                              alt={offer.name}
+                              className="w-12 h-12 object-cover rounded border"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><rect fill="%23e5e7eb" width="48" height="48"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%239ca3af" font-size="10">No Img</text></svg>';
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell className="font-mono font-medium text-xs">
+                            {offer.campaign_id || offer.offer_id}
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-medium">{offer.name}</div>
+                            <div className="text-xs text-muted-foreground">{offer.vertical}</div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm font-medium">{offer.advertiser_name || 'Unknown'}</div>
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {offer.allowed_countries && offer.allowed_countries.length > 0 ? (
+                              <div className="flex flex-wrap gap-1 max-w-[200px]">
+                                {offer.allowed_countries.map((c: string) => (
+                                  <Badge key={c} variant="secondary" className="text-[10px] px-1 py-0">
+                                    {c}
+                                  </Badge>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">Global</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="font-semibold text-emerald-600">
+                            ${offer.payout?.toFixed(2)}
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={
+                              offer.status === 'active' 
+                                ? 'bg-green-100 text-green-800 hover:bg-green-200' 
+                                : offer.status === 'inactive'
+                                ? 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                                : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
+                            }>
+                              {offer.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleEditOffer(offer)}
+                              >
+                                <Edit className="h-4 w-4 mr-1" />
+                                Edit
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDeleteAdCampaign(offer.offer_id, offer.name)}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 className="h-4 w-4 mr-1" />
+                                Delete
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </>
               )}
             </CardContent>
           </Card>

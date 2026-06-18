@@ -126,13 +126,13 @@ def admin_performance_report():
 
         # Secure sensitive platform margin data in admin views
         if user.get('role') == 'subadmin':
-            if 'report' in report and 'data' in report['report']:
-                for row in report['report']['data']:
+            if 'data' in report:
+                for row in report['data']:
                     row['total_revenue'] = row.get('total_payout', 0.0)
                     row['profit'] = 0.0
                     row['roi'] = 0.0
-            if 'report' in report and 'summary' in report['report']:
-                summary = report['report']['summary']
+            if 'summary' in report:
+                summary = report['summary']
                 summary['total_revenue'] = summary.get('total_payout', 0.0)
                 summary['profit'] = 0.0
                 summary['roi'] = 0.0
@@ -1588,7 +1588,7 @@ def admin_advertiser_reports():
         if advertiser_id and advertiser_id != 'all':
             offer_filter['advertiser_id'] = advertiser_id
             
-        offers = list(db.offers.find(offer_filter, {'offer_id': 1, 'name': 1, 'advertiser_id': 1}))
+        offers = list(db.offers.find(offer_filter, {'offer_id': 1, 'name': 1, 'advertiser_id': 1, 'payout': 1}))
         offer_ids = [o.get('offer_id') for o in offers if o.get('offer_id')]
         offer_names = {o.get('offer_id'): o.get('name', 'Unknown Offer') for o in offers}
         
@@ -1651,10 +1651,16 @@ def admin_advertiser_reports():
         total_clicks = len(clicks)
         total_conversions = len(conversions)
         
+        # Build offer payout map for fallback when conversion payout is 0
+        offer_payouts = {o.get('offer_id'): float(o.get('payout') or 0) for o in offers}
+        
         total_spend = 0.0
         for c in conversions:
             try:
-                total_spend += float(c.get('payout') or 0.0)
+                conv_payout = float(c.get('payout') or 0.0)
+                if conv_payout == 0:
+                    conv_payout = offer_payouts.get(c.get('offer_id'), 0.0)
+                total_spend += conv_payout
             except (ValueError, TypeError):
                 pass
                 
@@ -1709,7 +1715,10 @@ def admin_advertiser_reports():
                 breakdown_data[key] = {'impressions': 0, 'clicks': 0, 'conversions': 0, 'spend': 0.0}
             breakdown_data[key]['conversions'] += 1
             try:
-                breakdown_data[key]['spend'] += float(c.get('payout') or 0.0)
+                conv_payout = float(c.get('payout') or 0.0)
+                if conv_payout == 0:
+                    conv_payout = offer_payouts.get(c.get('offer_id'), 0.0)
+                breakdown_data[key]['spend'] += conv_payout
             except (ValueError, TypeError):
                 pass
 
@@ -1754,10 +1763,57 @@ def admin_advertiser_reports():
                 'status': c.get('status', 'approved')
             })
 
+        # Format click log with full details (publisher, IP, device, etc.)
+        click_log_query = {
+            'offer_id': {'$in': offer_ids},
+            'click_time': {'$gte': start_date, '$lte': end_date}
+        }
+        click_log_raw = list(db.clicks.find(click_log_query).sort('click_time', -1).limit(200))
+        
+        # Resolve publisher names
+        pub_ids = list(set(c.get('user_id') for c in click_log_raw if c.get('user_id')))
+        pub_map = {}
+        if pub_ids:
+            users_col = db.users if db is not None else None
+            if users_col is not None:
+                from bson import ObjectId as _PubObjId
+                for pid in pub_ids:
+                    try:
+                        user = users_col.find_one({'_id': _PubObjId(pid)}, {'username': 1, 'email': 1}) if _PubObjId.is_valid(pid) else None
+                        if user:
+                            pub_map[pid] = user.get('username') or user.get('email') or pid
+                        else:
+                            pub_map[pid] = pid
+                    except Exception:
+                        pub_map[pid] = pid
+        
+        clicks_list = []
+        for c in click_log_raw:
+            clicks_list.append({
+                'click_id': c.get('click_id', ''),
+                'time': c.get('click_time').isoformat() if c.get('click_time') else '',
+                'offer_id': c.get('offer_id', ''),
+                'offer_name': offer_names.get(c.get('offer_id'), c.get('offer_name', 'Unknown')),
+                'publisher_id': c.get('user_id', ''),
+                'publisher_name': pub_map.get(c.get('user_id', ''), c.get('user_id', 'Unknown')),
+                'country': c.get('country') or c.get('country_code') or 'Unknown',
+                'city': c.get('city', ''),
+                'device': c.get('device_type') or 'unknown',
+                'browser': c.get('browser', ''),
+                'os': c.get('os', ''),
+                'ip_address': c.get('ip_address', ''),
+                'referer': c.get('referer', ''),
+                'sub_id1': c.get('sub_id1', ''),
+                'sub_id2': c.get('sub_id2', ''),
+                'converted': c.get('converted', False),
+                'fraud_score': c.get('fraud_score', 0),
+            })
+
         return jsonify({
             'kpis': kpis,
             'breakdown': breakdown_list,
             'conversions': conversions_list,
+            'clicks': clicks_list,
             'advertisers': advertisers_list
         }), 200
 

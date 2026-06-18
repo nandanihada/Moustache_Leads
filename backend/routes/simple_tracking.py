@@ -461,6 +461,20 @@ def _save_click_sync(click_id, offer_id, offer, user_id, ip_address, user_agent,
         except Exception:
             pass
 
+        # Update advertiser campaign stats if this is an advertiser-sourced offer
+        try:
+            campaign_id = offer.get('campaign_id')
+            if campaign_id:
+                from bson import ObjectId
+                campaigns_col = db_instance.get_collection('campaigns')
+                if campaigns_col:
+                    campaigns_col.update_one(
+                        {'_id': ObjectId(campaign_id)},
+                        {'$inc': {'clicks': 1, 'impressions': 1}}
+                    )
+        except Exception:
+            pass
+
     except Exception as e:
         logger.error(f"❌ Background click processing failed for {click_id}: {e}")
 

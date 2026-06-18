@@ -135,6 +135,35 @@ def get_campaigns():
         campaign_model = get_campaign_model()
         campaigns = campaign_model.get_advertiser_campaigns(advertiser_id, status_filter)
         
+        # Enrich campaigns with real-time stats from clicks/conversions collections
+        db = db_instance.get_db()
+        if db is not None:
+            for c in campaigns:
+                campaign_id = c.get('_id') or ''
+                # Find the offer linked to this campaign
+                offer = db.offers.find_one(
+                    {'campaign_id': str(campaign_id), 'offer_source': 'advertiser'},
+                    {'offer_id': 1}
+                )
+                if offer and offer.get('offer_id'):
+                    offer_id = offer['offer_id']
+                    # Count real clicks
+                    real_clicks = db.clicks.count_documents({'offer_id': offer_id})
+                    # Count real conversions
+                    real_conversions = db.conversions.count_documents({'offer_id': offer_id})
+                    # Sum real spend from conversions
+                    spend_pipeline = [
+                        {'$match': {'offer_id': offer_id}},
+                        {'$group': {'_id': None, 'total': {'$sum': {'$toDouble': {'$ifNull': ['$payout', 0]}}}}}
+                    ]
+                    spend_result = list(db.conversions.aggregate(spend_pipeline))
+                    real_spent = spend_result[0]['total'] if spend_result else 0.0
+                    
+                    c['clicks'] = real_clicks
+                    c['conversions'] = real_conversions
+                    c['spent'] = round(real_spent, 2)
+                    c['impressions'] = real_clicks  # Use clicks as proxy for impressions
+        
         # Format datetime fields
         for c in campaigns:
             if c.get('created_at'):
@@ -813,7 +842,7 @@ def get_reports():
             end_date = now
             
         # Get advertiser offers/campaigns
-        offers = list(db.offers.find({'offer_source': 'advertiser', 'advertiser_id': advertiser_id}, {'offer_id': 1, 'name': 1}))
+        offers = list(db.offers.find({'offer_source': 'advertiser', 'advertiser_id': advertiser_id}, {'offer_id': 1, 'name': 1, 'payout': 1}))
         offer_ids = [o.get('offer_id') for o in offers if o.get('offer_id')]
         offer_names = {o.get('offer_id'): o.get('name', 'Unknown Offer') for o in offers}
         
@@ -865,10 +894,17 @@ def get_reports():
         total_clicks = len(clicks)
         total_conversions = len(conversions)
         
+        # Build offer payout map for fallback when conversion payout is 0
+        offer_payouts = {o.get('offer_id'): float(o.get('payout') or 0) for o in offers}
+        
         total_spend = 0.0
         for c in conversions:
             try:
-                total_spend += float(c.get('payout') or 0.0)
+                conv_payout = float(c.get('payout') or 0.0)
+                if conv_payout == 0:
+                    # Fallback: use the offer's configured payout
+                    conv_payout = offer_payouts.get(c.get('offer_id'), 0.0)
+                total_spend += conv_payout
             except (ValueError, TypeError):
                 pass
                 
@@ -923,7 +959,10 @@ def get_reports():
                 breakdown_data[key] = {'impressions': 0, 'clicks': 0, 'conversions': 0, 'spend': 0.0}
             breakdown_data[key]['conversions'] += 1
             try:
-                breakdown_data[key]['spend'] += float(c.get('payout') or 0.0)
+                conv_payout = float(c.get('payout') or 0.0)
+                if conv_payout == 0:
+                    conv_payout = offer_payouts.get(c.get('offer_id'), 0.0)
+                breakdown_data[key]['spend'] += conv_payout
             except (ValueError, TypeError):
                 pass
 

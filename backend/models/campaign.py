@@ -99,7 +99,9 @@ class Campaign:
         return campaign
     
     def sync_to_offer(self, campaign_id: str) -> bool:
-        """Sync advertiser campaign to offers collection for redirection and reporting"""
+        """Sync advertiser campaign to offers collection for redirection and reporting.
+        If the offer already exists (created by admin), only update status — don't overwrite admin edits.
+        """
         try:
             campaign = self.collection.find_one({'_id': ObjectId(campaign_id)})
             if not campaign:
@@ -120,23 +122,35 @@ class Campaign:
                 'completed': 'paused',
                 'rejected': 'inactive',
                 'draft': 'inactive',
-                'pending': 'pending'
+                'pending': 'pending',
+                'approved': 'active'
             }
             offer_status = status_map.get(campaign.get('status'), 'inactive')
             
             if existing_offer:
-                offer_id = existing_offer.get('offer_id')
-            else:
-                from models.offer import Offer
-                offer_model = Offer()
-                # Loop to find a unique offer_id in case counters got out of sync
-                attempts = 0
-                while attempts < 100:
-                    offer_id = offer_model._get_next_offer_id()
-                    # Double-check it doesn't already exist in offers collection
-                    if not offers_col.find_one({'offer_id': offer_id}):
-                        break
-                    attempts += 1
+                # Offer already exists (created by admin or previous sync)
+                # Only update status and is_active — don't overwrite name, payout, countries, etc.
+                update_fields = {
+                    'status': offer_status,
+                    'is_active': offer_status == 'active',
+                    'updated_at': datetime.utcnow()
+                }
+                offers_col.update_one(
+                    {'campaign_id': str(campaign['_id'])},
+                    {'$set': update_fields}
+                )
+                logger.info(f"Updated status of existing offer for campaign {campaign_id} to {offer_status}")
+                return True
+            
+            # No existing offer — create a new one from campaign data
+            from models.offer import Offer
+            offer_model = Offer()
+            attempts = 0
+            while attempts < 100:
+                offer_id = offer_model._get_next_offer_id()
+                if not offers_col.find_one({'offer_id': offer_id}):
+                    break
+                attempts += 1
                 
             target_countries = campaign.get('target_countries', [])
             if isinstance(target_countries, str):
@@ -180,12 +194,8 @@ class Campaign:
                 'is_public': True
             }
             
-            offers_col.update_one(
-                {'campaign_id': str(campaign['_id'])},
-                {'$set': offer_doc},
-                upsert=True
-            )
-            logger.info(f"Successfully synced campaign {campaign_id} to offer {offer_id}")
+            offers_col.insert_one(offer_doc)
+            logger.info(f"Created new offer {offer_id} for campaign {campaign_id}")
             return True
         except Exception as e:
             logger.error(f"Error syncing campaign {campaign_id} to offer: {str(e)}", exc_info=True)
@@ -248,32 +258,39 @@ class Campaign:
         return result.modified_count > 0
     
     def get_campaign_stats(self, advertiser_id: str) -> dict:
-        """Get campaign statistics for an advertiser"""
+        """Get campaign statistics for an advertiser using real-time data from clicks/conversions"""
         total = self.collection.count_documents({'advertiser_id': advertiser_id})
         running = self.collection.count_documents({'advertiser_id': advertiser_id, 'status': self.STATUS_RUNNING})
         paused = self.collection.count_documents({'advertiser_id': advertiser_id, 'status': self.STATUS_PAUSED})
         draft = self.collection.count_documents({'advertiser_id': advertiser_id, 'status': self.STATUS_DRAFT})
         pending = self.collection.count_documents({'advertiser_id': advertiser_id, 'status': self.STATUS_PENDING})
         
-        # Aggregate total spent and revenue
-        pipeline = [
-            {'$match': {'advertiser_id': advertiser_id}},
-            {'$group': {
-                '_id': None,
-                'total_spent': {'$sum': '$spent'},
-                'total_impressions': {'$sum': '$impressions'},
-                'total_clicks': {'$sum': '$clicks'},
-                'total_conversions': {'$sum': '$conversions'}
-            }}
-        ]
+        # Get real-time stats from clicks and conversions collections
+        db = db_instance.get_db()
+        total_clicks = 0
+        total_conversions = 0
+        total_spent = 0.0
         
-        agg_result = list(self.collection.aggregate(pipeline))
-        totals = agg_result[0] if agg_result else {
-            'total_spent': 0,
-            'total_impressions': 0,
-            'total_clicks': 0,
-            'total_conversions': 0
-        }
+        if db is not None:
+            # Find all offers belonging to this advertiser
+            offers = list(db.offers.find(
+                {'offer_source': 'advertiser', 'advertiser_id': advertiser_id},
+                {'offer_id': 1}
+            ))
+            offer_ids = [o.get('offer_id') for o in offers if o.get('offer_id')]
+            
+            if offer_ids:
+                # Count real clicks
+                total_clicks = db.clicks.count_documents({'offer_id': {'$in': offer_ids}})
+                # Count real conversions
+                total_conversions = db.conversions.count_documents({'offer_id': {'$in': offer_ids}})
+                # Sum real spend from conversions
+                spend_pipeline = [
+                    {'$match': {'offer_id': {'$in': offer_ids}}},
+                    {'$group': {'_id': None, 'total': {'$sum': {'$toDouble': {'$ifNull': ['$payout', 0]}}}}}
+                ]
+                spend_result = list(db.conversions.aggregate(spend_pipeline))
+                total_spent = spend_result[0]['total'] if spend_result else 0.0
         
         return {
             'total_campaigns': total,
@@ -281,10 +298,10 @@ class Campaign:
             'paused_campaigns': paused,
             'draft_campaigns': draft,
             'pending_campaigns': pending,
-            'total_spent': totals.get('total_spent', 0),
-            'total_impressions': totals.get('total_impressions', 0),
-            'total_clicks': totals.get('total_clicks', 0),
-            'total_conversions': totals.get('total_conversions', 0)
+            'total_spent': round(total_spent, 2),
+            'total_impressions': total_clicks,  # Use clicks as impressions proxy
+            'total_clicks': total_clicks,
+            'total_conversions': total_conversions
         }
 
 

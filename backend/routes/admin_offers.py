@@ -1517,6 +1517,50 @@ def get_offers():
         for offer in offers:
             offer['_id'] = str(offer['_id'])
 
+        # Enrich advertiser offers with advertiser name
+        if offer_source == 'advertiser':
+            advertiser_ids = list(set(o.get('advertiser_id') for o in offers if o.get('advertiser_id')))
+            if advertiser_ids:
+                try:
+                    advertisers_col = db_instance.get_collection('advertisers')
+                    if advertisers_col:
+                        from bson import ObjectId as _AdvObjId
+                        # Try looking up by ObjectId first
+                        valid_oids = [_AdvObjId(aid) for aid in advertiser_ids if aid and len(str(aid)) == 24 and _AdvObjId.is_valid(aid)]
+                        adv_objs = list(advertisers_col.find(
+                            {'_id': {'$in': valid_oids}} if valid_oids else {'_id': None},
+                            {'company_name': 1, 'first_name': 1, 'last_name': 1, 'email': 1}
+                        )) if valid_oids else []
+                        adv_map = {}
+                        for a in adv_objs:
+                            name = a.get('company_name') or f"{a.get('first_name', '')} {a.get('last_name', '')}".strip() or a.get('email', 'Unknown')
+                            adv_map[str(a['_id'])] = name
+                        
+                        # For any offers still not matched, try lookup via campaign_id → campaigns collection
+                        unmatched = [o for o in offers if o.get('advertiser_id') and o.get('advertiser_id') not in adv_map]
+                        if unmatched:
+                            campaigns_col = db_instance.get_collection('campaigns')
+                            if campaigns_col:
+                                for o in unmatched:
+                                    camp_id = o.get('campaign_id')
+                                    if camp_id and len(camp_id) == 24 and _AdvObjId.is_valid(camp_id):
+                                        camp = campaigns_col.find_one({'_id': _AdvObjId(camp_id)}, {'advertiser_id': 1})
+                                        if camp and camp.get('advertiser_id'):
+                                            adv_id = camp['advertiser_id']
+                                            if adv_id not in adv_map:
+                                                adv = advertisers_col.find_one({'_id': _AdvObjId(adv_id)}, {'company_name': 1, 'first_name': 1, 'last_name': 1, 'email': 1})
+                                                if adv:
+                                                    name = adv.get('company_name') or f"{adv.get('first_name', '')} {adv.get('last_name', '')}".strip() or adv.get('email', 'Unknown')
+                                                    adv_map[adv_id] = name
+                                                    adv_map[o.get('advertiser_id', '')] = name
+                        
+                        for offer in offers:
+                            offer['advertiser_name'] = adv_map.get(offer.get('advertiser_id', ''), offer.get('advertiser_id', 'Unknown')[:20] if offer.get('advertiser_id') else 'Unknown')
+                except Exception as adv_err:
+                    logging.warning(f"Failed to enrich advertiser names: {adv_err}")
+                    for offer in offers:
+                        offer['advertiser_name'] = 'Unknown'
+
         # Calculate accurate totals
         organic_query = dict(query)
         organic_query['is_pinned'] = {'$ne': True}

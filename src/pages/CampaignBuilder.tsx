@@ -3476,7 +3476,7 @@ function AdvertiserReportsPage({ t }: any) {
   const exportCSV = () => {
     if (!data.breakdown || data.breakdown.length === 0) return;
     
-    let headers = [breakdown.toUpperCase(), "IMPRESSIONS", "CLICKS", "CTR", "CONVERSIONS", "CR%", "SPEND", "CPA"];
+    let headers = [breakdown.toUpperCase(), "IMPRESSIONS", "CONVERSIONS", "SPEND"];
     let csvRows = [headers.join(",")];
     
     data.breakdown.forEach((row: any) => {
@@ -3484,33 +3484,21 @@ function AdvertiserReportsPage({ t }: any) {
       csvRows.push([
         `"${label}"`,
         row.impressions,
-        row.clicks,
-        `${row.ctr}%`,
         row.conversions,
-        `${row.cr}%`,
-        `$${row.spend.toFixed(2)}`,
-        `$${row.cpa.toFixed(2)}`
+        `$${row.spend.toFixed(2)}`
       ].join(","));
     });
     
     // Add total row
     const totalImpressions = data.breakdown.reduce((sum: number, r: any) => sum + r.impressions, 0);
-    const totalClicks = data.breakdown.reduce((sum: number, r: any) => sum + r.clicks, 0);
     const totalConversions = data.breakdown.reduce((sum: number, r: any) => sum + r.conversions, 0);
     const totalSpend = data.breakdown.reduce((sum: number, r: any) => sum + r.spend, 0);
-    const totalCtr = totalImpressions > 0 ? (totalClicks / totalImpressions * 100).toFixed(2) : "0.00";
-    const totalCr = totalClicks > 0 ? (totalConversions / totalClicks * 100).toFixed(2) : "0.00";
-    const totalCpa = totalConversions > 0 ? (totalSpend / totalConversions).toFixed(2) : "0.00";
     
     csvRows.push([
       `"TOTAL"`,
       totalImpressions,
-      totalClicks,
-      `${totalCtr}%`,
       totalConversions,
-      `${totalCr}%`,
-      `$${totalSpend.toFixed(2)}`,
-      `$${totalCpa}`
+      `$${totalSpend.toFixed(2)}`
     ].join(","));
     
     const csvContent = "data:text/csv;charset=utf-8," + csvRows.join("\n");
@@ -3606,12 +3594,8 @@ function AdvertiserReportsPage({ t }: any) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 20 }}>
         {[
           { label: "Impressions", val: num(data.kpis?.impressions), color: t.brand },
-          { label: "Clicks", val: num(data.kpis?.clicks), color: t.brand2 },
-          { label: "CTR", val: (data.kpis?.ctr || 0) + "%", color: t.amber },
           { label: "Conversions", val: num(data.kpis?.conversions), color: t.green },
-          { label: "CR%", val: (data.kpis?.cr || 0) + "%", color: t.green },
           { label: "Spend", val: money(data.kpis?.spend), color: t.red },
-          { label: "Avg CPA", val: money(data.kpis?.avg_cpa), color: t.textDim }
         ].map((c, i) => (
           <div 
             key={i} 
@@ -3677,12 +3661,8 @@ function AdvertiserReportsPage({ t }: any) {
                 <tr style={{ borderBottom: `2px solid ${t.border}` }}>
                   <th style={{ textAlign: "left", padding: 12, color: t.textDim, fontWeight: 600 }}>{breakdown.toUpperCase()}</th>
                   <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>IMPRESSIONS</th>
-                  <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>CLICKS</th>
-                  <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>CTR</th>
                   <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>CONVERSIONS</th>
-                  <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>CR%</th>
                   <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>SPEND</th>
-                  <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>CPA</th>
                 </tr>
               </thead>
               <tbody>
@@ -3698,18 +3678,14 @@ function AdvertiserReportsPage({ t }: any) {
                       {breakdown === 'campaign' ? row.campaign_name : row.key}
                     </td>
                     <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{num(row.impressions)}</td>
-                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{num(row.clicks)}</td>
-                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{row.ctr.toFixed(2)}%</td>
                     <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600, color: t.green }}>{num(row.conversions)}</td>
-                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{row.cr.toFixed(2)}%</td>
                     <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{money(row.spend)}</td>
-                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums", color: t.textDim }}>{money(row.cpa)}</td>
                   </tr>
                 ))}
                 
                 {(!data.breakdown || data.breakdown.length === 0) && (
                   <tr>
-                    <td colSpan={8} style={{ padding: 40, textAlign: "center", color: t.textFaint }}>No data available for this range</td>
+                    <td colSpan={4} style={{ padding: 40, textAlign: "center", color: t.textFaint }}>No data available for this range</td>
                   </tr>
                 )}
               </tbody>
@@ -3719,12 +3695,8 @@ function AdvertiserReportsPage({ t }: any) {
                   <tr style={{ borderTop: `2px solid ${t.border}`, fontWeight: 800, background: t.panelAlt }}>
                     <td style={{ padding: 12, color: t.text }}>TOTAL</td>
                     <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{num(totalImpressions)}</td>
-                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{num(totalClicks)}</td>
-                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{totalCtr.toFixed(2)}%</td>
                     <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums", color: t.green }}>{num(totalConversions)}</td>
-                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{totalCr.toFixed(2)}%</td>
                     <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(totalSpend)}</td>
-                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums", color: t.textDim }}>{money(totalCpa)}</td>
                   </tr>
                 </tfoot>
               )}
@@ -3748,7 +3720,7 @@ function AdvertiserReportsPage({ t }: any) {
                 <th style={{ textAlign: "center", padding: 12, color: t.textDim, fontWeight: 600 }}>GEO</th>
                 <th style={{ textAlign: "center", padding: 12, color: t.textDim, fontWeight: 600 }}>DEVICE</th>
                 <th style={{ textAlign: "left", padding: 12, color: t.textDim, fontWeight: 600 }}>GOAL</th>
-                <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>PAYOUT</th>
+                <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>SPENT</th>
                 <th style={{ textAlign: "center", padding: 12, color: t.textDim, fontWeight: 600 }}>STATUS</th>
               </tr>
             </thead>

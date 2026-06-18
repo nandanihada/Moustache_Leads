@@ -281,7 +281,7 @@ function AdminCampaignTrackingContent() {
                 <TableHead className="text-center">GEO</TableHead>
                 <TableHead className="text-center">DEVICE</TableHead>
                 <TableHead>GOAL</TableHead>
-                <TableHead className="text-right">PAYOUT</TableHead>
+                <TableHead className="text-right">SPENT</TableHead>
                 <TableHead className="text-center">STATUS</TableHead>
               </TableRow>
             </TableHeader>
@@ -309,6 +309,70 @@ function AdminCampaignTrackingContent() {
                 <TableRow>
                   <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                     No conversion logs found for this range
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
+
+      {/* Click Log */}
+      <Card className="p-6">
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold">Click Log</h3>
+          <p className="text-xs text-muted-foreground">Detailed click-level tracking — publisher, geo, device, IP, and conversion status.</p>
+        </div>
+
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>TIME</TableHead>
+                <TableHead>CLICK ID</TableHead>
+                <TableHead>OFFER</TableHead>
+                <TableHead>PUBLISHER</TableHead>
+                <TableHead className="text-center">COUNTRY</TableHead>
+                <TableHead className="text-center">DEVICE</TableHead>
+                <TableHead>BROWSER</TableHead>
+                <TableHead>IP ADDRESS</TableHead>
+                <TableHead>SUB ID</TableHead>
+                <TableHead className="text-center">CONVERTED</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.clicks?.map((c: any, idx: number) => (
+                <TableRow key={idx}>
+                  <TableCell className="text-muted-foreground text-xs whitespace-nowrap">{new Date(c.time).toLocaleString()}</TableCell>
+                  <TableCell className="font-mono text-xs">{c.click_id}</TableCell>
+                  <TableCell className="font-semibold text-sm">{c.offer_name}</TableCell>
+                  <TableCell>
+                    <div className="text-sm font-medium">{c.publisher_name}</div>
+                    {c.publisher_id !== c.publisher_name && (
+                      <div className="text-[10px] text-muted-foreground">{c.publisher_id}</div>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <span className="text-xs">{c.country}{c.city ? `, ${c.city}` : ''}</span>
+                  </TableCell>
+                  <TableCell className="text-center capitalize text-xs">{c.device}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{c.browser} / {c.os}</TableCell>
+                  <TableCell className="font-mono text-[10px] text-muted-foreground">{c.ip_address}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{c.sub_id1 || '-'}</TableCell>
+                  <TableCell className="text-center">
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      c.converted ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+                    }`}>
+                      {c.converted ? 'YES' : 'NO'}
+                    </span>
+                  </TableCell>
+                </TableRow>
+              ))}
+              
+              {(!data.clicks || data.clicks.length === 0) && (
+                <TableRow>
+                  <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
+                    No click data recorded for this range
                   </TableCell>
                 </TableRow>
               )}

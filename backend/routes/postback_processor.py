@@ -99,16 +99,23 @@ def process_single_postback(postback):
         logger.info(f"✅ Click verified: click_id={click_id_from_pb}, user={click.get('user_id')}, offer={click.get('offer_id')}")
         
         # Fallback to offer payout if payout is 0 or missing
-        if payout == 0 and click and click.get('offer_id'):
-            try:
-                offer_col = db_instance.get_collection('offers')
-                if offer_col is not None:
-                    offer = offer_col.find_one({'offer_id': click.get('offer_id')})
-                    if offer:
-                        payout = float(offer.get('payout') or 0.0)
-                        logger.info(f"Using offer default payout: {payout} for offer {click.get('offer_id')}")
-            except Exception as e:
-                logger.error(f"Error fetching fallback payout from offer: {e}")
+        if payout == 0 and click:
+            # First try payout from the click record (stored at click time)
+            click_payout = click.get('payout')
+            if click_payout and float(click_payout or 0) > 0:
+                payout = float(click_payout)
+                logger.info(f"Using click-stored payout: {payout} for click {click.get('click_id')}")
+            elif click.get('offer_id'):
+                # Fallback to offer's current payout
+                try:
+                    offer_col = db_instance.get_collection('offers')
+                    if offer_col is not None:
+                        offer = offer_col.find_one({'offer_id': click.get('offer_id')})
+                        if offer:
+                            payout = float(offer.get('payout') or 0.0)
+                            logger.info(f"Using offer default payout: {payout} for offer {click.get('offer_id')}")
+                except Exception as e:
+                    logger.error(f"Error fetching fallback payout from offer: {e}")
                 
         # DUPLICATE CHECK: Reject if this click_id already has a conversion
         existing_conv_for_click = conversions_collection.find_one({'click_id': click_id_from_pb})
@@ -184,6 +191,29 @@ def process_single_postback(postback):
             {'click_id': click['click_id']},
             {'$set': {'converted': True, 'postback_received': True, 'postback_revenue': payout}}
         )
+        
+        # Update advertiser campaign stats if this is an advertiser-sourced offer
+        try:
+            campaign_id = click.get('campaign_id')
+            if campaign_id:
+                from bson import ObjectId as _ObjId
+                campaigns_col = db_instance.get_collection('campaigns')
+                if campaigns_col:
+                    campaigns_col.update_one(
+                        {'_id': _ObjId(campaign_id)},
+                        {'$inc': {'conversions': 1, 'spent': float(payout or 0)}}
+                    )
+                    # Deduct from advertiser balance
+                    campaign = campaigns_col.find_one({'_id': _ObjId(campaign_id)}, {'advertiser_id': 1})
+                    if campaign and campaign.get('advertiser_id') and float(payout or 0) > 0:
+                        advertisers_col = db_instance.get_collection('advertisers')
+                        if advertisers_col:
+                            advertisers_col.update_one(
+                                {'_id': _ObjId(campaign.get('advertiser_id'))},
+                                {'$inc': {'balance': -float(payout or 0)}}
+                            )
+        except Exception:
+            pass
         
         # === PHASE 1.2: Record funnel event + update click postback fields ===
         try:
