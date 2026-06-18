@@ -63,11 +63,64 @@ class TargetingService:
             if not self._validate_connection_type(offer, connection_type):
                 return False, f"Connection type '{connection_type}' not allowed"
             
+            # 8. VPN Targeting
+            is_vpn = request_data.get('is_vpn', False)
+            if not self._validate_vpn(offer, is_vpn):
+                vpn_state = "VPN traffic" if is_vpn else "non-VPN traffic"
+                return False, f"VPN setting restricts this {vpn_state}"
+                
+            # 9. Zone ID Targeting
+            zone_id = request_data.get('zone_id', '')
+            if not self._validate_zones(offer, zone_id):
+                return False, f"Zone '{zone_id}' is restricted"
+            
             return True, "All targeting criteria met"
             
         except Exception as e:
             self.logger.error(f"Error validating targeting: {str(e)}")
             return False, f"Targeting validation error: {str(e)}"
+            
+    def _validate_vpn(self, offer, is_vpn):
+        """Validate VPN targeting"""
+        vpn_setting = offer.get('vpn', 'all')
+        if not vpn_setting:
+            return True
+        vpn_setting = str(vpn_setting).lower()
+        if vpn_setting == 'all':
+            return True
+        if vpn_setting == 'no_vpn' and is_vpn:
+            return False
+        if vpn_setting == 'only_vpn' and not is_vpn:
+            return False
+        return True
+
+    def _validate_zones(self, offer, zone_id):
+        """Validate Zone ID targeting"""
+        zone_mode = offer.get('zone_mode', 'include')
+        zones_str = offer.get('zones', '')
+        if not zones_str:
+            return True # No zone restriction configured
+            
+        # Parse zones into a set of lowercased, stripped strings
+        zones = {z.strip().lower() for z in zones_str.split(',') if z.strip()}
+        if not zones:
+            return True
+            
+        normalized_zone = str(zone_id).strip().lower()
+        
+        # If zoneMode is 'include', the incoming zone_id MUST be in the allowed list
+        if str(zone_mode).lower() == 'include':
+            if not normalized_zone:
+                return False  # Missing zone ID is blocked if we only include specific zones
+            return normalized_zone in zones
+            
+        # If zoneMode is 'exclude', the incoming zone_id MUST NOT be in the blocked list
+        if str(zone_mode).lower() == 'exclude':
+            if not normalized_zone:
+                return True   # Allow if zone ID is empty or not provided
+            return normalized_zone not in zones
+            
+        return True
     
     def _validate_country(self, offer, country):
         """Validate country targeting"""
@@ -99,7 +152,7 @@ class TargetingService:
         if device_type in targets:
             return True
         
-        # OS-level match (e.g. 'ios', 'android' → mobile device)
+        # OS-level match (e.g. 'ios', 'android' -> mobile device)
         os_to_device = {
             'ios': 'mobile',
             'android': 'mobile',
@@ -226,7 +279,14 @@ class TargetingService:
         if connection_targeting == 'all':
             return True
         
-        return connection_targeting == connection_type
+        # Perform loose match (e.g. 'wifi' matches 'Wi-Fi')
+        conn_tgt = str(connection_targeting).lower().replace('-', '').replace(' ', '')
+        conn_usr = str(connection_type).lower().replace('-', '').replace(' ', '')
+        
+        if conn_tgt == 'all' or not conn_tgt:
+            return True
+            
+        return conn_tgt == conn_usr
     
     def extract_request_info(self, request):
         """
@@ -266,8 +326,26 @@ class TargetingService:
             # Get carrier (would need external service)
             carrier = request.headers.get('X-Carrier', '')
             
-            # Get connection type (would need external detection)
-            connection_type = 'unknown'
+            # Get connection type (from query param or defaults)
+            connection_type = request.args.get('connection') or request.args.get('connection_type') or 'unknown'
+            
+            # Detect VPN (from query param, header, or proxies)
+            is_vpn = (
+                request.args.get('is_vpn') == 'true' or
+                request.headers.get('X-VPN-Detected') == 'true' or
+                request.headers.get('Via') is not None or
+                'vpn' in user_agent.lower()
+            )
+            
+            # Extract zone ID
+            zone_id = (
+                request.args.get('zone_id') or
+                request.args.get('zone') or
+                request.args.get('site_id') or
+                request.args.get('site') or
+                request.args.get('placement') or
+                ''
+            )
             
             return {
                 'user_agent': user_agent,
@@ -276,6 +354,8 @@ class TargetingService:
                 'carrier': carrier,
                 'languages': languages,
                 'connection_type': connection_type,
+                'is_vpn': is_vpn,
+                'zone_id': zone_id,
                 'timestamp': datetime.utcnow()
             }
             
@@ -288,6 +368,8 @@ class TargetingService:
                 'carrier': '',
                 'languages': [],
                 'connection_type': 'unknown',
+                'is_vpn': False,
+                'zone_id': '',
                 'timestamp': datetime.utcnow()
             }
     

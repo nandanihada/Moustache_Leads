@@ -384,6 +384,12 @@ def update_advertiser_campaign_status(campaign_id):
         if result.matched_count == 0:
             return jsonify({'error': 'Campaign not found'}), 404
             
+        try:
+            from models.campaign import get_campaign_model
+            get_campaign_model().sync_to_offer(campaign_id)
+        except Exception as se:
+            logger.error(f"Failed to sync campaign to offer on status update: {se}")
+            
         logger.info(f"Campaign {campaign_id} status updated to {new_status} by admin")
         return jsonify({
             'success': True,

@@ -95,7 +95,101 @@ class Campaign:
                 
         result = self.collection.insert_one(campaign)
         campaign['_id'] = str(result.inserted_id)
+        self.sync_to_offer(campaign['_id'])
         return campaign
+    
+    def sync_to_offer(self, campaign_id: str) -> bool:
+        """Sync advertiser campaign to offers collection for redirection and reporting"""
+        try:
+            campaign = self.collection.find_one({'_id': ObjectId(campaign_id)})
+            if not campaign:
+                logger.error(f"Campaign {campaign_id} not found for sync")
+                return False
+                
+            db = db_instance.get_db()
+            offers_col = db_instance.get_collection('offers')
+            if offers_col is None:
+                logger.error("Offers collection not available")
+                return False
+                
+            existing_offer = offers_col.find_one({'campaign_id': str(campaign['_id'])})
+            
+            status_map = {
+                'running': 'active',
+                'paused': 'paused',
+                'completed': 'paused',
+                'rejected': 'inactive',
+                'draft': 'inactive',
+                'pending': 'pending'
+            }
+            offer_status = status_map.get(campaign.get('status'), 'inactive')
+            
+            if existing_offer:
+                offer_id = existing_offer.get('offer_id')
+            else:
+                from models.offer import Offer
+                offer_model = Offer()
+                # Loop to find a unique offer_id in case counters got out of sync
+                attempts = 0
+                while attempts < 100:
+                    offer_id = offer_model._get_next_offer_id()
+                    # Double-check it doesn't already exist in offers collection
+                    if not offers_col.find_one({'offer_id': offer_id}):
+                        break
+                    attempts += 1
+                
+            target_countries = campaign.get('target_countries', [])
+            if isinstance(target_countries, str):
+                allowed_countries = [c.strip().upper() for c in target_countries.split(',') if c.strip()]
+            else:
+                allowed_countries = [c.upper() for c in target_countries if c]
+                
+            target_devices = campaign.get('target_devices', [])
+            device_targeting = 'all'
+            if target_devices:
+                if len(target_devices) == 1:
+                    device_targeting = target_devices[0]
+                    
+            offer_doc = {
+                'offer_id': offer_id,
+                'campaign_id': str(campaign['_id']),
+                'name': campaign.get('name', 'Untitled Campaign'),
+                'description': campaign.get('description', ''),
+                'vertical': 'OTHER',
+                'category': 'OTHER',
+                'categories': ['OTHER'],
+                'offer_type': campaign.get('bid_type', 'cpa').upper(),
+                'status': offer_status,
+                'countries': allowed_countries,
+                'allowed_countries': allowed_countries,
+                'device_targeting': device_targeting,
+                'os_targeting': campaign.get('target_os', []),
+                'browser_targeting': campaign.get('target_browsers', []),
+                'offer_source': 'advertiser',
+                'advertiser_id': campaign.get('advertiser_id'),
+                'payout': float(campaign.get('bid_amount', 0.01)),
+                'currency': 'USD',
+                'network': 'advertiser',
+                'target_url': campaign.get('landing_url', ''),
+                'preview_url': campaign.get('landing_url', ''),
+                'postback_url': campaign.get('postback_url', ''),
+                'created_by': 'advertiser',
+                'created_at': campaign.get('created_at') or datetime.utcnow(),
+                'updated_at': datetime.utcnow(),
+                'is_active': offer_status == 'active',
+                'is_public': True
+            }
+            
+            offers_col.update_one(
+                {'campaign_id': str(campaign['_id'])},
+                {'$set': offer_doc},
+                upsert=True
+            )
+            logger.info(f"Successfully synced campaign {campaign_id} to offer {offer_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error syncing campaign {campaign_id} to offer: {str(e)}", exc_info=True)
+            return False
     
     def get_campaign(self, campaign_id: str) -> dict:
         """Get a campaign by ID"""
@@ -128,11 +222,17 @@ class Campaign:
             {'_id': ObjectId(campaign_id)},
             {'$set': campaign_data}
         )
+        self.sync_to_offer(campaign_id)
         return result.modified_count > 0
     
     def delete_campaign(self, campaign_id: str) -> bool:
         """Delete a campaign"""
         result = self.collection.delete_one({'_id': ObjectId(campaign_id)})
+        # Delete from offers too
+        db = db_instance.get_db()
+        offers_col = db_instance.get_collection('offers')
+        if offers_col is not None:
+            offers_col.delete_one({'campaign_id': campaign_id})
         return result.deleted_count > 0
     
     def update_campaign_status(self, campaign_id: str, status: str) -> bool:
@@ -144,6 +244,7 @@ class Campaign:
             {'_id': ObjectId(campaign_id)},
             {'$set': {'status': status, 'updated_at': datetime.utcnow()}}
         )
+        self.sync_to_offer(campaign_id)
         return result.modified_count > 0
     
     def get_campaign_stats(self, advertiser_id: str) -> dict:

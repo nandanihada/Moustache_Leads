@@ -305,6 +305,40 @@ export interface CreateOfferData {
   // NEW: Creative fields
   uploaded_file_name?: string;
   uploaded_file_size?: number;
+  
+  // NEW: Advertiser campaign mapping fields
+  offer_source?: string;
+  advertiser_id?: string;
+  campaign_request_id?: string;
+  vpn?: string;
+  zone_mode?: string;
+  zones?: string;
+  retarget?: string;
+  pricing?: string;
+  format?: string;
+  auto_approve_delay_unit?: string;
+  priority?: number;
+  rotation_weight?: number;
+  level_payouts_enabled?: boolean;
+  level_payouts_list?: any[];
+  geo_payouts_list?: any[];
+  geo_payout_country?: string;
+  geo_payout_amount?: string | number;
+  geo_payout_type?: string;
+  expiry_date?: string | Date | null;
+  send_email?: boolean;
+  email_template_style?: string;
+  email_visible_fields?: string[];
+  email_see_more_fields?: string[];
+  email_default_image?: string;
+  email_payout_type?: string;
+  email_mask_preview_links?: boolean;
+  email_payment_terms?: string;
+  email_message?: string;
+  email_exclude_user_ids?: string[];
+  email_include_user_ids?: string[];
+  email_send_mode?: 'now' | 'schedule';
+  email_schedule_at?: string;
 }
 
 export interface OffersResponse {
@@ -395,6 +429,7 @@ class AdminOfferApi {
     country?: string;
     categories?: string;
     health?: string;
+    offer_source?: string;
   }): Promise<OffersResponse> {
     const searchParams = new URLSearchParams();
     
@@ -407,6 +442,7 @@ class AdminOfferApi {
     if (params?.country) searchParams.append('country', params.country);
     if (params?.categories) searchParams.append('categories', params.categories);
     if (params?.health) searchParams.append('health', params.health);
+    if (params?.offer_source) searchParams.append('offer_source', params.offer_source);
 
     const response = await fetch(`${API_BASE_URL}/offers?${searchParams}`, {
       method: 'GET',

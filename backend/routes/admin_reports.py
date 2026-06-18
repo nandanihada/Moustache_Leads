@@ -124,6 +124,19 @@ def admin_performance_report():
             report['pagination']['total'] = len(filtered)
             report['pagination']['pages'] = (len(filtered) + per_page - 1) // per_page if filtered else 0
 
+        # Secure sensitive platform margin data in admin views
+        if user.get('role') == 'subadmin':
+            if 'report' in report and 'data' in report['report']:
+                for row in report['report']['data']:
+                    row['total_revenue'] = row.get('total_payout', 0.0)
+                    row['profit'] = 0.0
+                    row['roi'] = 0.0
+            if 'report' in report and 'summary' in report['report']:
+                summary = report['report']['summary']
+                summary['total_revenue'] = summary.get('total_payout', 0.0)
+                summary['profit'] = 0.0
+                summary['roi'] = 0.0
+
         return jsonify({'success': True, 'report': report}), 200
 
     except Exception as e:
@@ -227,8 +240,13 @@ def admin_conversion_report():
             conv['placement_title'] = conv.get('placement_title', '')
             conv['points'] = conv.get('points', 0)
             conv['conversion_id'] = conv.get('_id', '')
-            conv['revenue'] = conv.get('revenue', conv.get('points', 0))
-            conv['profit'] = round(float(conv.get('revenue', conv.get('points', 0))) - float(conv.get('points', 0)), 2)
+            # Secure sensitive platform margin data in admin views
+            if user.get('role') == 'subadmin':
+                conv['revenue'] = conv.get('points', 0)
+                conv['profit'] = 0.0
+            else:
+                conv['revenue'] = conv.get('revenue', conv.get('points', 0))
+                conv['profit'] = round(float(conv.get('revenue', conv.get('points', 0))) - float(conv.get('points', 0)), 2)
             conv['currency'] = conv.get('currency', 'USD')
             conv['conversion_type'] = conv.get('conversion_type', 'conversion')
             conv['postback_received_time'] = conv.get('postback_received_time', conv.get('time', ''))
@@ -655,6 +673,10 @@ def admin_chart_data():
             filters['offer_id'] = request.args.get('offer_id')
 
         date_range = {'start': start_date, 'end': end_date}
+        # Secure sensitive platform margin data in admin views
+        if user.get('role') == 'subadmin' and metric in ('profit', 'roi'):
+            return jsonify({'success': True, 'chart_data': []}), 200
+
         result = user_reports_model.get_chart_data(
             user_id=user_id,
             date_range=date_range,
@@ -841,7 +863,10 @@ def admin_export_report():
                        'Clicks', 'Unique Clicks', 'Suspicious', 'Conversions',
                        'Approved', 'Payout', 'Revenue', 'Profit', 'CR%', 'EPC', 'Currency']
             writer.writerow(headers)
+            is_subadmin = user.get('role') == 'subadmin'
             for row in report['data']:
+                revenue = row.get('total_payout', 0) if is_subadmin else row.get('total_revenue', 0)
+                profit = 0.0 if is_subadmin else row.get('profit', 0)
                 writer.writerow([
                     row.get('date', ''), row.get('publisher_name', ''), row.get('publisher_email', ''),
                     row.get('publisher_role', ''), row.get('publisher_id', row.get('user_id', '')),
@@ -854,7 +879,7 @@ def admin_export_report():
                     row.get('clicks', 0), row.get('unique_clicks', 0),
                     row.get('suspicious_clicks', 0), row.get('conversions', 0),
                     row.get('approved_conversions', 0), row.get('total_payout', 0),
-                    row.get('total_revenue', 0), row.get('profit', 0),
+                    revenue, profit,
                     row.get('cr', 0), row.get('epc', 0), row.get('currency', 'USD')
                 ])
         else:
@@ -876,7 +901,10 @@ def admin_export_report():
                        'Placement', 'Referrer', 'Forward Status',
                        'Sub ID 1', 'Sub ID 2', 'Sub ID 3']
             writer.writerow(headers)
+            is_subadmin = user.get('role') == 'subadmin'
             for conv in report['conversions']:
+                revenue = conv.get('points', 0) if is_subadmin else conv.get('revenue', 0)
+                profit = 0.0 if is_subadmin else conv.get('profit', 0)
                 writer.writerow([
                     conv.get('time', ''), conv.get('click_time', ''),
                     conv.get('publisher_name', ''), conv.get('user_email', ''),
@@ -884,7 +912,7 @@ def admin_export_report():
                     conv.get('offer_name', ''), conv.get('offer_id', ''),
                     conv.get('click_id', ''), conv.get('_id', ''),
                     conv.get('click_source', ''),
-                    conv.get('points', 0), conv.get('revenue', 0), conv.get('profit', 0),
+                    conv.get('points', 0), revenue, profit,
                     conv.get('currency', 'USD'), conv.get('status', ''),
                     conv.get('country', ''), conv.get('city', ''), conv.get('region', ''),
                     conv.get('postal_code', ''),
@@ -1516,3 +1544,224 @@ def get_user_profile_stats(publisher_id):
     except Exception as e:
         logger.error(f"Error getting user stats for profile: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+
+@admin_reports_bp.route('/api/admin/advertiser/reports', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def admin_advertiser_reports():
+    """Get advertiser campaign performance reports for admin oversight"""
+    try:
+        db = db_instance.get_db()
+        
+        # Get query parameters
+        date_range_str = request.args.get('range', 'last_7_days')
+        breakdown = request.args.get('breakdown', 'date')
+        advertiser_id = request.args.get('advertiser_id', 'all')
+        
+        # Parse date range
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+        
+        if date_range_str == 'today':
+            start_date = datetime(now.year, now.month, now.day)
+            end_date = datetime(now.year, now.month, now.day, 23, 59, 59, 999999)
+        elif date_range_str == 'yesterday':
+            yesterday = now - timedelta(days=1)
+            start_date = datetime(yesterday.year, yesterday.month, yesterday.day)
+            end_date = datetime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59, 999999)
+        elif date_range_str == 'last_7_days':
+            start_date = now - timedelta(days=7)
+            end_date = now
+        elif date_range_str == 'last_30_days':
+            start_date = now - timedelta(days=30)
+            end_date = now
+        elif date_range_str == 'this_month':
+            start_date = datetime(now.year, now.month, 1)
+            end_date = now
+        else: # all time
+            start_date = datetime(2020, 1, 1)
+            end_date = now
+            
+        # Get advertiser offers/campaigns
+        offer_filter = {'offer_source': 'advertiser'}
+        if advertiser_id and advertiser_id != 'all':
+            offer_filter['advertiser_id'] = advertiser_id
+            
+        offers = list(db.offers.find(offer_filter, {'offer_id': 1, 'name': 1, 'advertiser_id': 1}))
+        offer_ids = [o.get('offer_id') for o in offers if o.get('offer_id')]
+        offer_names = {o.get('offer_id'): o.get('name', 'Unknown Offer') for o in offers}
+        
+        # Get list of advertisers for dropdown selection
+        advertisers_cursor = db.advertisers.find({}, {'_id': 1, 'company_name': 1, 'email': 1, 'first_name': 1, 'last_name': 1})
+        advertisers_list = []
+        for a in advertisers_cursor:
+            name = a.get('company_name') or f"{a.get('first_name', '')} {a.get('last_name', '')}".strip() or a.get('email', 'Unknown')
+            advertisers_list.append({
+                'advertiser_id': str(a['_id']),
+                'name': name
+            })
+            
+        if not offer_ids:
+            return jsonify({
+                'kpis': {
+                    'impressions': 0,
+                    'clicks': 0,
+                    'ctr': 0,
+                    'conversions': 0,
+                    'cr': 0,
+                    'spend': 0,
+                    'avg_cpa': 0
+                },
+                'breakdown': [],
+                'conversions': [],
+                'advertisers': advertisers_list
+            }), 200
+
+        # Query Clicks
+        click_query = {
+            'offer_id': {'$in': offer_ids},
+            'click_time': {'$gte': start_date, '$lte': end_date}
+        }
+        clicks = list(db.clicks.find(click_query, {
+            'click_time': 1, 'offer_id': 1, 'country': 1, 'country_code': 1, 'device_type': 1
+        }))
+
+        # Query Conversions
+        conv_query = {
+            'offer_id': {'$in': offer_ids},
+            'conversion_time': {'$gte': start_date, '$lte': end_date}
+        }
+        conversions = list(db.conversions.find(conv_query, {
+            'conversion_time': 1, 'offer_id': 1, 'country': 1, 'country_code': 1, 'device_type': 1,
+            'payout': 1, 'conversion_id': 1, 'status': 1
+        }))
+        
+        # Query Impressions/Views
+        view_query = {
+            'offer_id': {'$in': offer_ids},
+            'timestamp': {'$gte': start_date, '$lte': end_date}
+        }
+        views = list(db.offer_views.find(view_query, {
+            'timestamp': 1, 'offer_id': 1
+        }))
+
+        # Calculate KPIs
+        total_impressions = len(views)
+        total_clicks = len(clicks)
+        total_conversions = len(conversions)
+        
+        total_spend = 0.0
+        for c in conversions:
+            try:
+                total_spend += float(c.get('payout') or 0.0)
+            except (ValueError, TypeError):
+                pass
+                
+        ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0.0
+        cr = (total_conversions / total_clicks * 100) if total_clicks > 0 else 0.0
+        avg_cpa = (total_spend / total_conversions) if total_conversions > 0 else 0.0
+
+        kpis = {
+            'impressions': total_impressions,
+            'clicks': total_clicks,
+            'ctr': round(ctr, 2),
+            'conversions': total_conversions,
+            'cr': round(cr, 2),
+            'spend': round(total_spend, 2),
+            'avg_cpa': round(avg_cpa, 2)
+        }
+
+        # Process breakdown
+        breakdown_data = {}
+        
+        # Helper to get grouping key
+        def get_group_key(item, date_field):
+            if breakdown == 'date':
+                dt = item.get(date_field)
+                return dt.strftime('%Y-%m-%d') if dt else 'Unknown'
+            elif breakdown == 'country':
+                return item.get('country') or item.get('country_code') or 'Unknown'
+            elif breakdown == 'device':
+                return item.get('device_type') or 'Unknown'
+            elif breakdown == 'campaign':
+                return item.get('offer_id') or 'Unknown'
+            return 'Unknown'
+
+        # Count views
+        for v in views:
+            key = get_group_key(v, 'timestamp')
+            if key not in breakdown_data:
+                breakdown_data[key] = {'impressions': 0, 'clicks': 0, 'conversions': 0, 'spend': 0.0}
+            breakdown_data[key]['impressions'] += 1
+
+        # Count clicks
+        for c in clicks:
+            key = get_group_key(c, 'click_time')
+            if key not in breakdown_data:
+                breakdown_data[key] = {'impressions': 0, 'clicks': 0, 'conversions': 0, 'spend': 0.0}
+            breakdown_data[key]['clicks'] += 1
+
+        # Count conversions and spend
+        for c in conversions:
+            key = get_group_key(c, 'conversion_time')
+            if key not in breakdown_data:
+                breakdown_data[key] = {'impressions': 0, 'clicks': 0, 'conversions': 0, 'spend': 0.0}
+            breakdown_data[key]['conversions'] += 1
+            try:
+                breakdown_data[key]['spend'] += float(c.get('payout') or 0.0)
+            except (ValueError, TypeError):
+                pass
+
+        # Format breakdown results
+        breakdown_list = []
+        for key, stats in breakdown_data.items():
+            b_ctr = (stats['clicks'] / stats['impressions'] * 100) if stats['impressions'] > 0 else 0.0
+            b_cr = (stats['conversions'] / stats['clicks'] * 100) if stats['clicks'] > 0 else 0.0
+            b_cpa = (stats['spend'] / stats['conversions']) if stats['conversions'] > 0 else 0.0
+            
+            row = {
+                'key': key,
+                'impressions': stats['impressions'],
+                'clicks': stats['clicks'],
+                'ctr': round(b_ctr, 2),
+                'conversions': stats['conversions'],
+                'cr': round(b_cr, 2),
+                'spend': round(stats['spend'], 2),
+                'cpa': round(b_cpa, 2)
+            }
+            if breakdown == 'campaign':
+                row['campaign_name'] = offer_names.get(key, 'Unknown Offer')
+            breakdown_list.append(row)
+
+        # Sort breakdown
+        if breakdown == 'date':
+            breakdown_list.sort(key=lambda x: x['key'], reverse=True)
+        else:
+            breakdown_list.sort(key=lambda x: x['conversions'], reverse=True)
+
+        # Format conversions list (Conversion log)
+        conversions_list = []
+        for c in conversions[:100]: # limit to 100 recent
+            conversions_list.append({
+                'time': c.get('conversion_time').isoformat() if c.get('conversion_time') else '',
+                'conversion_id': c.get('conversion_id', ''),
+                'offer_name': offer_names.get(c.get('offer_id'), 'Unknown Offer'),
+                'geo': c.get('country') or c.get('country_code') or 'Unknown',
+                'device': c.get('device_type') or 'unknown',
+                'goal': 'Conversion',
+                'payout': float(c.get('payout') or 0),
+                'status': c.get('status', 'approved')
+            })
+
+        return jsonify({
+            'kpis': kpis,
+            'breakdown': breakdown_list,
+            'conversions': conversions_list,
+            'advertisers': advertisers_list
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error in admin advertiser reports endpoint: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+

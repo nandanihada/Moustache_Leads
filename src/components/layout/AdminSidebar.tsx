@@ -133,6 +133,7 @@ const adminMenuStructure = [
     type: "group" as const,
     subtabs: [
       { title: "Reports", url: "/admin/tracking-reports", icon: BarChart3, tab: "tracking" },
+      { title: "Campaign Tracking", url: "/admin/campaign-tracking", icon: BarChart3, tab: "tracking" },
       { title: "Offerwall Analytics", url: "/admin/offerwall-analytics", icon: TrendingUp, tab: "offerwall-analytics" },
 
       { title: "Search Logs", url: "/admin/search-logs", icon: Search, tab: "search-logs" },

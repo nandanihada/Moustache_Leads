@@ -94,6 +94,36 @@ def handle_offer_click(offer_id):
             f"({access_check['country_name']})"
         )
         
+        # Check other targeting criteria (device, OS, browser, language, connection type, VPN, zones)
+        try:
+            from services.targeting_service import TargetingService
+            targeting_service = TargetingService()
+            req_info = targeting_service.extract_request_info(request)
+            
+            # Align detected country code from geo-check
+            if access_check.get('country_code'):
+                req_info['country'] = access_check['country_code']
+                
+            is_target_valid, target_reason = targeting_service.validate_targeting(offer, req_info)
+            if not is_target_valid:
+                logging.warning(f"  TARGETING BLOCKED: {offer_id} - Reason: {target_reason}")
+                
+                # Check if there is a geo-fallback non-access URL, else fallback_url, else render blocked page
+                non_access_url = offer.get('non_access_url', '').strip()
+                if non_access_url:
+                    logging.info(f"  Redirecting target-blocked user to non-access URL: {non_access_url}")
+                    return redirect(non_access_url, code=302)
+                else:
+                    blocked_info = {
+                        'allowed': False,
+                        'country_code': req_info.get('country', 'US'),
+                        'country_name': access_check.get('country_name', 'United States'),
+                        'reason': f"Targeting restriction: {target_reason}"
+                    }
+                    return render_geo_blocked_page(offer_id, blocked_info), 403
+        except Exception as te:
+            logging.error(f"Error checking expanded targeting: {str(te)}", exc_info=True)
+            
         # Resolve destination URL using smart rules
         result = resolve_offer_click(
             offer_id=offer_id,

@@ -46,6 +46,7 @@ import {
   Mail,
   Pin,
   X,
+  Megaphone,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -173,6 +174,12 @@ const AdminOffers = () => {
   const [runningSortBy, setRunningSortBy] = useState<string>('newest');
   const [subcategoryCounts, setSubcategoryCounts] = useState<Record<string, number>>({});
   const [selectedRunningOffers, setSelectedRunningOffers] = useState<Set<string>>(new Set());
+
+  // Ad Campaigns state
+  const [adCampaigns, setAdCampaigns] = useState<any[]>([]);
+  const [adCampaignsLoading, setAdCampaignsLoading] = useState(false);
+  const [adCampaignsSearchTerm, setAdCampaignsSearchTerm] = useState('');
+  const [adCampaignsPagination, setAdCampaignsPagination] = useState({ page: 1, per_page: 20, total: 0, pages: 0 });
   const [bulkDeleteWarningOpen, setBulkDeleteWarningOpen] = useState(false);
   const [bulkDeleteRunningDetails, setBulkDeleteRunningDetails] = useState<Array<{ offer_id: string; name: string; total_clicks: number; days_remaining: number; sub_statuses: string[] }>>([]);
   const [bulkDeleteNonRunningIds, setBulkDeleteNonRunningIds] = useState<string[]>([]);
@@ -262,6 +269,7 @@ const AdminOffers = () => {
       const params = {
         page: overridePage ?? pagination.page,
         per_page: pagination.per_page,
+        offer_source: 'upward_partner',
         ...(!resetFilters && statusFilter !== 'all' && { status: statusFilter }),
         ...(!resetFilters && searchTerm && { search: searchTerm }),
         ...(!resetFilters && sortBy && { sort: sortBy }),
@@ -749,6 +757,33 @@ const AdminOffers = () => {
       });
     } finally {
       setRecycleBinLoading(false);
+    }
+  };
+
+  // ============================================
+  // AD CAMPAIGNS FUNCTIONS
+  // ============================================
+
+  const fetchAdCampaigns = async (overridePage?: number) => {
+    try {
+      setAdCampaignsLoading(true);
+      const targetPage = overridePage ?? adCampaignsPagination.page;
+      const response = await adminOfferApi.getOffers({
+        page: targetPage,
+        per_page: adCampaignsPagination.per_page,
+        offer_source: 'advertiser',
+        search: adCampaignsSearchTerm || undefined
+      });
+      setAdCampaigns(response.offers);
+      setAdCampaignsPagination(response.pagination);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to fetch ad campaigns",
+        variant: "destructive",
+      });
+    } finally {
+      setAdCampaignsLoading(false);
     }
   };
 
@@ -1796,8 +1831,31 @@ const AdminOffers = () => {
   };
 
   useEffect(() => {
-    fetchOffers();
-  }, [pagination.page, pagination.per_page, statusFilter, sortBy, countryFilter, networkFilter, selectedCategories, healthFilter]);
+    if (activeTab === 'offers') {
+      fetchOffers();
+    }
+  }, [activeTab, pagination.page, pagination.per_page, statusFilter, sortBy, countryFilter, networkFilter, selectedCategories, healthFilter]);
+
+  // Fetch ad campaigns when tab changes
+  useEffect(() => {
+    if (activeTab === 'ad-campaigns') {
+      fetchAdCampaigns();
+    }
+  }, [activeTab, adCampaignsPagination.page, adCampaignsPagination.per_page]);
+
+  // Debounced search for ad campaigns
+  useEffect(() => {
+    if (activeTab === 'ad-campaigns') {
+      const delayedSearch = setTimeout(() => {
+        if (adCampaignsPagination.page === 1) {
+          fetchAdCampaigns();
+        } else {
+          setAdCampaignsPagination(prev => ({ ...prev, page: 1 }));
+        }
+      }, 500);
+      return () => clearTimeout(delayedSearch);
+    }
+  }, [adCampaignsSearchTerm]);
 
   useEffect(() => {
     const delayedSearch = setTimeout(() => {
@@ -2211,6 +2269,10 @@ const AdminOffers = () => {
             <TabsTrigger value="offers" className="flex items-center gap-2">
               <Globe className="h-4 w-4" />
               {offersSubView === 'running' ? `Running Offers (${runningPagination.total})` : offersSubView === 'rotating' ? `Rotating Offers (${rotatingPagination.total})` : offersSubView === 'recommended' ? `Recommended (${recommendedTotal})` : `Active Offers (${pagination.total})`}
+            </TabsTrigger>
+            <TabsTrigger value="ad-campaigns" className="flex items-center gap-2">
+              <Megaphone className="h-4 w-4" />
+              Ad-Campaigns ({adCampaignsPagination.total})
             </TabsTrigger>
             <TabsTrigger value="recycle-bin" className="flex items-center gap-2">
               <Trash2 className="h-4 w-4" />
@@ -3472,6 +3534,183 @@ const AdminOffers = () => {
       )}
         </>
         )}
+        </TabsContent>
+
+        {/* Ad Campaigns Tab */}
+        <TabsContent value="ad-campaigns" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Megaphone className="h-5 w-5" />
+                    Advertiser Campaigns
+                  </CardTitle>
+                  <CardDescription>
+                    Approved advertiser campaigns integrated and active in the system
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" onClick={() => fetchAdCampaigns()} disabled={adCampaignsLoading}>
+                    <RefreshCw className={`h-4 w-4 mr-2 ${adCampaignsLoading ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="relative mb-4">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                <Input
+                  placeholder="Search advertiser campaigns..."
+                  value={adCampaignsSearchTerm}
+                  onChange={(e) => setAdCampaignsSearchTerm(e.target.value)}
+                  className="pl-10 max-w-md"
+                />
+              </div>
+
+              {adCampaignsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <RefreshCw className="h-6 w-6 animate-spin mr-2" />
+                  Loading campaigns...
+                </div>
+              ) : adCampaigns.length === 0 ? (
+                <div className="text-center py-8">
+                  <Megaphone className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">No advertiser campaigns found</p>
+                  <p className="text-sm text-muted-foreground mt-1">Campaigns submitted by advertisers will appear here once approved</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Image</TableHead>
+                      <TableHead>Campaign ID</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Allowed Countries</TableHead>
+                      <TableHead>Payout</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {adCampaigns.map((offer) => (
+                      <TableRow key={offer.offer_id}>
+                        <TableCell>
+                          <img
+                            src={getOfferImage(offer as any)}
+                            alt={offer.name}
+                            className="w-12 h-12 object-cover rounded border"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><rect fill="%23e5e7eb" width="48" height="48"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%239ca3af" font-size="10">No Img</text></svg>';
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell className="font-mono font-medium">
+                          {offer.campaign_id || offer.offer_id}
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium">{offer.name}</div>
+                          <div className="text-xs text-muted-foreground">{offer.vertical}</div>
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {offer.allowed_countries && offer.allowed_countries.length > 0 ? (
+                            <div className="flex flex-wrap gap-1 max-w-[200px]">
+                              {offer.allowed_countries.map((c: string) => (
+                                <Badge key={c} variant="secondary" className="text-[10px] px-1 py-0">
+                                  {c}
+                                </Badge>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">Global</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="font-semibold text-emerald-600">
+                          ${offer.payout?.toFixed(2)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={
+                            offer.status === 'active' 
+                              ? 'bg-green-100 text-green-800 hover:bg-green-200' 
+                              : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
+                          }>
+                            {offer.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleEditOffer(offer)}
+                            >
+                              <Edit className="h-4 w-4 mr-1" />
+                              Edit
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleDeleteOffer(offer.offer_id, offer.name)}
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            >
+                              <Trash2 className="h-4 w-4 mr-1" />
+                              Delete
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Ad Campaigns Pagination */}
+          {adCampaignsPagination.total > adCampaignsPagination.per_page && (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-muted-foreground">
+                    Showing {((adCampaignsPagination.page - 1) * adCampaignsPagination.per_page) + 1} to {Math.min(adCampaignsPagination.page * adCampaignsPagination.per_page, adCampaignsPagination.total)} of {adCampaignsPagination.total} campaigns
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setAdCampaignsPagination(prev => ({ ...prev, page: Math.max(1, prev.page - 1) }))}
+                      disabled={adCampaignsPagination.page === 1 || adCampaignsLoading}
+                    >
+                      Previous
+                    </Button>
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: adCampaignsPagination.pages }, (_, i) => i + 1).map((p) => (
+                        <Button
+                          key={p}
+                          variant={adCampaignsPagination.page === p ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setAdCampaignsPagination(prev => ({ ...prev, page: p }))}
+                          disabled={adCampaignsLoading}
+                        >
+                          {p}
+                        </Button>
+                      ))}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setAdCampaignsPagination(prev => ({ ...prev, page: Math.min(adCampaignsPagination.pages, prev.page + 1) }))}
+                      disabled={adCampaignsPagination.page === adCampaignsPagination.pages || adCampaignsLoading}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Recycle Bin Tab */}

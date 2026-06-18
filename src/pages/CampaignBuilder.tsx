@@ -621,6 +621,7 @@ export default function CampaignBuilder() {
     alertEnabled: false, alertThreshold: "",
     devices: ["mobile"], os: ["Android"], browsers: [], browserLanguages: [], connection: "All", vpn: "all",
     retarget: "none", autoStart: true, quality: false, timezone: "UTC",
+    zoneMode: "include", zones: "",
   });
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -727,6 +728,12 @@ export default function CampaignBuilder() {
       const v = Number(f.totalBudget);
       if (!f.totalBudget || isNaN(v) || v <= 0) e.totalBudget = "Enter a total budget greater than 0.";
     }
+    if (f.zones) {
+      const list = f.zones.split(',').map((z: string) => z.trim()).filter(Boolean);
+      if (list.length > 5000) {
+        e.zones = "Maximum 5000 zones allowed.";
+      }
+    }
     if (!f.quality) e.quality = "Accept the Quality Guidelines to submit.";
     return e;
   };
@@ -790,6 +797,7 @@ export default function CampaignBuilder() {
           alertEnabled: false, alertThreshold: "",
           devices: ["mobile"], os: ["Android"], browsers: [], browserLanguages: [], connection: "All", vpn: "all",
           retarget: "none", autoStart: true, quality: false, timezone: "UTC",
+          zoneMode: "include", zones: "",
         });
         await fetchInitialData();
         setView("offers");
@@ -865,6 +873,7 @@ export default function CampaignBuilder() {
           alertEnabled: false, alertThreshold: "",
           devices: ["mobile"], os: ["Android"], browsers: [], browserLanguages: [], connection: "All", vpn: "all",
           retarget: "none", autoStart: true, quality: false, timezone: "UTC",
+          zoneMode: "include", zones: "",
         });
         await fetchInitialData();
         setView("offers");
@@ -909,6 +918,8 @@ export default function CampaignBuilder() {
       autoStart: o.autoStart !== undefined ? o.autoStart : true,
       quality: o.quality || false,
       timezone: o.timezone || "UTC",
+      zoneMode: o.zoneMode || "include",
+      zones: o.zones || "",
     });
     setEditingId(id);
     setErrors({});
@@ -1104,6 +1115,9 @@ export default function CampaignBuilder() {
         )}
         {view === "offers" && (
           <OffersPage t={t} offers={offers} onApprove={approveOffer} onNewCampaign={() => { setEditingId(null); setView("builder"); }} onEdit={editOffer} onDelete={deleteOffer} />
+        )}
+        {view === "reports" && (
+          <AdvertiserReportsPage t={t} />
         )}
         {view === "notes" && <ImplementationNotesPage t={t} />}
         {view === "campaigns" && <CampaignsPage t={t} offers={offers} onRefresh={fetchInitialData} />}
@@ -1490,11 +1504,18 @@ function BuilderPage({ t, form, set, refMap, active, jump, balance, onAddFunds, 
             <div style={{ background: t.panelAlt, borderRadius: 6, padding: 16 }}>
               <FieldLabel t={t} hint="Restrict to known zones.">Individual zones (optional)</FieldLabel>
               <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-                <Toggle active t={t}>Include</Toggle>
-                <Toggle active={false} t={t}>Exclude</Toggle>
+                <Toggle active={form.zoneMode === "include"} onClick={() => set("zoneMode", "include")} t={t}>Include</Toggle>
+                <Toggle active={form.zoneMode === "exclude"} onClick={() => set("zoneMode", "exclude")} t={t}>Exclude</Toggle>
               </div>
-              <textarea placeholder="Zone IDs separated by comma" rows={2} style={{ ...inputStyle(t), resize: "vertical" }} />
+              <textarea 
+                value={form.zones || ""} 
+                onChange={(e) => set("zones", e.target.value)} 
+                placeholder="Zone IDs separated by comma" 
+                rows={2} 
+                style={{ ...inputStyle(t), resize: "vertical" }} 
+              />
               <div style={{ fontSize: 12, color: t.textFaint, marginTop: 6 }}>Maximum 5000 zones allowed.</div>
+              {errors.zones && <div style={{ fontSize: 12.5, color: t.red, fontWeight: 600, marginTop: 6 }}>{errors.zones}</div>}
             </div>
           </Block>
 
@@ -2436,7 +2457,21 @@ function PostbackPage({ t, onBack, pushNotification }: any) {
 
   // Parameter Mapping States
   const [editingRows, setEditingRows] = useState<{ paramKey: string, macroName: string }[]>([]);
+  const [localUrl, setLocalUrl] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+
+  const getUrlFromRows = (rows: { paramKey: string, macroName: string }[], uniqueKey: string) => {
+    const base_url = `https://postback.moustacheleads.com/postback/${uniqueKey || 'key'}`;
+    if (rows.length > 0) {
+      const param_parts = rows.map(row => {
+        const key = row.paramKey;
+        const macro = row.macroName.trim() || key;
+        return `${key}={${macro}}`;
+      });
+      return `${base_url}?${param_parts.join('&')}`;
+    }
+    return base_url;
+  };
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -2456,6 +2491,7 @@ function PostbackPage({ t, onBack, pushNotification }: any) {
             macroName: maps[p] || p
           }));
           setEditingRows(rows);
+          setLocalUrl(getUrlFromRows(rows, data.profile.unique_postback_key));
         }
       } catch (err) {
         console.error("Error fetching postback profile:", err);
@@ -2474,19 +2510,60 @@ function PostbackPage({ t, onBack, pushNotification }: any) {
 
   const addRow = () => {
     const unusedKey = PREDEFINED_PARAMS.find(p => !editingRows.some(r => r.paramKey === p.key))?.key || PREDEFINED_PARAMS[0].key;
-    setEditingRows([...editingRows, { paramKey: unusedKey, macroName: "" }]);
+    const newRows = [...editingRows, { paramKey: unusedKey, macroName: "" }];
+    setEditingRows(newRows);
+    setLocalUrl(getUrlFromRows(newRows, profile?.unique_postback_key));
   };
 
   const deleteRow = (index: number) => {
-    setEditingRows(editingRows.filter((_, i) => i !== index));
+    const newRows = editingRows.filter((_, i) => i !== index);
+    setEditingRows(newRows);
+    setLocalUrl(getUrlFromRows(newRows, profile?.unique_postback_key));
   };
 
   const updateRowKey = (index: number, newKey: string) => {
-    setEditingRows(editingRows.map((r, i) => i === index ? { ...r, paramKey: newKey } : r));
+    const newRows = editingRows.map((r, i) => i === index ? { ...r, paramKey: newKey } : r);
+    setEditingRows(newRows);
+    setLocalUrl(getUrlFromRows(newRows, profile?.unique_postback_key));
   };
 
   const updateRowMacro = (index: number, newVal: string) => {
-    setEditingRows(editingRows.map((r, i) => i === index ? { ...r, macroName: newVal } : r));
+    const newRows = editingRows.map((r, i) => i === index ? { ...r, macroName: newVal } : r);
+    setEditingRows(newRows);
+    setLocalUrl(getUrlFromRows(newRows, profile?.unique_postback_key));
+  };
+
+  const handleUrlInputChange = (val: string) => {
+    setLocalUrl(val);
+    try {
+      const qIndex = val.indexOf('?');
+      if (qIndex === -1) {
+        setEditingRows([]);
+        return;
+      }
+      const queryString = val.substring(qIndex + 1);
+      if (!queryString.trim()) {
+        setEditingRows([]);
+        return;
+      }
+      const parts = queryString.split('&');
+      const newRows: { paramKey: string, macroName: string }[] = [];
+      
+      parts.forEach(part => {
+        const [rawKey, rawVal] = part.split('=');
+        if (rawKey) {
+          const key = decodeURIComponent(rawKey).trim();
+          let macro = rawVal ? decodeURIComponent(rawVal).trim() : '';
+          if (macro.startsWith('{') && macro.endsWith('}')) {
+            macro = macro.substring(1, macro.length - 1);
+          }
+          newRows.push({ paramKey: key, macroName: macro });
+        }
+      });
+      setEditingRows(newRows);
+    } catch (err) {
+      console.error("Error parsing URL on change:", err);
+    }
   };
 
   const handleSaveSettings = async () => {
@@ -2522,6 +2599,12 @@ function PostbackPage({ t, onBack, pushNotification }: any) {
           postback_parameters: data.parameters,
           postback_parameter_mappings: data.parameter_mappings
         }));
+        const savedRows = data.parameters.map((p: string) => ({
+          paramKey: p,
+          macroName: data.parameter_mappings[p] || p
+        }));
+        setEditingRows(savedRows);
+        setLocalUrl(getUrlFromRows(savedRows, data.unique_postback_key || profile.unique_postback_key));
         if (pushNotification) {
           pushNotification("Postback configuration saved successfully!");
         } else {
@@ -2537,21 +2620,6 @@ function PostbackPage({ t, onBack, pushNotification }: any) {
     } finally {
       setIsSaving(false);
     }
-  };
-
-  const getDisplayPostbackUrl = () => {
-    if (!profile) return "";
-    const uniqueKey = profile.unique_postback_key;
-    const base_url = `https://postback.moustacheleads.com/postback/${uniqueKey}`;
-    if (editingRows.length > 0) {
-      const param_parts = editingRows.map(row => {
-        const key = row.paramKey;
-        const macro = row.macroName.trim() || key;
-        return `${key}={${macro}}`;
-      });
-      return `${base_url}?${param_parts.join('&')}`;
-    }
-    return base_url;
   };
 
   const getTestFireUrl = () => {
@@ -2580,16 +2648,11 @@ function PostbackPage({ t, onBack, pushNotification }: any) {
       user_agent: "Mozilla"
     };
 
-    if (editingRows.length > 0) {
-      const param_parts = editingRows.map(row => {
-        const key = row.paramKey;
-        const testVal = replacements[key] || "test";
-        return `${key}=${testVal}`;
-      });
-      return `${base_url}?${param_parts.join('&')}`;
-    }
-    
-    return base_url;
+    let fireUrl = localUrl || base_url;
+    Object.entries(replacements).forEach(([key, val]) => {
+      fireUrl = fireUrl.replace(new RegExp(`\\{${key}\\}`, 'g'), val);
+    });
+    return fireUrl;
   };
 
   const handleFireTestPostback = async () => {
@@ -2640,7 +2703,7 @@ function PostbackPage({ t, onBack, pushNotification }: any) {
   }
 
   return (
-    <div style={{ width: "100%", padding: "24px 24px 60px", boxSizing: "border-box", color: t.text }}>
+    <div style={{ width: "100%", padding: "24px 0px 60px", boxSizing: "border-box", color: t.text }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, borderBottom: `1px solid ${t.border}`, paddingBottom: 15 }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Global Postback Configuration</h1>
@@ -2667,13 +2730,13 @@ function PostbackPage({ t, onBack, pushNotification }: any) {
         <div style={{ display: "flex", gap: 10, background: t.bg, border: `1px solid ${t.border}`, padding: 12, borderRadius: 8 }}>
           <input
             type="text"
-            readOnly
-            value={getDisplayPostbackUrl()}
+            value={localUrl}
+            onChange={(e) => handleUrlInputChange(e.target.value)}
             style={{ flex: 1, background: "transparent", border: "none", color: t.text, fontFamily: "monospace", fontSize: 13, outline: "none" }}
           />
           <button
             type="button"
-            onClick={() => copyToClipboard(getDisplayPostbackUrl())}
+            onClick={() => copyToClipboard(localUrl)}
             style={{ background: t.brandSoft, color: t.brand, border: "none", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontWeight: 600, fontSize: 12.5 }}
           >
             {copied ? "Copied!" : "Copy URL"}
@@ -2787,7 +2850,7 @@ function PostbackPage({ t, onBack, pushNotification }: any) {
                 style={{ padding: "0 10px", background: t.bg, border: `1px solid ${t.border}`, borderRadius: 6, color: t.text, cursor: "pointer" }}
                 title="Generate random ID"
               >
-                🔄
+                 
               </button>
             </div>
           </div>
@@ -2825,7 +2888,7 @@ function PostbackPage({ t, onBack, pushNotification }: any) {
         {testResults && (
           <div style={{ marginTop: 20, padding: 15, background: testResults.success ? "#f0fdf4" : "#fef2f2", border: `1px solid ${testResults.success ? "#bbf7d0" : "#fecaca"}`, borderRadius: 8 }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: testResults.success ? "#166534" : "#991b1b", display: "block", marginBottom: 6 }}>
-              {testResults.success ? "✅ Request completed successfully" : "❌ Request failed"}
+              {testResults.success ? "  Request completed successfully" : "  Request failed"}
             </span>
             <pre style={{ fontSize: 12, margin: 0, padding: 10, background: "#fff", border: `1px solid ${testResults.success ? "#dcfce7" : "#fee2e2"}`, borderRadius: 4, overflowX: "auto", fontFamily: "monospace", color: "#333" }}>
               {JSON.stringify(testResults.data, null, 2)}
@@ -3375,6 +3438,365 @@ const WORKED_EXAMPLE = [
   "You pay publishers 150 × $1.05 = $157.50; you keep 150 × $0.45 = $67.50.",
   "Advertiser only ever sees: 150 completes, their $1.50 rate, $225 spent. Nothing about the $1.05 or $0.45."
 ];
+
+function AdvertiserReportsPage({ t }: any) {
+  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const [range, setRange] = useState("last_7_days");
+  const [breakdown, setBreakdown] = useState("date");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [data, setData] = useState<any>({ kpis: {}, breakdown: [], conversions: [] });
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      setError("");
+      const token = localStorage.getItem('advertiser_token');
+      const res = await fetch(`${API_BASE}/api/advertiser/reports?range=${range}&breakdown=${breakdown}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (!res.ok) {
+        throw new Error("Failed to fetch report data");
+      }
+      const json = await res.json();
+      setData(json);
+    } catch (err: any) {
+      setError(err.message || "An error occurred");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, [range, breakdown]);
+
+  const exportCSV = () => {
+    if (!data.breakdown || data.breakdown.length === 0) return;
+    
+    let headers = [breakdown.toUpperCase(), "IMPRESSIONS", "CLICKS", "CTR", "CONVERSIONS", "CR%", "SPEND", "CPA"];
+    let csvRows = [headers.join(",")];
+    
+    data.breakdown.forEach((row: any) => {
+      const label = breakdown === 'campaign' ? row.campaign_name : row.key;
+      csvRows.push([
+        `"${label}"`,
+        row.impressions,
+        row.clicks,
+        `${row.ctr}%`,
+        row.conversions,
+        `${row.cr}%`,
+        `$${row.spend.toFixed(2)}`,
+        `$${row.cpa.toFixed(2)}`
+      ].join(","));
+    });
+    
+    // Add total row
+    const totalImpressions = data.breakdown.reduce((sum: number, r: any) => sum + r.impressions, 0);
+    const totalClicks = data.breakdown.reduce((sum: number, r: any) => sum + r.clicks, 0);
+    const totalConversions = data.breakdown.reduce((sum: number, r: any) => sum + r.conversions, 0);
+    const totalSpend = data.breakdown.reduce((sum: number, r: any) => sum + r.spend, 0);
+    const totalCtr = totalImpressions > 0 ? (totalClicks / totalImpressions * 100).toFixed(2) : "0.00";
+    const totalCr = totalClicks > 0 ? (totalConversions / totalClicks * 100).toFixed(2) : "0.00";
+    const totalCpa = totalConversions > 0 ? (totalSpend / totalConversions).toFixed(2) : "0.00";
+    
+    csvRows.push([
+      `"TOTAL"`,
+      totalImpressions,
+      totalClicks,
+      `${totalCtr}%`,
+      totalConversions,
+      `${totalCr}%`,
+      `$${totalSpend.toFixed(2)}`,
+      `$${totalCpa}`
+    ].join(","));
+    
+    const csvContent = "data:text/csv;charset=utf-8," + csvRows.join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `advertiser_report_${breakdown}_${range}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const money = (n: any) => "$" + (Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const num = (n: any) => (Number(n) || 0).toLocaleString("en-US");
+
+  // Sum up totals for table footer
+  const totalImpressions = data.breakdown?.reduce((sum: number, r: any) => sum + r.impressions, 0) || 0;
+  const totalClicks = data.breakdown?.reduce((sum: number, r: any) => sum + r.clicks, 0) || 0;
+  const totalConversions = data.breakdown?.reduce((sum: number, r: any) => sum + r.conversions, 0) || 0;
+  const totalSpend = data.breakdown?.reduce((sum: number, r: any) => sum + r.spend, 0) || 0;
+  const totalCtr = totalImpressions > 0 ? (totalClicks / totalImpressions * 100) : 0;
+  const totalCr = totalClicks > 0 ? (totalConversions / totalClicks * 100) : 0;
+  const totalCpa = totalConversions > 0 ? (totalSpend / totalConversions) : 0;
+
+  return (
+    <div style={{ padding: "30px 40px", display: "flex", flexDirection: "column", gap: 30, background: t.bgGrad, minHeight: "100vh" }}>
+      {/* Title Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <h1 style={{ fontSize: 28, fontWeight: 800, color: t.text, margin: 0, letterSpacing: "-0.025em" }}>Reports</h1>
+          <p style={{ margin: "5px 0 0 0", fontSize: 14, color: t.textDim }}>Track your advertiser campaign performance in real-time</p>
+        </div>
+        
+        {/* Date Filters & Export */}
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <select 
+            value={range} 
+            onChange={(e) => setRange(e.target.value)}
+            style={{
+              padding: "10px 16px",
+              borderRadius: 10,
+              border: `1px solid ${t.border}`,
+              background: t.panel,
+              color: t.text,
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: "pointer",
+              outline: "none",
+              boxShadow: t.shadowSm
+            }}
+          >
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="last_7_days">Last 7 Days</option>
+            <option value="last_30_days">Last 30 Days</option>
+            <option value="this_month">This Month</option>
+            <option value="all">All Time</option>
+          </select>
+          
+          <button
+            onClick={exportCSV}
+            disabled={!data.breakdown || data.breakdown.length === 0}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "10px 18px",
+              borderRadius: 10,
+              background: t.brandGrad,
+              color: "#fff",
+              border: "none",
+              fontSize: 14,
+              fontWeight: 700,
+              cursor: (!data.breakdown || data.breakdown.length === 0) ? "not-allowed" : "pointer",
+              opacity: (!data.breakdown || data.breakdown.length === 0) ? 0.5 : 1,
+              boxShadow: t.glow,
+              transition: "transform 0.2s ease"
+            }}
+            onMouseEnter={(e) => {
+              if (data.breakdown && data.breakdown.length > 0) e.currentTarget.style.transform = "scale(1.03)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "scale(1)";
+            }}
+          >
+            <FileText className="h-4 w-4" />
+            Export CSV
+          </button>
+        </div>
+      </div>
+
+      {/* KPI Cards Grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 20 }}>
+        {[
+          { label: "Impressions", val: num(data.kpis?.impressions), color: t.brand },
+          { label: "Clicks", val: num(data.kpis?.clicks), color: t.brand2 },
+          { label: "CTR", val: (data.kpis?.ctr || 0) + "%", color: t.amber },
+          { label: "Conversions", val: num(data.kpis?.conversions), color: t.green },
+          { label: "CR%", val: (data.kpis?.cr || 0) + "%", color: t.green },
+          { label: "Spend", val: money(data.kpis?.spend), color: t.red },
+          { label: "Avg CPA", val: money(data.kpis?.avg_cpa), color: t.textDim }
+        ].map((c, i) => (
+          <div 
+            key={i} 
+            style={{ 
+              background: t.panel, 
+              border: `1px solid ${t.border}`, 
+              borderRadius: 16, 
+              padding: 20, 
+              boxShadow: t.shadowSm, 
+              transition: "all 0.3s ease",
+              cursor: "default"
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = "translateY(-4px)";
+              e.currentTarget.style.borderColor = t.borderHi;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "translateY(0)";
+              e.currentTarget.style.borderColor = t.border;
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 600, color: t.textDim }}>{c.label}</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: c.color, marginTop: 8 }}>{c.val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Breakdown Section */}
+      <div style={{ background: t.panel, border: `1px solid ${t.border}`, borderRadius: 16, padding: 24, boxShadow: t.shadowSm }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Breakdown by:</div>
+          <div style={{ display: "flex", gap: 8, background: t.panelAlt, padding: 4, borderRadius: 10, border: `1px solid ${t.border}` }}>
+            {["date", "campaign", "country", "device"].map((b) => (
+              <button
+                key={b}
+                onClick={() => setBreakdown(b)}
+                style={{
+                  padding: "6px 16px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: breakdown === b ? t.brand : "transparent",
+                  color: breakdown === b ? "#fff" : t.textDim,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  transition: "all 0.2s ease"
+                }}
+              >
+                {b.charAt(0).toUpperCase() + b.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {loading ? (
+          <div style={{ padding: 60, textAlign: "center", color: t.textDim, fontSize: 14 }}>Loading report data...</div>
+        ) : error ? (
+          <div style={{ padding: 40, textAlign: "center", color: t.red, fontSize: 14 }}>Error: {error}</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+              <thead>
+                <tr style={{ borderBottom: `2px solid ${t.border}` }}>
+                  <th style={{ textAlign: "left", padding: 12, color: t.textDim, fontWeight: 600 }}>{breakdown.toUpperCase()}</th>
+                  <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>IMPRESSIONS</th>
+                  <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>CLICKS</th>
+                  <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>CTR</th>
+                  <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>CONVERSIONS</th>
+                  <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>CR%</th>
+                  <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>SPEND</th>
+                  <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>CPA</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.breakdown?.map((row: any, idx: number) => (
+                  <tr 
+                    key={idx} 
+                    style={{ 
+                      borderBottom: `1px solid ${t.border}`,
+                      background: idx % 2 === 0 ? "transparent" : t.panelAlt
+                    }}
+                  >
+                    <td style={{ padding: 12, fontWeight: 600, color: t.text }}>
+                      {breakdown === 'campaign' ? row.campaign_name : row.key}
+                    </td>
+                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{num(row.impressions)}</td>
+                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{num(row.clicks)}</td>
+                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{row.ctr.toFixed(2)}%</td>
+                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600, color: t.green }}>{num(row.conversions)}</td>
+                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{row.cr.toFixed(2)}%</td>
+                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{money(row.spend)}</td>
+                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums", color: t.textDim }}>{money(row.cpa)}</td>
+                  </tr>
+                ))}
+                
+                {(!data.breakdown || data.breakdown.length === 0) && (
+                  <tr>
+                    <td colSpan={8} style={{ padding: 40, textAlign: "center", color: t.textFaint }}>No data available for this range</td>
+                  </tr>
+                )}
+              </tbody>
+              
+              {data.breakdown && data.breakdown.length > 0 && (
+                <tfoot>
+                  <tr style={{ borderTop: `2px solid ${t.border}`, fontWeight: 800, background: t.panelAlt }}>
+                    <td style={{ padding: 12, color: t.text }}>TOTAL</td>
+                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{num(totalImpressions)}</td>
+                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{num(totalClicks)}</td>
+                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{totalCtr.toFixed(2)}%</td>
+                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums", color: t.green }}>{num(totalConversions)}</td>
+                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{totalCr.toFixed(2)}%</td>
+                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(totalSpend)}</td>
+                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums", color: t.textDim }}>{money(totalCpa)}</td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Conversion Log */}
+      <div style={{ background: t.panel, border: `1px solid ${t.border}`, borderRadius: 16, padding: 24, boxShadow: t.shadowSm }}>
+        <h3 style={{ fontSize: 18, fontWeight: 700, color: t.text, margin: "0 0 4px 0" }}>Conversion log</h3>
+        <p style={{ fontSize: 13, color: t.textDim, margin: "0 0 20px 0" }}>Individual conversions received via postback. Pending entries are awaiting validation.</p>
+
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
+            <thead>
+              <tr style={{ borderBottom: `2px solid ${t.border}` }}>
+                <th style={{ textAlign: "left", padding: 12, color: t.textDim, fontWeight: 600 }}>TIME</th>
+                <th style={{ textAlign: "left", padding: 12, color: t.textDim, fontWeight: 600 }}>CONV. ID</th>
+                <th style={{ textAlign: "left", padding: 12, color: t.textDim, fontWeight: 600 }}>OFFER</th>
+                <th style={{ textAlign: "center", padding: 12, color: t.textDim, fontWeight: 600 }}>GEO</th>
+                <th style={{ textAlign: "center", padding: 12, color: t.textDim, fontWeight: 600 }}>DEVICE</th>
+                <th style={{ textAlign: "left", padding: 12, color: t.textDim, fontWeight: 600 }}>GOAL</th>
+                <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>PAYOUT</th>
+                <th style={{ textAlign: "center", padding: 12, color: t.textDim, fontWeight: 600 }}>STATUS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.conversions?.map((c: any, idx: number) => (
+                <tr 
+                  key={idx} 
+                  style={{ 
+                    borderBottom: `1px solid ${t.border}`,
+                    background: idx % 2 === 0 ? "transparent" : t.panelAlt
+                  }}
+                >
+                  <td style={{ padding: 12, color: t.textDim, fontVariantNumeric: "tabular-nums" }}>
+                    {new Date(c.time).toLocaleString()}
+                  </td>
+                  <td style={{ padding: 12, fontFamily: "monospace", color: t.text }}>{c.conversion_id}</td>
+                  <td style={{ padding: 12, fontWeight: 600, color: t.text }}>{c.offer_name}</td>
+                  <td style={{ padding: 12, textAlign: "center" }}>{c.geo}</td>
+                  <td style={{ padding: 12, textAlign: "center", textTransform: "capitalize" }}>{c.device}</td>
+                  <td style={{ padding: 12, color: t.textDim }}>{c.goal}</td>
+                  <td style={{ padding: 12, textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{money(c.payout)}</td>
+                  <td style={{ padding: 12, textAlign: "center" }}>
+                    <span style={{ 
+                      fontSize: 11, 
+                      fontWeight: 700, 
+                      padding: "4px 8px", 
+                      borderRadius: 4, 
+                      color: c.status === 'approved' ? t.green : t.amber, 
+                      background: c.status === 'approved' ? t.greenSoft : t.amberSoft 
+                    }}>
+                      {c.status.toUpperCase()}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              
+              {(!data.conversions || data.conversions.length === 0) && (
+                <tr>
+                  <td colSpan={8} style={{ padding: 40, textAlign: "center", color: t.textFaint }}>No conversions recorded yet</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ImplementationNotesPage({ t }: any) {
   const badgeStyle = (status: any) => {

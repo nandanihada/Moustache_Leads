@@ -6,15 +6,21 @@ import sys
 import os
 
 # Add utils directory to path for frontend mapping
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'utils'))
-from frontend_mapping import frontend_to_database, validate_frontend_data
+try:
+    from utils.frontend_mapping import frontend_to_database, validate_frontend_data
+except ImportError:
+    sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'utils'))
+    from frontend_mapping import frontend_to_database, validate_frontend_data
 
 # Import traffic source rules service
 try:
-    sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'services'))
-    from traffic_source_rules_service import TrafficSourceRulesService
+    from services.traffic_source_rules_service import TrafficSourceRulesService
 except ImportError:
-    TrafficSourceRulesService = None
+    try:
+        sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'services'))
+        from traffic_source_rules_service import TrafficSourceRulesService
+    except ImportError:
+        TrafficSourceRulesService = None
 
 # ==================== OFFER CATEGORIZATION RULES ====================
 
@@ -615,6 +621,12 @@ class Offer:
                 'carrier_targeting': mapped_data.get('carrier_targeting', []),  # Verizon/AT&T/T-Mobile
                 'connection_type': mapped_data.get('connection_type', 'all'),  # wifi/mobile/all
                 'timezone': mapped_data.get('timezone', 'UTC'),  # UTC/EST/PST/etc
+                'offer_source': offer_data.get('offer_source', 'upward_partner'),
+                'advertiser_id': offer_data.get('advertiser_id'),
+                'campaign_request_id': offer_data.get('campaign_request_id'),
+                'vpn': offer_data.get('vpn', 'all'),
+                'zone_mode': offer_data.get('zone_mode', 'include'),
+                'zones': offer_data.get('zones', '').strip() if offer_data.get('zones') else '',
                 
                 # SECTION 3: PAYOUT & FINANCE
                 'payout': float(offer_data['payout']),

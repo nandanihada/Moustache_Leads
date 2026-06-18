@@ -776,3 +776,207 @@ def save_own_postback():
         return jsonify({'error': str(e)}), 500
 
 
+@advertiser_dashboard_bp.route('/reports', methods=['GET'])
+@advertiser_token_required
+def get_reports():
+    """Get performance reports for the advertiser"""
+    try:
+        advertiser_id = request.advertiser_id
+        db = db_instance.get_db()
+        
+        # Get query parameters
+        date_range_str = request.args.get('range', 'last_7_days')
+        breakdown = request.args.get('breakdown', 'date')
+        
+        # Parse date range
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+        
+        if date_range_str == 'today':
+            start_date = datetime(now.year, now.month, now.day)
+            end_date = datetime(now.year, now.month, now.day, 23, 59, 59, 999999)
+        elif date_range_str == 'yesterday':
+            yesterday = now - timedelta(days=1)
+            start_date = datetime(yesterday.year, yesterday.month, yesterday.day)
+            end_date = datetime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59, 999999)
+        elif date_range_str == 'last_7_days':
+            start_date = now - timedelta(days=7)
+            end_date = now
+        elif date_range_str == 'last_30_days':
+            start_date = now - timedelta(days=30)
+            end_date = now
+        elif date_range_str == 'this_month':
+            start_date = datetime(now.year, now.month, 1)
+            end_date = now
+        else: # all time
+            start_date = datetime(2020, 1, 1)
+            end_date = now
+            
+        # Get advertiser offers/campaigns
+        offers = list(db.offers.find({'offer_source': 'advertiser', 'advertiser_id': advertiser_id}, {'offer_id': 1, 'name': 1}))
+        offer_ids = [o.get('offer_id') for o in offers if o.get('offer_id')]
+        offer_names = {o.get('offer_id'): o.get('name', 'Unknown Offer') for o in offers}
+        
+        if not offer_ids:
+            return jsonify({
+                'kpis': {
+                    'impressions': 0,
+                    'clicks': 0,
+                    'ctr': 0,
+                    'conversions': 0,
+                    'cr': 0,
+                    'spend': 0,
+                    'avg_cpa': 0
+                },
+                'breakdown': [],
+                'conversions': []
+            }), 200
+
+        # Query Clicks
+        click_query = {
+            'offer_id': {'$in': offer_ids},
+            'click_time': {'$gte': start_date, '$lte': end_date}
+        }
+        clicks = list(db.clicks.find(click_query, {
+            'click_time': 1, 'offer_id': 1, 'country': 1, 'country_code': 1, 'device_type': 1
+        }))
+
+        # Query Conversions
+        conv_query = {
+            'offer_id': {'$in': offer_ids},
+            'conversion_time': {'$gte': start_date, '$lte': end_date}
+        }
+        conversions = list(db.conversions.find(conv_query, {
+            'conversion_time': 1, 'offer_id': 1, 'country': 1, 'country_code': 1, 'device_type': 1,
+            'payout': 1, 'conversion_id': 1, 'status': 1
+        }))
+        
+        # Query Impressions/Views
+        view_query = {
+            'offer_id': {'$in': offer_ids},
+            'timestamp': {'$gte': start_date, '$lte': end_date}
+        }
+        views = list(db.offer_views.find(view_query, {
+            'timestamp': 1, 'offer_id': 1
+        }))
+
+        # Calculate KPIs
+        total_impressions = len(views)
+        total_clicks = len(clicks)
+        total_conversions = len(conversions)
+        
+        total_spend = 0.0
+        for c in conversions:
+            try:
+                total_spend += float(c.get('payout') or 0.0)
+            except (ValueError, TypeError):
+                pass
+                
+        ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0.0
+        cr = (total_conversions / total_clicks * 100) if total_clicks > 0 else 0.0
+        avg_cpa = (total_spend / total_conversions) if total_conversions > 0 else 0.0
+
+        kpis = {
+            'impressions': total_impressions,
+            'clicks': total_clicks,
+            'ctr': round(ctr, 2),
+            'conversions': total_conversions,
+            'cr': round(cr, 2),
+            'spend': round(total_spend, 2),
+            'avg_cpa': round(avg_cpa, 2)
+        }
+
+        # Process breakdown
+        breakdown_data = {}
+        
+        # Helper to get grouping key
+        def get_group_key(item, date_field):
+            if breakdown == 'date':
+                dt = item.get(date_field)
+                return dt.strftime('%Y-%m-%d') if dt else 'Unknown'
+            elif breakdown == 'country':
+                return item.get('country') or item.get('country_code') or 'Unknown'
+            elif breakdown == 'device':
+                return item.get('device_type') or 'Unknown'
+            elif breakdown == 'campaign':
+                return item.get('offer_id') or 'Unknown'
+            return 'Unknown'
+
+        # Count views
+        for v in views:
+            key = get_group_key(v, 'timestamp')
+            if key not in breakdown_data:
+                breakdown_data[key] = {'impressions': 0, 'clicks': 0, 'conversions': 0, 'spend': 0.0}
+            breakdown_data[key]['impressions'] += 1
+
+        # Count clicks
+        for c in clicks:
+            key = get_group_key(c, 'click_time')
+            if key not in breakdown_data:
+                breakdown_data[key] = {'impressions': 0, 'clicks': 0, 'conversions': 0, 'spend': 0.0}
+            breakdown_data[key]['clicks'] += 1
+
+        # Count conversions and spend
+        for c in conversions:
+            key = get_group_key(c, 'conversion_time')
+            if key not in breakdown_data:
+                breakdown_data[key] = {'impressions': 0, 'clicks': 0, 'conversions': 0, 'spend': 0.0}
+            breakdown_data[key]['conversions'] += 1
+            try:
+                breakdown_data[key]['spend'] += float(c.get('payout') or 0.0)
+            except (ValueError, TypeError):
+                pass
+
+        # Format breakdown results
+        breakdown_list = []
+        for key, stats in breakdown_data.items():
+            b_ctr = (stats['clicks'] / stats['impressions'] * 100) if stats['impressions'] > 0 else 0.0
+            b_cr = (stats['conversions'] / stats['clicks'] * 100) if stats['clicks'] > 0 else 0.0
+            b_cpa = (stats['spend'] / stats['conversions']) if stats['conversions'] > 0 else 0.0
+            
+            row = {
+                'key': key,
+                'impressions': stats['impressions'],
+                'clicks': stats['clicks'],
+                'ctr': round(b_ctr, 2),
+                'conversions': stats['conversions'],
+                'cr': round(b_cr, 2),
+                'spend': round(stats['spend'], 2),
+                'cpa': round(b_cpa, 2)
+            }
+            if breakdown == 'campaign':
+                row['campaign_name'] = offer_names.get(key, 'Unknown Offer')
+            breakdown_list.append(row)
+
+        # Sort breakdown
+        if breakdown == 'date':
+            breakdown_list.sort(key=lambda x: x['key'], reverse=True)
+        else:
+            breakdown_list.sort(key=lambda x: x['conversions'], reverse=True)
+
+        # Format conversions list (Conversion log)
+        conversions_list = []
+        for c in conversions[:100]: # limit to 100 recent
+            conversions_list.append({
+                'time': c.get('conversion_time').isoformat() if c.get('conversion_time') else '',
+                'conversion_id': c.get('conversion_id', ''),
+                'offer_name': offer_names.get(c.get('offer_id'), 'Unknown Offer'),
+                'geo': c.get('country') or c.get('country_code') or 'Unknown',
+                'device': c.get('device_type') or 'unknown',
+                'goal': 'Conversion',
+                'payout': float(c.get('payout') or 0),
+                'status': c.get('status', 'approved')
+            })
+
+        return jsonify({
+            'kpis': kpis,
+            'breakdown': breakdown_list,
+            'conversions': conversions_list
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error in advertiser reports endpoint: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+

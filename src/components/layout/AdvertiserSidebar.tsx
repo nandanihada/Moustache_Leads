@@ -42,8 +42,8 @@ const advertiserMenuItems = [
     icon: Megaphone,
   },
   {
-    title: "Statistics",
-    url: "/advertiser/campaign-builder?view=offers",
+    title: "Reports",
+    url: "/advertiser/campaign-builder?view=reports",
     icon: BarChart3,
   },
   {

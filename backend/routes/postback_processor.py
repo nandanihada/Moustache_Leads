@@ -98,6 +98,18 @@ def process_single_postback(postback):
         
         logger.info(f"✅ Click verified: click_id={click_id_from_pb}, user={click.get('user_id')}, offer={click.get('offer_id')}")
         
+        # Fallback to offer payout if payout is 0 or missing
+        if payout == 0 and click and click.get('offer_id'):
+            try:
+                offer_col = db_instance.get_collection('offers')
+                if offer_col is not None:
+                    offer = offer_col.find_one({'offer_id': click.get('offer_id')})
+                    if offer:
+                        payout = float(offer.get('payout') or 0.0)
+                        logger.info(f"Using offer default payout: {payout} for offer {click.get('offer_id')}")
+            except Exception as e:
+                logger.error(f"Error fetching fallback payout from offer: {e}")
+                
         # DUPLICATE CHECK: Reject if this click_id already has a conversion
         existing_conv_for_click = conversions_collection.find_one({'click_id': click_id_from_pb})
         if existing_conv_for_click:

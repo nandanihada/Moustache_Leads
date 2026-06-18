@@ -506,7 +506,7 @@ export default function PublisherOfferDetail() {
               onToggle={() => toggleSection('device')}
             >
               {(() => {
-                const dt = (offer.device_targeting || 'all').toLowerCase();
+                const dt = (Array.isArray(offer.device_targeting) ? offer.device_targeting.join(',') : (offer.device_targeting || 'all')).toLowerCase();
                 const isAll = dt === 'all' || dt.includes('desktop') && dt.includes('mobile');
                 const isMobile = isAll || dt === 'mobile' || dt.includes('mobile') || dt.includes('ios') || dt.includes('android') || dt.includes('phone');
                 const isDesktop = isAll || dt === 'desktop' || dt.includes('desktop') || dt.includes('windows') || dt.includes('mac');
@@ -528,7 +528,7 @@ export default function PublisherOfferDetail() {
                       ))}
                     </div>
                     {dt !== 'all' && (
-                      <p className="text-xs text-gray-400 mt-2">Targeting: <span className="font-medium text-gray-600">{offer.device_targeting}</span></p>
+                      <p className="text-xs text-gray-400 mt-2">Targeting: <span className="font-medium text-gray-600">{Array.isArray(offer.device_targeting) ? offer.device_targeting.join(', ') : offer.device_targeting}</span></p>
                     )}
                   </div>
                 );
@@ -657,7 +657,14 @@ export default function PublisherOfferDetail() {
                 { label: 'Monthly Cap', value: (offer as any).monthly_cap ? (offer as any).monthly_cap.toLocaleString() : 'Unlimited' },
                 { label: 'Cookie Window', value: (offer as any).conversion_window ? `${(offer as any).conversion_window} Days` : 'N/A' },
                 { label: 'Approval', value: offer.approval_type === 'auto_approve' ? 'Instant' : offer.approval_type === 'time_based' ? 'Time-Based' : 'Manual' },
-                { label: 'Devices', value: (offer.device_targeting || 'All').charAt(0).toUpperCase() + (offer.device_targeting || 'all').slice(1) },
+                { label: 'Devices', value: (() => {
+                  const target = offer.device_targeting || 'All';
+                  if (Array.isArray(target)) {
+                    return target.map((d: string) => d.charAt(0).toUpperCase() + d.slice(1)).join(', ');
+                  }
+                  const targetStr = String(target);
+                  return targetStr.charAt(0).toUpperCase() + targetStr.slice(1);
+                })() },
                 { label: 'Expires', value: (offer as any).expiration_date ? new Date((offer as any).expiration_date).toLocaleDateString() : 'No expiry' },
               ].map((fact, i) => (
                 <div key={i} className="py-3 flex justify-between items-center group">

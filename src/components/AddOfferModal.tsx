@@ -437,6 +437,85 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
     }
   };
 
+  const [offerSource, setOfferSource] = useState<'upward_partner' | 'advertiser'>('upward_partner');
+  const [selectedAdvertiser, setSelectedAdvertiser] = useState<string>('');
+  const [selectedCampaign, setSelectedCampaign] = useState<string>('');
+  const [advertisers, setAdvertisers] = useState<any[]>([]);
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [uploadingImage, setUploadingImage] = useState(false);
+
+  const fetchAdvertiserData = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const advRes = await fetch(`${API_BASE_URL}/api/admin/advertisers?status=approved`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const advData = await advRes.json();
+      if (advData && Array.isArray(advData.advertisers)) {
+        setAdvertisers(advData.advertisers);
+      } else if (advData && Array.isArray(advData)) {
+        setAdvertisers(advData);
+      }
+
+      const campRes = await fetch(`${API_BASE_URL}/api/admin/advertiser-campaigns`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const campData = await campRes.json();
+      if (campData && Array.isArray(campData.campaigns)) {
+        setCampaigns(campData.campaigns);
+      } else if (campData && Array.isArray(campData)) {
+        setCampaigns(campData);
+      }
+    } catch (err) {
+      console.error('Failed to fetch advertiser data:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (open) {
+      fetchAdvertiserData();
+    }
+  }, [open]);
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingImage(true);
+    try {
+      const token = localStorage.getItem('token');
+      const formDataObj = new FormData();
+      formDataObj.append('file', file);
+      
+      const response = await fetch(`${API_BASE_URL}/api/files/upload`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formDataObj
+      });
+      
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'Upload failed');
+      }
+      
+      handleInputChange('image_url', data.access_url || data.file_url || `/api/files/${data.file_id}`);
+      toast({
+        title: "Success",
+        description: "Image uploaded successfully!",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Upload Failed",
+        description: err.message || "Failed to upload image",
+        variant: "destructive"
+      });
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
   const [formData, setFormData] = useState<CreateOfferData>({
     campaign_id: '',
     name: '',
@@ -634,107 +713,186 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
     setLoading(true);
 
     try {
-      const submitData: any = {
-        ...formData,
-        countries: selectedCountries,
-        selected_users: formData.affiliates === 'selected' ? selectedUsers : [],
-        payout: Number(formData.payout),
-        limit: formData.limit ? Number(formData.limit) : undefined,
-        // Traffic source rules (auto-generated based on vertical)
-        allowed_traffic_sources: trafficSourceRules.allowed,
-        risky_traffic_sources: trafficSourceRules.risky,
-        disallowed_traffic_sources: trafficSourceRules.disallowed,
-        traffic_source_overrides: hasTrafficSourceOverrides ? trafficSourceRules : null,
-        // Compliance data (backward compatibility)
-        allowed_traffic_types: trafficSourceRules.allowed,
-        disallowed_traffic_types: trafficSourceRules.disallowed,
-        // Other targeting data
-        os_targeting: selectedOS,
-        device_targeting: selectedDevices.length === 0 ? 'all' : selectedDevices,
-        browser_targeting: selectedBrowsers,
-        carrier_targeting: selectedCarriers,
-        languages: selectedLanguages,
-        // 🔥 APPROVAL WORKFLOW DATA: Include all approval settings
-        approval_type: formData.approval_type || 'auto_approve',
-        auto_approve_delay: formData.auto_approve_delay || 0,
-        require_approval: formData.require_approval || false,
-        approval_message: formData.approval_message || '',
-        max_inactive_days: formData.max_inactive_days || 30,
-        // 🔥 CRITICAL FIX: Include Schedule + Smart Rules data
-        schedule: {
-          startDate: startDate ? format(startDate, 'yyyy-MM-dd') : null,
-          endDate: endDate ? format(endDate, 'yyyy-MM-dd') : null,
-          startTime,
-          endTime,
-          isRecurring,
-          weekdays: selectedWeekdays,
-          status: scheduleStatus
-        },
-        smartRules: smartRules.map(rule => ({
-          type: rule.type,
-          destinationUrl: rule.destinationUrl,
-          geo: rule.geo,
-          splitPercentage: rule.splitPercentage,
-          cap: rule.cap,
-          priority: rule.priority,
-          active: rule.active
-        })),
-        // 🔥 FALLBACK REDIRECT WITH TIMER
-        fallback_redirect_enabled: fallbackRedirect.enabled,
-        fallback_redirect_url: fallbackRedirect.url,
-        fallback_redirect_timer: fallbackRedirect.timer,
-        // 🔥 PROMO CODE ASSIGNMENT
-        promo_code_id: selectedPromoCode || undefined,
-        // Smart Link selection fields
-        priority: Number(formData.priority) || 0,
-        rotation_weight: Number(formData.rotation_weight) || 1.0,
-        // 📧 EMAIL NOTIFICATION TOGGLE
-        send_email: sendEmail,
-        email_template_style: emailSettings.templateStyle,
-        email_visible_fields: emailSettings.visibleFields,
-        email_see_more_fields: emailSettings.seeMoreFields,
-        email_default_image: emailSettings.defaultImage,
-        email_payout_type: emailSettings.payoutType,
-        email_mask_preview_links: emailSettings.maskPreviewLinks,
-        email_payment_terms: emailSettings.paymentTerms,
-        email_subject: emailSubject || undefined,
-        email_message: emailMessage || undefined,
-        email_exclude_user_ids: excludeUserIds.length > 0 ? excludeUserIds : undefined,
-        email_include_user_ids: includeUserIds.length > 0 ? includeUserIds : undefined,
-        email_send_mode: emailSendMode,
-        email_schedule_at: emailSendMode === 'schedule' && emailScheduleDate ? `${emailScheduleDate}T${emailScheduleTime || '09:00'}:00` : undefined,
-        // 🔥 LEVEL-BASED PAYOUTS (conversion event levels)
-        level_payouts: {
-          enabled: formData.level_payouts_enabled || false,
-          levels: (formData.level_payouts_list || []).filter((l: any) => l.name && l.payout > 0)
-        },
-        // 🔥 GEO-SPLIT PAYOUTS (country-wise payouts)
-        geo_payouts: (formData.geo_payouts_list || []).filter((g: any) => g.country && g.payout > 0)
-      };
+      let submitData: any;
+      if (offerSource === 'advertiser') {
+        submitData = {
+          offer_source: 'advertiser',
+          advertiser_id: selectedAdvertiser,
+          campaign_request_id: selectedCampaign,
+          campaign_id: formData.campaign_id || selectedCampaign,
+          name: formData.name,
+          description: formData.description,
+          vertical: formData.vertical || 'OTHER',
+          status: formData.status || 'pending',
+          payout: Number(formData.payout) || 0,
+          target_url: formData.target_url,
+          network: formData.network || 'Advertiser',
+          image_url: formData.image_url || '',
+          star_rating: Number(formData.star_rating) || 5,
+          offer_type: formData.offer_type || 'CPA',
+          allowed_countries: formData.allowed_countries || [],
+          countries: formData.allowed_countries || [],
+          // Expanded targeting options
+          device_targeting: formData.device_targeting || 'all',
+          os_targeting: formData.os_targeting || [],
+          browser_targeting: formData.browser_targeting || [],
+          languages: formData.languages || [],
+          connection_type: formData.connection_type || 'All',
+          vpn: formData.vpn || 'all',
+          zone_mode: formData.zone_mode || 'include',
+          zones: formData.zones || '',
+          retarget: formData.retarget || 'none',
+          pricing: formData.pricing || 'cpa',
+          format: formData.format || 'popunder',
+          // Defaults for required validation on backend
+          payout_type: 'fixed',
+          affiliates: 'all',
+          show_in_iframe: true,
+          approval_type: 'auto_approve',
+          auto_approve_delay: 0,
+          require_approval: false,
+          max_inactive_days: 30,
+          priority: 0,
+          rotation_weight: 1.0,
+          //   EMAIL NOTIFICATION TOGGLE
+          send_email: sendEmail,
+          email_template_style: emailSettings.templateStyle,
+          email_visible_fields: emailSettings.visibleFields,
+          email_see_more_fields: emailSettings.seeMoreFields,
+          email_default_image: emailSettings.defaultImage,
+          email_payout_type: emailSettings.payoutType,
+          email_mask_preview_links: emailSettings.maskPreviewLinks,
+          email_payment_terms: emailSettings.paymentTerms,
+          email_subject: emailSubject || undefined,
+          email_message: emailMessage || undefined,
+          email_exclude_user_ids: excludeUserIds.length > 0 ? excludeUserIds : undefined,
+          email_include_user_ids: includeUserIds.length > 0 ? includeUserIds : undefined,
+          email_send_mode: emailSendMode,
+          email_schedule_at: emailSendMode === 'schedule' && emailScheduleDate ? `${emailScheduleDate}T${emailScheduleTime || '09:00'}:00` : undefined,
+        };
+      } else {
+        submitData = {
+          ...formData,
+          offer_source: 'upward_partner',
+          countries: selectedCountries,
+          selected_users: formData.affiliates === 'selected' ? selectedUsers : [],
+          payout: Number(formData.payout),
+          limit: formData.limit ? Number(formData.limit) : undefined,
+          // Traffic source rules (auto-generated based on vertical)
+          allowed_traffic_sources: trafficSourceRules.allowed,
+          risky_traffic_sources: trafficSourceRules.risky,
+          disallowed_traffic_sources: trafficSourceRules.disallowed,
+          traffic_source_overrides: hasTrafficSourceOverrides ? trafficSourceRules : null,
+          // Compliance data (backward compatibility)
+          allowed_traffic_types: trafficSourceRules.allowed,
+          disallowed_traffic_types: trafficSourceRules.disallowed,
+          // Other targeting data
+          os_targeting: selectedOS,
+          device_targeting: selectedDevices.length === 0 ? 'all' : selectedDevices,
+          browser_targeting: selectedBrowsers,
+          carrier_targeting: selectedCarriers,
+          languages: selectedLanguages,
+          //   APPROVAL WORKFLOW DATA: Include all approval settings
+          approval_type: formData.approval_type || 'auto_approve',
+          auto_approve_delay: formData.auto_approve_delay || 0,
+          require_approval: formData.require_approval || false,
+          approval_message: formData.approval_message || '',
+          max_inactive_days: formData.max_inactive_days || 30,
+          //   CRITICAL FIX: Include Schedule + Smart Rules data
+          schedule: {
+            startDate: startDate ? format(startDate, 'yyyy-MM-dd') : null,
+            endDate: endDate ? format(endDate, 'yyyy-MM-dd') : null,
+            startTime,
+            endTime,
+            isRecurring,
+            weekdays: selectedWeekdays,
+            status: scheduleStatus
+          },
+          smartRules: smartRules.map(rule => ({
+            type: rule.type,
+            destinationUrl: rule.destinationUrl,
+            geo: rule.geo,
+            splitPercentage: rule.splitPercentage,
+            cap: rule.cap,
+            priority: rule.priority,
+            active: rule.active
+          })),
+          //   FALLBACK REDIRECT WITH TIMER
+          fallback_redirect_enabled: fallbackRedirect.enabled,
+          fallback_redirect_url: fallbackRedirect.url,
+          fallback_redirect_timer: fallbackRedirect.timer,
+          //   PROMO CODE ASSIGNMENT
+          promo_code_id: selectedPromoCode || undefined,
+          // Smart Link selection fields
+          priority: Number(formData.priority) || 0,
+          rotation_weight: Number(formData.rotation_weight) || 1.0,
+          //   EMAIL NOTIFICATION TOGGLE
+          send_email: sendEmail,
+          email_template_style: emailSettings.templateStyle,
+          email_visible_fields: emailSettings.visibleFields,
+          email_see_more_fields: emailSettings.seeMoreFields,
+          email_default_image: emailSettings.defaultImage,
+          email_payout_type: emailSettings.payoutType,
+          email_mask_preview_links: emailSettings.maskPreviewLinks,
+          email_payment_terms: emailSettings.paymentTerms,
+          email_subject: emailSubject || undefined,
+          email_message: emailMessage || undefined,
+          email_exclude_user_ids: excludeUserIds.length > 0 ? excludeUserIds : undefined,
+          email_include_user_ids: includeUserIds.length > 0 ? includeUserIds : undefined,
+          email_send_mode: emailSendMode,
+          email_schedule_at: emailSendMode === 'schedule' && emailScheduleDate ? `${emailScheduleDate}T${emailScheduleTime || '09:00'}:00` : undefined,
+          //   LEVEL-BASED PAYOUTS (conversion event levels)
+          level_payouts: {
+            enabled: formData.level_payouts_enabled || false,
+            levels: (formData.level_payouts_list || []).filter((l: any) => l.name && l.payout > 0)
+          },
+          //   GEO-SPLIT PAYOUTS (country-wise payouts)
+          geo_payouts: (formData.geo_payouts_list || []).filter((g: any) => g.country && g.payout > 0)
+        };
+      }
 
       // Remove partner_id if it's empty
-      if (!submitData.partner_id) {
+      if (offerSource !== 'advertiser' && !submitData.partner_id) {
         delete submitData.partner_id;
       }
 
-      // 🔍 QA VERIFICATION: Debug logs
-      console.log('🔍 Schedule Data Being Sent:', submitData.schedule);
-      console.log('🔍 Smart Rules Data Being Sent:', submitData.smartRules);
-      console.log('🔍 Fallback Redirect Data Being Sent:', {
-        enabled: fallbackRedirect.enabled,
-        url: fallbackRedirect.url,
-        timer: fallbackRedirect.timer
-      });
-      console.log('🔍 Compliance Data Being Sent:', {
-        allowed_traffic_types: selectedAllowedTraffic,
-        disallowed_traffic_types: selectedDisallowedTraffic,
-        creative_approval_required: formData.creative_approval_required,
-        affiliate_terms: formData.affiliate_terms,
-        brand_guidelines: formData.brand_guidelines,
-        terms_notes: formData.terms_notes
-      });
+      //   QA VERIFICATION: Debug logs
+      if (offerSource !== 'advertiser') {
+        console.log('  Schedule Data Being Sent:', submitData.schedule);
+        console.log('  Smart Rules Data Being Sent:', submitData.smartRules);
+        console.log('  Fallback Redirect Data Being Sent:', {
+          enabled: fallbackRedirect.enabled,
+          url: fallbackRedirect.url,
+          timer: fallbackRedirect.timer
+        });
+        console.log('  Compliance Data Being Sent:', {
+          allowed_traffic_types: selectedAllowedTraffic,
+          disallowed_traffic_types: selectedDisallowedTraffic,
+          creative_approval_required: formData.creative_approval_required,
+          affiliate_terms: formData.affiliate_terms,
+          brand_guidelines: formData.brand_guidelines,
+          terms_notes: formData.terms_notes
+        });
+      }
 
       await adminOfferApi.createOffer(submitData);
+
+      // Automatically approve the campaign on the advertiser panel if linked
+      if (offerSource === 'advertiser' && selectedCampaign) {
+        try {
+          const token = localStorage.getItem('token');
+          await fetch(`${API_BASE_URL}/api/admin/advertiser-campaigns/${selectedCampaign}/status`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ status: 'approved' })
+          });
+        } catch (err) {
+          console.error("Failed to automatically update advertiser campaign status:", err);
+        }
+      }
 
       toast({
         title: "Success",
@@ -747,7 +905,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
         name: '',
         description: '',
         status: 'pending',
-        vertical: 'OTHER',  // ✅ FIX: Reset category to default so Select shows correctly
+        vertical: 'OTHER',
         countries: [],
         allowed_countries: [],
         payout: 0,
@@ -765,20 +923,17 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
         target_url: '',
         preview_url: '',
         device_targeting: 'all',
-        // Creative fields
         creative_type: 'image',
         html_code: '',
         email_template: '',
         uploaded_file_name: '',
         uploaded_file_size: 0,
-        // 🔥 APPROVAL WORKFLOW FIELDS - Reset to defaults
         approval_type: 'auto_approve',
         auto_approve_delay: 0,
         auto_approve_delay_unit: 'minutes',
         require_approval: false,
         approval_message: '',
         max_inactive_days: 30,
-        // 🔥 IFRAME DISPLAY SETTINGS - Reset to defaults
         show_in_iframe: true,
         star_rating: 5,
         urgency_type: '',
@@ -796,22 +951,26 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
       setSelectedCarriers([]);
       setSelectedAllowedTraffic([]);
       setSelectedDisallowedTraffic([]);
-      // Reset schedule and smart rules
-      setStartDate(undefined);
-      setEndDate(undefined);
-      setStartTime('');
-      setEndTime('');
-      setIsRecurring(false);
-      setSelectedWeekdays([]);
-      setScheduleStatus('Active');
-      setSmartRules([]);
-      setShowJsonPreview(false);
-      // Reset fallback redirect
-      setFallbackRedirect({ enabled: false, url: '', timer: 30 });
+
+      if (offerSource !== 'advertiser') {
+        setEndDate(undefined);
+        setStartTime('');
+        setEndTime('');
+        setIsRecurring(false);
+        setSelectedWeekdays([]);
+        setScheduleStatus('Active');
+        setSmartRules([]);
+        setShowJsonPreview(false);
+        setFallbackRedirect({ enabled: false, url: '', timer: 30 });
+      }
+
+      // Reset advertiser specific states
+      setOfferSource('upward_partner');
+      setSelectedAdvertiser('');
+      setSelectedCampaign('');
 
       onOpenChange(false);
       onOfferCreated?.();
-
     } catch (error) {
       toast({
         title: "Error",
@@ -835,20 +994,21 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <Tabs defaultValue="identification" className="w-full">
-            <TabsList className="grid w-full grid-cols-12 text-xs">
-              <TabsTrigger value="identification">ID</TabsTrigger>
-              <TabsTrigger value="targeting">Target</TabsTrigger>
-              <TabsTrigger value="payout">Payout</TabsTrigger>
-              <TabsTrigger value="levels">Level</TabsTrigger>
-              <TabsTrigger value="geosplit">Geo</TabsTrigger>
-              <TabsTrigger value="tracking">Track</TabsTrigger>
-              <TabsTrigger value="access">Access</TabsTrigger>
-              <TabsTrigger value="creatives">Creative</TabsTrigger>
-              <TabsTrigger value="schedule-rules">Schedule + Rules</TabsTrigger>
-              <TabsTrigger value="compliance">Comply</TabsTrigger>
-
-              <TabsTrigger value="reporting">Report</TabsTrigger>
-            </TabsList>
+            {offerSource === 'upward_partner' && (
+              <TabsList className="grid w-full grid-cols-12 text-xs">
+                <TabsTrigger value="identification">ID</TabsTrigger>
+                <TabsTrigger value="targeting">Target</TabsTrigger>
+                <TabsTrigger value="payout">Payout</TabsTrigger>
+                <TabsTrigger value="levels">Level</TabsTrigger>
+                <TabsTrigger value="geosplit">Geo</TabsTrigger>
+                <TabsTrigger value="tracking">Track</TabsTrigger>
+                <TabsTrigger value="access">Access</TabsTrigger>
+                <TabsTrigger value="creatives">Creative</TabsTrigger>
+                <TabsTrigger value="schedule-rules">Schedule + Rules</TabsTrigger>
+                <TabsTrigger value="compliance">Comply</TabsTrigger>
+                <TabsTrigger value="reporting">Report</TabsTrigger>
+              </TabsList>
+            )}
 
             {/* SECTION 1: OFFER IDENTIFICATION */}
             <TabsContent value="identification" className="space-y-4">
@@ -858,227 +1018,521 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                   <CardDescription>Basic offer details and identification</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="offer_id">Offer ID (from upward partner) *</Label>
-                      <Input
-                        id="offer_id"
-                        value={formData.campaign_id}
-                        onChange={(e) => handleInputChange('campaign_id', e.target.value)}
-                        placeholder="VBFS6"
-                        required
-                      />
-                      <p className="text-sm text-gray-500 mt-1">Enter the survey_id/offer_id from upward partner</p>
-                    </div>
-                    <div>
-                      <Label htmlFor="status">Status</Label>
-                      <Select value={formData.status} onValueChange={(value) => handleInputChange('status', value)}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="active">Active</SelectItem>
-                          <SelectItem value="pending">Pending</SelectItem>
-                          <SelectItem value="inactive">Inactive</SelectItem>
-                          <SelectItem value="paused">Paused</SelectItem>
-                          <SelectItem value="hidden">Hidden</SelectItem>
-                        </SelectContent>
-                      </Select>
+                  {/* Offer Source Toggle */}
+                  <div className="space-y-2 border-b pb-4">
+                    <Label className="text-sm font-semibold">Offer Source *</Label>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant={offerSource === 'upward_partner' ? 'default' : 'outline'}
+                        onClick={() => {
+                          setOfferSource('upward_partner');
+                          setSelectedAdvertiser('');
+                          setSelectedCampaign('');
+                        }}
+                        className="flex items-center gap-1.5"
+                      >
+                        Upward Partner
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={offerSource === 'advertiser' ? 'default' : 'outline'}
+                        onClick={() => setOfferSource('advertiser')}
+                        className="flex items-center gap-1.5"
+                      >
+                        Advertiser
+                      </Button>
                     </div>
                   </div>
 
-                  <div>
-                    <Label htmlFor="name">Offer Name *</Label>
-                    <Input
-                      id="name"
-                      value={formData.name}
-                      onChange={(e) => handleInputChange('name', e.target.value)}
-                      placeholder="Premium Survey Offer"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="description">Description</Label>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-purple-600" title="AI Description Generator">
-                            <img src="https://i.postimg.cc/XB0zjj5r/description.png" alt="" className="w-4 h-4 mr-1" />Generate
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[450px] p-3" align="end">
-                          <DescriptionGeneratorComponent
-                            offerName={formData.name || 'New Offer'}
-                            existingDescription={formData.description || ''}
-                            vertical={formData.vertical}
-                            onDescriptionSaved={(newDesc) => handleInputChange('description', newDesc)}
-                          />
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                    <Textarea
-                      id="description"
-                      value={formData.description || ''}
-                      onChange={(e) => handleInputChange('description', e.target.value)}
-                      placeholder="Detailed offer description"
-                      rows={3}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="vertical">Category</Label>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-blue-600" title="AI Vertical Suggester">
-                              <img src="https://i.postimg.cc/bw1GTwsg/categorization.png" alt="" className="w-4 h-4 mr-1" />Suggest
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-[400px] p-3" align="end">
-                            <VerticalSuggesterComponent
-                              offerName={formData.name || 'New Offer'}
-                              description={formData.description || ''}
-                              currentVertical={formData.vertical || ''}
-                              onVerticalSaved={(newVertical) => handleInputChange('vertical', newVertical)}
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                      <Select value={formData.vertical ?? 'OTHER'} onValueChange={(value) => handleInputChange('vertical', value)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select category" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {VALID_CATEGORIES.map(category => (
-                            <SelectItem key={category} value={category}>{category}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label htmlFor="offer_type">Offer Type</Label>
-                      <Select value={formData.offer_type || ''} onValueChange={(value) => handleInputChange('offer_type', value)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="CPA">CPA</SelectItem>
-                          <SelectItem value="CPL">CPL</SelectItem>
-                          <SelectItem value="CPS">CPS</SelectItem>
-                          <SelectItem value="CPI">CPI</SelectItem>
-                          <SelectItem value="CPC">CPC</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label htmlFor="star_rating">Star Rating (1-5)</Label>
-                      <Select value={String(formData.star_rating || 5)} onValueChange={(value) => handleInputChange('star_rating', parseInt(value))}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="5 Stars" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="5">⭐⭐⭐⭐⭐ (5 Stars)</SelectItem>
-                          <SelectItem value="4">⭐⭐⭐⭐ (4 Stars)</SelectItem>
-                          <SelectItem value="3">⭐⭐⭐ (3 Stars)</SelectItem>
-                          <SelectItem value="2">⭐⭐ (2 Stars)</SelectItem>
-                          <SelectItem value="1">⭐ (1 Star)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="priority">Selection Priority (Smart Link)</Label>
-                      <Input
-                        id="priority"
-                        type="number"
-                        value={formData.priority || 0}
-                        onChange={(e) => handleInputChange('priority', parseInt(e.target.value) || 0)}
-                        placeholder="0"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">Higher values are prioritized in Smart Link redirection.</p>
-                    </div>
-                    <div>
-                      <Label htmlFor="rotation_weight">Rotation Weight (0.1 - 10)</Label>
-                      <Input
-                        id="rotation_weight"
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        value={formData.rotation_weight || 1.0}
-                        onChange={(e) => handleInputChange('rotation_weight', parseFloat(e.target.value) || 1.0)}
-                        placeholder="1.0"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">Relative probability for weighted random rotation.</p>
-                    </div>
-                  </div>
-
-                  {/* Iframe Display Settings */}
-                  <Card className="border-purple-200 bg-purple-50/50">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm font-semibold text-purple-800">📱 Iframe Display Settings</CardTitle>
-                      <CardDescription className="text-xs">Configure how this offer appears in the offerwall iframe</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Label htmlFor="show_in_iframe" className="text-sm font-medium">Show in Iframe</Label>
-                          <p className="text-xs text-gray-500">Enable to display this offer in the offerwall</p>
+                  {offerSource === 'advertiser' ? (
+                    /* ADVERTISER MODE FORM FIELDS */
+                    <div className="space-y-4 pt-2">
+                      {/* Map to advertiser Box */}
+                      <div className="p-4 rounded-lg border border-orange-200 bg-orange-50/20 space-y-4">
+                        <div className="flex items-center gap-2 font-semibold text-orange-850 text-sm">
+                          <span className="p-1 rounded bg-orange-100">🗺️</span>
+                          Map to advertiser
                         </div>
-                        <Switch
-                          id="show_in_iframe"
-                          checked={formData.show_in_iframe !== false}
-                          onCheckedChange={(checked) => handleInputChange('show_in_iframe', checked)}
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <Label htmlFor="urgency_type">Urgency Booster (Optional)</Label>
-                          <Select value={formData.urgency_type || 'none'} onValueChange={(value) => handleInputChange('urgency_type', value === 'none' ? '' : value)}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="No urgency" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">❌ No Urgency</SelectItem>
-                              <SelectItem value="limited_slots">🔥 Limited slots today</SelectItem>
-                              <SelectItem value="high_demand">⚡ High demand</SelectItem>
-                              <SelectItem value="expires_soon">⏰ Expires soon</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <p className="text-xs text-gray-500 mt-1">Shows urgency badge on offer card</p>
-                        </div>
-                        <div>
-                          <Label htmlFor="timer_enabled">Enable Countdown Timer</Label>
-                          <div className="flex items-center gap-2 mt-2">
-                            <Switch
-                              id="timer_enabled"
-                              checked={formData.timer_enabled || false}
-                              onCheckedChange={(checked) => handleInputChange('timer_enabled', checked)}
-                            />
-                            <span className="text-sm text-gray-600">{formData.timer_enabled ? 'Timer ON' : 'Timer OFF'}</span>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <Label className="text-xs font-semibold text-gray-700">Advertiser *</Label>
+                            <Select 
+                              value={selectedAdvertiser} 
+                              onValueChange={(val) => {
+                                setSelectedAdvertiser(val);
+                                setSelectedCampaign('');
+                              }}
+                            >
+                              <SelectTrigger className="bg-white border-gray-200">
+                                <SelectValue placeholder="Select advertiser..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {advertisers.map((adv: any) => (
+                                  <SelectItem key={adv._id || adv.id} value={adv._id || adv.id}>
+                                    {adv.company_name || adv.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          <div className="space-y-1.5">
+                            <Label className="text-xs font-semibold text-gray-700">Submitted campaign *</Label>
+                            <Select 
+                              value={selectedCampaign} 
+                              onValueChange={(val) => {
+                                setSelectedCampaign(val);
+                                const camp = campaigns.find((c: any) => (c._id || c.id) === val);
+                                if (camp) {
+                                  const fd = camp.form_data || {};
+                                  const countriesList = camp.target_countries || camp.countries || fd.countries || [];
+                                  
+                                  setSelectedCountries(countriesList);
+                                  handleInputChange('allowed_countries', countriesList);
+                                  handleInputChange('countries', countriesList);
+                                  
+                                  handleInputChange('name', camp.name || '');
+                                  handleInputChange('description', camp.description || fd.description || '');
+                                  handleInputChange('vertical', camp.category || camp.vertical || fd.vertical || 'OTHER');
+                                  handleInputChange('payout', camp.payout || camp.bid_amount || fd.cpaGoal || fd.bid_amount || 0);
+                                  handleInputChange('target_url', camp.landing_url || fd.targetUrl || camp.target_url || '');
+                                  handleInputChange('campaign_id', camp._id || camp.id);
+                                  handleInputChange('image_url', camp.image_url || fd.image_url || '');
+                                  
+                                  // Map all campaign targeting properties from database columns or form_data
+                                  handleInputChange('device_targeting', camp.target_devices || fd.devices || 'all');
+                                  handleInputChange('os_targeting', camp.target_os || fd.os || []);
+                                  handleInputChange('browser_targeting', camp.target_browsers || fd.browsers || []);
+                                  handleInputChange('languages', camp.target_languages || fd.browserLanguages || []);
+                                  handleInputChange('connection_type', fd.connection || 'All');
+                                  handleInputChange('vpn', fd.vpn || 'all');
+                                  handleInputChange('zone_mode', fd.zoneMode || 'include');
+                                  handleInputChange('zones', fd.zones || '');
+                                  handleInputChange('retarget', fd.retarget || 'none');
+                                  handleInputChange('pricing', fd.pricing || camp.pricing || 'cpa');
+                                  handleInputChange('format', fd.format || camp.campaign_type || 'popunder');
+                                }
+                              }}
+                              disabled={!selectedAdvertiser}
+                            >
+                              <SelectTrigger className="bg-white border-gray-200">
+                                <SelectValue placeholder={selectedAdvertiser ? "Select campaign..." : "Pick advertiser first"} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {campaigns
+                                  .filter((c: any) => c.advertiser_id === selectedAdvertiser)
+                                  .map((camp: any) => (
+                                    <SelectItem key={camp._id || camp.id} value={camp._id || camp.id}>
+                                      {camp.name} ({camp.status})
+                                    </SelectItem>
+                                  ))}
+                              </SelectContent>
+                            </Select>
                           </div>
                         </div>
                       </div>
 
-                      {formData.timer_enabled && (
+                      {/* Basic Fields Grid */}
+                      <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <Label htmlFor="timer_end_date">Timer End Date & Time</Label>
+                          <Label htmlFor="adv_campaign_id">Offer ID (from advertiser submission) *</Label>
                           <Input
-                            id="timer_end_date"
-                            type="datetime-local"
-                            value={formData.timer_end_date || ''}
-                            onChange={(e) => handleInputChange('timer_end_date', e.target.value)}
-                            className="mt-1"
+                            id="adv_campaign_id"
+                            value={formData.campaign_id}
+                            onChange={(e) => handleInputChange('campaign_id', e.target.value)}
+                            placeholder="auto-filled from submission"
+                            required
                           />
-                          <p className="text-xs text-gray-500 mt-1">Countdown timer will show on offer card until this date</p>
                         </div>
-                      )}
-                    </CardContent>
-                  </Card>
+                        <div>
+                          <Label htmlFor="adv_status">Status</Label>
+                          <Select value={formData.status} onValueChange={(value) => handleInputChange('status', value)}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="active">Active</SelectItem>
+                              <SelectItem value="pending">Pending</SelectItem>
+                              <SelectItem value="inactive">Inactive</SelectItem>
+                              <SelectItem value="paused">Paused</SelectItem>
+                              <SelectItem value="hidden">Hidden</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      {/* Name */}
+                      <div>
+                        <Label htmlFor="adv_name">Offer Name *</Label>
+                        <Input
+                          id="adv_name"
+                          value={formData.name}
+                          onChange={(e) => handleInputChange('name', e.target.value)}
+                          placeholder="Premium Survey Offer"
+                          required
+                        />
+                      </div>
+
+                      {/* Description with AI Description Generator */}
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="adv_description">Description</Label>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-purple-600" title="AI Description Generator">
+                                <img src="https://i.postimg.cc/XB0zjj5r/description.png" alt="" className="w-4 h-4 mr-1" />Generate
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[450px] p-3" align="end">
+                              <DescriptionGeneratorComponent
+                                offerName={formData.name || 'New Offer'}
+                                existingDescription={formData.description || ''}
+                                vertical={formData.vertical}
+                                onDescriptionSaved={(newDesc) => handleInputChange('description', newDesc)}
+                              />
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                        <Textarea
+                          id="adv_description"
+                          value={formData.description || ''}
+                          onChange={(e) => handleInputChange('description', e.target.value)}
+                          placeholder="Detailed offer description"
+                          rows={3}
+                        />
+                      </div>
+
+                      {/* Target URL */}
+                      <div>
+                        <Label htmlFor="adv_target_url">Target URL *</Label>
+                        <Input
+                          id="adv_target_url"
+                          type="url"
+                          value={formData.target_url}
+                          onChange={(e) => handleInputChange('target_url', e.target.value)}
+                          placeholder="https://example.com/landing?subid={subid}"
+                          required
+                        />
+                      </div>
+
+                      {/* Grid: Category, Offer Type, Star Rating, Payout */}
+                      <div className="grid grid-cols-4 gap-4">
+                        <div>
+                          <Label htmlFor="adv_vertical">Category</Label>
+                          <Select value={formData.vertical ?? 'OTHER'} onValueChange={(value) => handleInputChange('vertical', value)}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {VALID_CATEGORIES.map(category => (
+                                <SelectItem key={category} value={category}>{category}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label htmlFor="adv_offer_type">Offer Type</Label>
+                          <Select value={formData.offer_type || 'CPA'} onValueChange={(value) => handleInputChange('offer_type', value)}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="CPA">CPA</SelectItem>
+                              <SelectItem value="CPL">CPL</SelectItem>
+                              <SelectItem value="CPS">CPS</SelectItem>
+                              <SelectItem value="CPI">CPI</SelectItem>
+                              <SelectItem value="CPC">CPC</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label htmlFor="adv_star_rating">Star Rating (1-5)</Label>
+                          <Select value={String(formData.star_rating || 5)} onValueChange={(value) => handleInputChange('star_rating', parseInt(value))}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="5 Stars" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="5">⭐⭐⭐⭐⭐ (5 Stars)</SelectItem>
+                              <SelectItem value="4">⭐⭐⭐⭐ (4 Stars)</SelectItem>
+                              <SelectItem value="3">⭐⭐⭐ (3 Stars)</SelectItem>
+                              <SelectItem value="2">⭐⭐ (2 Stars)</SelectItem>
+                              <SelectItem value="1">⭐ (1 Star)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label htmlFor="adv_payout">Payout ($) *</Label>
+                          <Input
+                            id="adv_payout"
+                            type="number"
+                            step="0.01"
+                            value={formData.payout}
+                            onChange={(e) => handleInputChange('payout', e.target.value)}
+                            placeholder="1.50"
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      {/* Image Upload Banner (Mandatory) */}
+                      <div className="space-y-2">
+                        <Label className="text-sm font-semibold">Upload Campaign Banner / Image *</Label>
+                        <div className="flex items-center gap-4">
+                          <Input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleImageUpload}
+                            disabled={uploadingImage}
+                            className="cursor-pointer"
+                            required={!formData.image_url}
+                          />
+                          {uploadingImage && <span className="text-xs text-muted-foreground">Uploading...</span>}
+                        </div>
+                        {formData.image_url && (
+                          <div className="mt-2 relative inline-block">
+                            <img 
+                              src={formData.image_url.startsWith('http') ? formData.image_url : `${API_BASE_URL}${formData.image_url}`} 
+                              alt="Preview" 
+                              className="h-24 rounded border object-cover" 
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleInputChange('image_url', '')}
+                              className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full p-1 w-6 h-6 flex items-center justify-center text-xs hover:bg-destructive/90"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    /* ORIGINAL UPWARD PARTNER FORM FIELDS */
+                    <div className="space-y-4 pt-2">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="offer_id">Offer ID (from upward partner) *</Label>
+                          <Input
+                            id="offer_id"
+                            value={formData.campaign_id}
+                            onChange={(e) => handleInputChange('campaign_id', e.target.value)}
+                            placeholder="VBFS6"
+                            required
+                          />
+                          <p className="text-sm text-gray-500 mt-1">Enter the survey_id/offer_id from upward partner</p>
+                        </div>
+                        <div>
+                          <Label htmlFor="status">Status</Label>
+                          <Select value={formData.status} onValueChange={(value) => handleInputChange('status', value)}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="active">Active</SelectItem>
+                              <SelectItem value="pending">Pending</SelectItem>
+                              <SelectItem value="inactive">Inactive</SelectItem>
+                              <SelectItem value="paused">Paused</SelectItem>
+                              <SelectItem value="hidden">Hidden</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label htmlFor="name">Offer Name *</Label>
+                        <Input
+                          id="name"
+                          value={formData.name}
+                          onChange={(e) => handleInputChange('name', e.target.value)}
+                          placeholder="Premium Survey Offer"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="description">Description</Label>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-purple-600" title="AI Description Generator">
+                                <img src="https://i.postimg.cc/XB0zjj5r/description.png" alt="" className="w-4 h-4 mr-1" />Generate
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[450px] p-3" align="end">
+                              <DescriptionGeneratorComponent
+                                offerName={formData.name || 'New Offer'}
+                                existingDescription={formData.description || ''}
+                                vertical={formData.vertical}
+                                onDescriptionSaved={(newDesc) => handleInputChange('description', newDesc)}
+                              />
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                        <Textarea
+                          id="description"
+                          value={formData.description || ''}
+                          onChange={(e) => handleInputChange('description', e.target.value)}
+                          placeholder="Detailed offer description"
+                          rows={3}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-4">
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <Label htmlFor="vertical">Category</Label>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-blue-600" title="AI Vertical Suggester">
+                                  <img src="https://i.postimg.cc/bw1GTwsg/categorization.png" alt="" className="w-4 h-4 mr-1" />Suggest
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-[400px] p-3" align="end">
+                                <VerticalSuggesterComponent
+                                  offerName={formData.name || 'New Offer'}
+                                  description={formData.description || ''}
+                                  currentVertical={formData.vertical || ''}
+                                  onVerticalSaved={(newVertical) => handleInputChange('vertical', newVertical)}
+                                />
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                          <Select value={formData.vertical ?? 'OTHER'} onValueChange={(value) => handleInputChange('vertical', value)}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {VALID_CATEGORIES.map(category => (
+                                <SelectItem key={category} value={category}>{category}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label htmlFor="offer_type">Offer Type</Label>
+                          <Select value={formData.offer_type || ''} onValueChange={(value) => handleInputChange('offer_type', value)}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="CPA">CPA</SelectItem>
+                              <SelectItem value="CPL">CPL</SelectItem>
+                              <SelectItem value="CPS">CPS</SelectItem>
+                              <SelectItem value="CPI">CPI</SelectItem>
+                              <SelectItem value="CPC">CPC</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label htmlFor="star_rating">Star Rating (1-5)</Label>
+                          <Select value={String(formData.star_rating || 5)} onValueChange={(value) => handleInputChange('star_rating', parseInt(value))}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="5 Stars" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="5">⭐⭐⭐⭐⭐ (5 Stars)</SelectItem>
+                              <SelectItem value="4">⭐⭐⭐⭐ (4 Stars)</SelectItem>
+                              <SelectItem value="3">⭐⭐⭐ (3 Stars)</SelectItem>
+                              <SelectItem value="2">⭐⭐ (2 Stars)</SelectItem>
+                              <SelectItem value="1">⭐ (1 Star)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="priority">Selection Priority (Smart Link)</Label>
+                          <Input
+                            id="priority"
+                            type="number"
+                            value={formData.priority || 0}
+                            onChange={(e) => handleInputChange('priority', parseInt(e.target.value) || 0)}
+                            placeholder="0"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">Higher values are prioritized in Smart Link redirection.</p>
+                        </div>
+                        <div>
+                          <Label htmlFor="rotation_weight">Rotation Weight (0.1 - 10)</Label>
+                          <Input
+                            id="rotation_weight"
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            value={formData.rotation_weight || 1.0}
+                            onChange={(e) => handleInputChange('rotation_weight', parseFloat(e.target.value) || 1.0)}
+                            placeholder="1.0"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">Relative probability for weighted random rotation.</p>
+                        </div>
+                      </div>
+
+                      {/* Iframe Display Settings */}
+                      <Card className="border-purple-200 bg-purple-50/50">
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm font-semibold text-purple-800">📱 Iframe Display Settings</CardTitle>
+                          <CardDescription className="text-xs">Configure how this offer appears in the offerwall iframe</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <Label htmlFor="show_in_iframe" className="text-sm font-medium">Show in Iframe</Label>
+                              <p className="text-xs text-gray-500">Enable to display this offer in the offerwall</p>
+                            </div>
+                            <Switch
+                              id="show_in_iframe"
+                              checked={formData.show_in_iframe !== false}
+                              onCheckedChange={(checked) => handleInputChange('show_in_iframe', checked)}
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <Label htmlFor="urgency_type">Urgency Booster (Optional)</Label>
+                              <Select value={formData.urgency_type || 'none'} onValueChange={(value) => handleInputChange('urgency_type', value === 'none' ? '' : value)}>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="No urgency" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">❌ No Urgency</SelectItem>
+                                  <SelectItem value="limited_slots">🔥 Limited slots today</SelectItem>
+                                  <SelectItem value="high_demand">⚡ High demand</SelectItem>
+                                  <SelectItem value="expires_soon">⏰ Expires soon</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <p className="text-xs text-gray-500 mt-1">Shows urgency badge on offer card</p>
+                            </div>
+                            <div>
+                              <Label htmlFor="timer_enabled">Enable Countdown Timer</Label>
+                              <div className="flex items-center gap-2 mt-2">
+                                <Switch
+                                  id="timer_enabled"
+                                  checked={formData.timer_enabled || false}
+                                  onCheckedChange={(checked) => handleInputChange('timer_enabled', checked)}
+                                />
+                                <span className="text-sm text-gray-600">{formData.timer_enabled ? 'Timer ON' : 'Timer OFF'}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {formData.timer_enabled && (
+                            <div>
+                              <Label htmlFor="timer_end_date">Timer End Date & Time</Label>
+                              <Input
+                                id="timer_end_date"
+                                type="datetime-local"
+                                value={formData.timer_end_date || ''}
+                                onChange={(e) => handleInputChange('timer_end_date', e.target.value)}
+                                className="mt-1"
+                              />
+                              <p className="text-xs text-gray-500 mt-1">Countdown timer will show on offer card until this date</p>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
@@ -1670,7 +2124,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                       size="sm"
                       onClick={() => {
                         const country = formData.geo_payout_country || '';
-                        const amount = parseFloat(formData.geo_payout_amount || '0');
+                        const amount = parseFloat(String(formData.geo_payout_amount || '0'));
                         const type = formData.geo_payout_type || 'CPA';
                         if (country.length === 2 && amount > 0) {
                           const list = formData.geo_payouts_list || [];
@@ -1782,7 +2236,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                     <Input
                       id="expiry_date"
                       type="date"
-                      value={formData.expiry_date || ''}
+                      value={formData.expiry_date instanceof Date ? formData.expiry_date.toISOString().split('T')[0] : (formData.expiry_date as string || '')}
                       onChange={(e) => handleInputChange('expiry_date', e.target.value)}
                     />
                     <p className="text-sm text-gray-500 mt-1">When this offer should stop being available</p>

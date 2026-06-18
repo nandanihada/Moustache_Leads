@@ -73,6 +73,7 @@ const AdminActivityLogs = lazy(() => import("./pages/AdminActivityLogs"));
 const AdminRecentActivity = lazy(() => import("./pages/AdminRecentActivity"));
 const AdminCampaignRequests = lazy(() => import("./pages/AdminCampaignRequests"));
 const AdminReportsTracking = lazy(() => import("./pages/AdminReportsTracking"));
+const AdminCampaignTracking = lazy(() => import("./pages/AdminCampaignTracking"));
 const AdminInvoices = lazy(() => import("./pages/AdminInvoices"));
 const AdminReactivation = lazy(() => import("./pages/AdminReactivation"));
 const AdminPerUserOfferTrack = lazy(() => import("./pages/AdminPerUserOfferTrack"));
@@ -258,6 +259,7 @@ const App = () => (
                 <Route path="support-inbox" element={<AdminSupportInbox />} />
                 <Route path="search-logs" element={<AdminSearchLogs />} />
                 <Route path="tracking-reports" element={<AdminReportsTracking />} />
+                <Route path="campaign-tracking" element={<AdminCampaignTracking />} />
                 <Route path="invoices" element={<AdminInvoices />} />
                 <Route path="reactivation" element={<AdminReactivation />} />
                 <Route path="per-user-offers" element={<AdminPerUserOfferTrack />} />
@@ -290,7 +292,7 @@ const App = () => (
                 <Route index element={<AdvertiserDashboard />} />
                 <Route path="campaigns" element={<Navigate to="/advertiser/campaign-builder?view=campaigns" replace />} />
                 <Route path="campaign-builder" element={<CampaignBuilder />} />
-                <Route path="statistics" element={<Navigate to="/advertiser/campaign-builder?view=offers" replace />} />
+                <Route path="statistics" element={<Navigate to="/advertiser/campaign-builder?view=reports" replace />} />
                 <Route path="billing" element={<Navigate to="/advertiser/campaign-builder?view=deposit" replace />} />
                 <Route path="profile" element={<AdvertiserDashboard />} />
                 <Route path="settings" element={<AdvertiserDashboard />} />

@@ -1312,6 +1312,11 @@ def get_offers():
 
         # Build mongo query matches from filters
         query = {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
+        offer_source = request.args.get('offer_source')
+        if offer_source == 'advertiser':
+            query['offer_source'] = 'advertiser'
+        elif offer_source == 'upward_partner':
+            query['offer_source'] = {'$ne': 'advertiser'}
         if filters:
             if filters.get('status'):
                 query['status'] = filters['status']

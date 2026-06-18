@@ -13,10 +13,13 @@ from typing import List, Dict, Optional, Any
 
 # Import traffic source rules service
 try:
-    sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'services'))
-    from traffic_source_rules_service import TrafficSourceRulesService
+    from services.traffic_source_rules_service import TrafficSourceRulesService
 except ImportError:
-    TrafficSourceRulesService = None
+    try:
+        sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'services'))
+        from traffic_source_rules_service import TrafficSourceRulesService
+    except ImportError:
+        TrafficSourceRulesService = None
 
 class OfferExtended:
     def __init__(self):
@@ -313,6 +316,12 @@ class OfferExtended:
                 'carrier_targeting': offer_data.get('carrier_targeting', []),
                 'connection_type': offer_data.get('connection_type', 'all'),
                 'timezone': offer_data.get('timezone', 'UTC'),
+                'offer_source': offer_data.get('offer_source', 'upward_partner'),
+                'advertiser_id': offer_data.get('advertiser_id'),
+                'campaign_request_id': offer_data.get('campaign_request_id'),
+                'vpn': offer_data.get('vpn', 'all'),
+                'zone_mode': offer_data.get('zone_mode', 'include'),
+                'zones': offer_data.get('zones', '').strip() if offer_data.get('zones') else '',
                 
                 # SECTION 3: PAYOUT & FINANCE
                 'payout': float(offer_data['payout']),
@@ -707,6 +716,8 @@ class OfferExtended:
                 'allowed_traffic_types', 'disallowed_traffic_types',
                 'creative_approval_required', 'affiliate_terms', 'brand_guidelines',
                 'terms_notes', 'conversion_goal',
+                'offer_source', 'advertiser_id', 'campaign_request_id',
+                'vpn', 'zone_mode', 'zones',
                 # Promo code fields
                 'promo_code_id', 'promo_code', 'bonus_amount', 'bonus_type',
                 'promo_code_assigned_at', 'promo_code_assigned_by',
