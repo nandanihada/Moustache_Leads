@@ -41,7 +41,7 @@ def _get_offer_cached(offer_id):
         {'offer_id': offer_id},
         {'offer_id': 1, 'name': 1, 'status': 1, 'target_url': 1, 'payout': 1, 
          'currency': 1, 'network': 1, 'category': 1, 'vertical': 1,
-         'campaign_id': 1, 'fallback_redirect_enabled': 1, 
+         'campaign_id': 1, 'offer_source': 1, 'fallback_redirect_enabled': 1, 
          'fallback_redirect_url': 1, 'fallback_redirect_timer': 1,
          'countries': 1, 'allowed_countries': 1, 'geo': 1}
     )
@@ -270,6 +270,10 @@ def track_offer_click(offer_id):
         # === REDIRECT FIRST, PROCESS LATER ===
         # Prepare minimal data needed, redirect immediately, then process in background
         redirect_url = target_url
+        
+        # Append source=moustacheleads to ALL offers so advertisers can identify our traffic
+        separator = '&' if '?' in redirect_url else '?'
+        redirect_url = f"{redirect_url}{separator}source=moustacheleads"
         
         # 🔄 CHECK FOR FALLBACK REDIRECT WITH TIMER
         fallback_enabled = offer.get('fallback_redirect_enabled', False)
