@@ -47,21 +47,23 @@ RULES:
 - Write the summary for END USERS who will complete the offer (not advertisers)
 - Keep it simple, friendly, professional
 - Extract step-by-step conversion events the user must complete
-- If the description mentions multiple payout levels/events (e.g. "Registration: $2, Deposit: $5, FTD: $10"), extract them into payout_levels array
-- If NO payout levels are mentioned, return empty payout_levels array
+- If the description mentions multiple events/levels (e.g. "Registration", "Deposit", "FTD"), extract them into payout_levels array with ONLY the event name
+- NEVER include any monetary amounts, dollar values, payout numbers, or currency symbols in ANY field (summary, steps, payout_levels, or restrictions). The amounts shown in the raw description are advertiser-internal payouts and must NOT be shown to end users.
+- In payout_levels, set the "payout" field to empty string "" for every level
+- In the summary, do NOT mention any dollar amounts, deposit amounts, or payout values
+- In steps, do NOT mention specific dollar amounts (e.g. write "Make a deposit" instead of "Deposit $20")
 - Extract any restrictions (geo, device, VPN, new users only, etc.)
 - Estimate difficulty and time based on the steps
 
 OFFER NAME: {name}
-OFFER PAYOUT: ${payout} ({payout_type})
 RAW DESCRIPTION:
 {description}
 
 Return ONLY valid JSON (no markdown, no explanation):
 {{
-  "summary": "1-2 sentence user-friendly description",
+  "summary": "1-2 sentence user-friendly description (NO dollar amounts)",
   "steps": ["Step 1: ...", "Step 2: ..."],
-  "payout_levels": [{{"event": "Event Name", "payout": "$X.XX"}}],
+  "payout_levels": [{{"event": "Event Name", "payout": ""}}],
   "restrictions": ["restriction 1", "restriction 2"],
   "difficulty": "Easy|Medium|Hard",
   "estimated_time": "X min"
@@ -106,11 +108,25 @@ Return ONLY valid JSON (no markdown, no explanation):
             "estimated_time": str(result.get("estimated_time", "5 min")).strip()
         }
         
-        # Validate payout_levels format
+        # Strip any monetary amounts from all fields (safety net)
+        import re
+        money_pattern = r'\$[\d,]+\.?\d*'
+        
+        # Strip amounts from summary
+        refined["summary"] = re.sub(money_pattern, '', refined["summary"]).strip()
+        refined["summary"] = re.sub(r'\s{2,}', ' ', refined["summary"])
+        
+        # Strip amounts from steps
+        refined["steps"] = [re.sub(money_pattern, '', s).strip() for s in refined["steps"]]
+        refined["steps"] = [re.sub(r'\s{2,}', ' ', s) for s in refined["steps"]]
+        
+        # Validate payout_levels format — keep event name only, clear payout
         valid_levels = []
         for level in refined["payout_levels"]:
-            if isinstance(level, dict) and "event" in level and "payout" in level:
-                valid_levels.append({"event": str(level["event"]), "payout": str(level["payout"])})
+            if isinstance(level, dict) and "event" in level:
+                event_name = re.sub(money_pattern, '', str(level["event"])).strip()
+                if event_name:
+                    valid_levels.append({"event": event_name, "payout": ""})
         refined["payout_levels"] = valid_levels
         
         return refined
@@ -125,29 +141,29 @@ Return ONLY valid JSON (no markdown, no explanation):
 
 def _fallback_parse(name: str, description: str, payout: float = 0) -> Dict:
     """Simple regex-based fallback when Groq is unavailable."""
+    import re
     summary = description[:200] if description else f"Complete the {name} offer to earn rewards."
     
-    # Try to detect payout levels from text patterns
+    # Strip any monetary amounts from the summary
+    money_pattern = r'\$[\d,]+\.?\d*'
+    summary = re.sub(money_pattern, '', summary).strip()
+    summary = re.sub(r'\s{2,}', ' ', summary)
+    
+    # Extract event names only (no amounts) for payout_levels
     payout_levels = []
     if description:
-        import re
-        # Pattern: "Event: $X.XX" or "Event - $X" or "Level 1: Event ($X)"
+        # Pattern: "Event: $X.XX" or "Event - $X" — extract only the event name
         patterns = [
-            r'(\w[\w\s]+?):\s*\$?([\d.]+)',
-            r'(\w[\w\s]+?)\s*-\s*\$?([\d.]+)',
-            r'Level\s*\d+:\s*(\w[\w\s]+?)\s*\(\$?([\d.]+)\)',
+            r'(\w[\w\s]+?):\s*\$?[\d.]+',
+            r'(\w[\w\s]+?)\s*-\s*\$?[\d.]+',
         ]
         for pattern in patterns:
             matches = re.findall(pattern, description)
             if len(matches) >= 2:  # Only if there are multiple levels
-                for event, amount in matches:
-                    event_clean = event.strip()
+                for event in matches:
+                    event_clean = event.strip() if isinstance(event, str) else event
                     if len(event_clean) > 2 and len(event_clean) < 40:
-                        try:
-                            float(amount)
-                            payout_levels.append({"event": event_clean, "payout": f"${amount}"})
-                        except ValueError:
-                            pass
+                        payout_levels.append({"event": event_clean, "payout": ""})
                 if payout_levels:
                     break
     

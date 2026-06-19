@@ -4789,6 +4789,7 @@ def import_api_offers():
         skip_duplicates = options.get('skip_duplicates', True)
         update_existing = options.get('update_existing', False)
         default_status = options.get('default_status', 'active')
+        show_in_offerwall = options.get('show_in_offerwall', True)
         
         # Get approval workflow settings
         approval_type = options.get('approval_type', 'auto_approve')
@@ -4838,8 +4839,9 @@ def import_api_offers():
                     })
                     continue
                 
-                # Apply default status from options
+                # Apply default status and offerwall visibility from options
                 mapped_offer['status'] = default_status
+                mapped_offer['show_in_offerwall'] = show_in_offerwall
                 
                 mapped_offer['approval_settings'] = approval_settings
                 mapped_offer['approval_type'] = approval_type

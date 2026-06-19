@@ -83,6 +83,8 @@ interface OfferwallOfferEditorProps {
   setPositionInputs: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   onPageChange: (page: number) => void;
   onFiltersChange?: (filters: Record<string, string>) => void;
+  onBoost?: () => void;
+  onRemoveBoost?: (offerIds: string[]) => void;
 }
 
 // ===================== CONSTANTS =====================
@@ -1073,6 +1075,8 @@ export function OfferwallOfferEditor({
   setPositionInputs,
   onPageChange,
   onFiltersChange,
+  onBoost,
+  onRemoveBoost,
 }: OfferwallOfferEditorProps) {
   const { toast } = useToast();
   const [expandedOffers, setExpandedOffers] = useState<Set<string>>(new Set());
@@ -1214,6 +1218,16 @@ export function OfferwallOfferEditor({
             <Edit3 className="h-3.5 w-3.5" />
             Bulk Edit ({selectedOffers.size} total{selectedFromFiltered.length !== selectedOffers.size ? `, ${selectedFromFiltered.length} visible` : ''})
           </Button>
+          {onBoost && (
+            <Button
+              size="sm"
+              className="bg-orange-600 hover:bg-orange-700 gap-1.5 h-8"
+              onClick={onBoost}
+            >
+              <Flame className="h-3.5 w-3.5" />
+              Boost
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -1287,8 +1301,17 @@ export function OfferwallOfferEditor({
                         <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-gray-100 text-gray-600 border uppercase">{offer.status}</span>
                       )}
                       {isBoosted && (
-                        <span className="text-[10px] font-bold text-orange-600 bg-orange-50 border border-orange-200 px-1.5 py-0.5 rounded-full">
+                        <span className="text-[10px] font-bold text-orange-600 bg-orange-50 border border-orange-200 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1">
                           🔥 {boostInfo?.direction === 'increase' ? '+' : '-'}{boostInfo?.percentage}%
+                          {onRemoveBoost && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onRemoveBoost([id]); }}
+                              className="ml-0.5 text-orange-400 hover:text-red-600 font-bold"
+                              title="Remove boost"
+                            >
+                              ×
+                            </button>
+                          )}
                         </span>
                       )}
                       {offer.has_refined && <span className="text-[10px] text-purple-600 font-medium">✨</span>}

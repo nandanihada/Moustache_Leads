@@ -1268,25 +1268,25 @@ Given a raw offer description (often messy with campaign/tracking data), produce
 RULES:
 - Write for END USERS who will complete the offer (not advertisers)
 - Keep it simple, friendly, professional
-- "event_flow" is a SHORT subtitle showing the conversion flow, e.g. "Register → Deposit $25 → Get Bonus" or "Install → Open App → Complete Tutorial". Max 60 chars.
-- "steps" should list the CONVERSION EVENTS (what actions trigger payout), not generic instructions. E.g. "Registration", "First Deposit", "App Activation" — not "Sign up for the app".
+- "event_flow" is a SHORT subtitle showing the conversion flow, e.g. "Register → Deposit → Get Bonus" or "Install → Open App → Complete Tutorial". Max 60 chars. NEVER include dollar amounts or monetary values in event_flow.
+- "steps" should list the CONVERSION EVENTS (what actions trigger payout), not generic instructions. E.g. "Registration", "First Deposit", "App Activation" — not "Sign up for the app". Do NOT include dollar amounts in steps.
+- CRITICAL: NEVER include any monetary amounts, dollar values ($), payout numbers, or currency in ANY field. The amounts in the raw description are internal advertiser data and must NOT be shown to end users. Write "Deposit" instead of "Deposit $25", write "Purchase" instead of "$50 Purchase".
+- In payout_levels, set the "payout" field to empty string "" for every level. Only include the event name.
 - Extract COUNTRY CODES (ISO 2-letter) mentioned in the description (e.g. US, UK, CA, DE, AU). Look for country names, GEO mentions, geo-targeting info. Return as array of uppercase 2-letter codes.
 - Extract any restrictions (device, VPN, new users only, age, etc.)
 - Estimate difficulty and time based on the conversion events
-- If the description mentions multiple payout levels/events, extract them into payout_levels
 
 OFFER NAME: {name}
-OFFER PAYOUT: ${payout} ({payout_type})
 RAW DESCRIPTION:
 {description}
 
 Return ONLY valid JSON (no markdown, no explanation):
 {{
-  "event_flow": "Short flow subtitle max 60 chars",
-  "summary": "1-2 sentence user-friendly description",
-  "steps": ["Event 1: Registration", "Event 2: First Deposit $25"],
+  "event_flow": "Short flow subtitle max 60 chars (NO dollar amounts)",
+  "summary": "1-2 sentence user-friendly description (NO dollar amounts)",
+  "steps": ["Event 1: Registration", "Event 2: First Deposit"],
   "countries": ["US", "UK"],
-  "payout_levels": [{{"event": "Event Name", "payout": "$X.XX"}}],
+  "payout_levels": [{{"event": "Event Name", "payout": ""}}],
   "restrictions": ["restriction 1", "restriction 2"],
   "difficulty": "Easy|Medium|Hard",
   "estimated_time": "X min"
@@ -1332,6 +1332,20 @@ Return ONLY valid JSON (no markdown, no explanation):
             "estimated_time": str(result.get("estimated_time", "5 min")).strip()
         }
 
+        # Strip any monetary amounts from all text fields (safety net)
+        import re
+        money_pattern = r'\$[\d,]+\.?\d*'
+        
+        if refined["event_flow"]:
+            refined["event_flow"] = re.sub(money_pattern, '', refined["event_flow"]).strip()
+            refined["event_flow"] = re.sub(r'\s{2,}', ' ', refined["event_flow"])
+            refined["event_flow"] = refined["event_flow"][:60] or None
+        
+        refined["summary"] = re.sub(money_pattern, '', refined["summary"]).strip()
+        refined["summary"] = re.sub(r'\s{2,}', ' ', refined["summary"])
+        
+        refined["steps"] = [re.sub(r'\s{2,}', ' ', re.sub(money_pattern, '', s)).strip() for s in refined["steps"]]
+
         # Validate countries - must be 2-letter uppercase codes
         raw_countries = result.get("countries", [])
         if isinstance(raw_countries, list):
@@ -1342,12 +1356,14 @@ Return ONLY valid JSON (no markdown, no explanation):
                     valid_countries.append(code)
             refined["countries"] = valid_countries
 
-        # Validate payout_levels
+        # Validate payout_levels — strip amounts, keep event name only
         raw_levels = result.get("payout_levels", [])
         if isinstance(raw_levels, list):
             for level in raw_levels:
-                if isinstance(level, dict) and "event" in level and "payout" in level:
-                    refined["payout_levels"].append({"event": str(level["event"]), "payout": str(level["payout"])})
+                if isinstance(level, dict) and "event" in level:
+                    event_name = re.sub(money_pattern, '', str(level["event"])).strip()
+                    if event_name:
+                        refined["payout_levels"].append({"event": event_name, "payout": ""})
 
         # Include existing countries for comparison
         refined["existing_countries"] = existing_countries
@@ -1565,15 +1581,18 @@ def hide_offer_by_id():
 FIELD_PROMPTS = {
     'event_flow': """Extract a SHORT conversion flow subtitle from this offer. 
 Max 60 chars. Format: "Action → Action → Result" or similar arrow-connected flow.
-Examples: "Register → Deposit $25 → Get Bonus", "Install App → Complete Tutorial", "Sign Up → Subscribe"
+NEVER include dollar amounts or monetary values. Write "Deposit" not "Deposit $25".
+Examples: "Register → Deposit → Get Bonus", "Install App → Complete Tutorial", "Sign Up → Subscribe"
 Return JSON: {{"event_flow": "...flow text..."}}""",
 
     'summary': """Write a 1-2 sentence user-friendly description of this offer for end users.
 Keep it simple, honest, and clear. No hype. Focus on what the user does and what they get.
+NEVER include any dollar amounts, monetary values, or payout numbers.
 Return JSON: {{"summary": "...summary text..."}}""",
 
     'steps': """List the CONVERSION EVENTS (what actions trigger payout) for this offer.
 These are milestones, not instructions. E.g. ["Registration", "First Deposit", "App Activation"].
+NEVER include dollar amounts in step names. Write "First Deposit" not "Deposit $25".
 Return JSON: {{"steps": ["Event 1", "Event 2"]}}""",
 
     'restrictions': """Extract any restrictions or requirements from this offer description.

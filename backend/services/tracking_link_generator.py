@@ -111,7 +111,10 @@ def generate_tracking_link(network_name: str, offer_id: str) -> Optional[str]:
     template = template_data['template']
     
     try:
-        tracking_link = template.format(offer_id=offer_id)
+        # Use str.replace instead of .format() because the template contains
+        # literal macros like {sub1}, {click_id}, {payout}, {status} that must
+        # remain as-is (they are replaced at tracking time, not import time)
+        tracking_link = template.replace('{offer_id}', str(offer_id))
         logger.info(f"Generated tracking link for {template_data['name']}: offer_id={offer_id}")
         return tracking_link
     except Exception as e:

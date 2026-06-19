@@ -195,7 +195,7 @@ export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, on
                           <div className="w-2 h-2 bg-[#340075] rounded-full opacity-60"></div>
                           <span className="text-sm text-gray-700 font-medium">{level.event}</span>
                         </div>
-                        <span className="text-sm font-bold text-[#340075]">{level.payout}</span>
+                        {level.payout && <span className="text-sm font-bold text-[#340075]">{level.payout}</span>}
                       </div>
                     ))}
                   </div>

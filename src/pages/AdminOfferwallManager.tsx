@@ -883,6 +883,8 @@ const AdminOfferwallManager = () => {
                   setPositionInputs={setPositionInputs}
                   onPageChange={(page) => { setOfferwallPage(page); }}
                   onFiltersChange={(filters) => { setBackendFilters(filters); setOfferwallPage(1); }}
+                  onBoost={() => setShowBoostDialog(true)}
+                  onRemoveBoost={handleRemoveBoost}
                 />
               )}
             </CardContent>

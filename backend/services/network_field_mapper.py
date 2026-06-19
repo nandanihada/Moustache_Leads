@@ -181,9 +181,36 @@ class NetworkFieldMapper:
             mapped['offer_type'] = self.PAYOUT_TYPE_MAPPING.get(str(payout_type).lower(), 'CPA')
             mapped['payout_model'] = mapped['offer_type']  # Add payout_model field
             
-            # Handle tracking link - Use preview_url as target_url
-            tracking_link = offer.get('preview_url') or 'https://example.com/offer'
-            mapped['target_url'] = tracking_link
+            # Handle tracking link - Generate proper tracking URL for known networks
+            # HasOffers API may provide 'offer_url' or 'tracking_url' fields
+            # For networks with tracking templates (leadads, cpamerchant, chameleonads),
+            # we generate the full tracking link from the template
+            raw_offer_url = (
+                offer.get('offer_url') or 
+                offer.get('tracking_url') or 
+                offer.get('click_url') or
+                ''
+            )
+            
+            if raw_offer_url:
+                # Use the actual tracking URL from the API if provided
+                mapped['target_url'] = raw_offer_url
+            else:
+                # Try to generate tracking link using templates for known networks
+                temp_offer_data = {
+                    'network': network_name,
+                    'campaign_id': str(offer.get('id', '')),
+                    'target_url': ''  # placeholder
+                }
+                processed = process_offer_tracking_link(temp_offer_data, network_name)
+                generated_url = processed.get('target_url', '')
+                
+                if generated_url:
+                    # Template-generated tracking link (for leadads, cpamerchant, chameleonads etc.)
+                    mapped['target_url'] = generated_url
+                else:
+                    # Fallback: use preview_url only as last resort
+                    mapped['target_url'] = offer.get('preview_url') or 'https://example.com/offer'
             
             logger.debug(f"Mapping offer: {mapped['name']} (campaign: {mapped['campaign_id']})")
             
