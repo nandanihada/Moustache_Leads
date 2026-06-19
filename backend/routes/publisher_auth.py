@@ -253,7 +253,8 @@ def login_publisher():
                 status='failed',
                 failure_reason='wrong_password',
                 login_method='password',
-                ip_address=public_ip
+                ip_address=public_ip,
+                login_source='publisher'
             )
             return jsonify({'error': 'Invalid username or password'}), 401
         
@@ -264,7 +265,8 @@ def login_publisher():
                 status='failed',
                 failure_reason='account_deactivated',
                 login_method='password',
-                ip_address=public_ip
+                ip_address=public_ip,
+                login_source='publisher'
             )
             return jsonify({'error': 'Account is deactivated'}), 401
         
@@ -282,7 +284,8 @@ def login_publisher():
             request,
             status='success',
             login_method='password',
-            ip_address=public_ip
+            ip_address=public_ip,
+            login_source='publisher'
         )
         
         # Generate token with user_type = publisher

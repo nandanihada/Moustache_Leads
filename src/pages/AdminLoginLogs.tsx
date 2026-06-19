@@ -458,6 +458,18 @@ const AdminLoginLogs: React.FC = () => {
                                                         <div className="text-muted-foreground">Method</div>
                                                         <div className="uppercase">{log.login_method}</div>
                                                     </div>
+                                                    <div>
+                                                        <div className="text-muted-foreground">Login Page</div>
+                                                        <div className="uppercase font-medium">
+                                                            {log.login_source === 'advertiser' ? (
+                                                                <span className="text-purple-600">Advertiser</span>
+                                                            ) : log.login_source === 'publisher' ? (
+                                                                <span className="text-blue-600">Publisher</span>
+                                                            ) : (
+                                                                <span className="text-gray-500">{log.login_source || 'Unknown'}</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
                                                     {log.failure_reason && (
                                                         <div>
                                                             <div className="text-muted-foreground">Failure Reason</div>

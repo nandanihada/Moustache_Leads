@@ -233,7 +233,8 @@ def login_advertiser():
                 status='failed',
                 failure_reason='wrong_password',
                 login_method='password',
-                ip_address=public_ip
+                ip_address=public_ip,
+                login_source='advertiser'
             )
             return jsonify({'error': 'Invalid email or password'}), 401
         
@@ -245,7 +246,8 @@ def login_advertiser():
                 status='failed',
                 failure_reason='email_not_verified',
                 login_method='password',
-                ip_address=public_ip
+                ip_address=public_ip,
+                login_source='advertiser'
             )
             return jsonify({
                 'error': 'Please verify your email before logging in. Check your inbox for the verification link.',
@@ -261,7 +263,8 @@ def login_advertiser():
                 status='failed',
                 failure_reason='account_deactivated',
                 login_method='password',
-                ip_address=public_ip
+                ip_address=public_ip,
+                login_source='advertiser'
             )
             return jsonify({'error': 'Account is deactivated'}), 401
         
@@ -271,7 +274,8 @@ def login_advertiser():
             request,
             status='success',
             login_method='password',
-            ip_address=public_ip
+            ip_address=public_ip,
+            login_source='advertiser'
         )
         
         # Generate token with user_type

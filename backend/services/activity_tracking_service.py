@@ -20,7 +20,7 @@ class ActivityTrackingService:
         self.page_visit_model = PageVisit()
         self.active_session_model = ActiveSession()
     
-    def track_login_attempt(self, user_data, request, status='success', failure_reason=None, login_method='password', ip_address=None):
+    def track_login_attempt(self, user_data, request, status='success', failure_reason=None, login_method='password', ip_address=None, login_source=None):
         """
         Track a login attempt (successful or failed)
         
@@ -31,6 +31,7 @@ class ActivityTrackingService:
             failure_reason: Reason for failure if status is 'failed'
             login_method: 'password', 'otp', or 'sso'
             ip_address: Optional client public IP address override
+            login_source: 'publisher', 'advertiser', or 'admin' - which login page was used
         
         Returns:
             session_id if successful, None otherwise
@@ -124,6 +125,7 @@ class ActivityTrackingService:
                 'device': device_info,
                 'location': location,
                 'login_method': login_method,
+                'login_source': login_source or 'unknown',
                 'status': status,
                 'failure_reason': failure_reason,
                 'session_id': session_id,
