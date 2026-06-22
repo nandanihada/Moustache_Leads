@@ -3476,27 +3476,24 @@ function AdvertiserReportsPage({ t }: any) {
   const exportCSV = () => {
     if (!data.breakdown || data.breakdown.length === 0) return;
     
-    let headers = [breakdown.toUpperCase(), "IMPRESSIONS", "CONVERSIONS", "SPEND"];
+    let headers = [breakdown.toUpperCase(), "CONVERSIONS", "SPEND"];
     let csvRows = [headers.join(",")];
     
     data.breakdown.forEach((row: any) => {
       const label = breakdown === 'campaign' ? row.campaign_name : row.key;
       csvRows.push([
         `"${label}"`,
-        row.impressions,
         row.conversions,
         `$${row.spend.toFixed(2)}`
       ].join(","));
     });
     
     // Add total row
-    const totalImpressions = data.breakdown.reduce((sum: number, r: any) => sum + r.impressions, 0);
     const totalConversions = data.breakdown.reduce((sum: number, r: any) => sum + r.conversions, 0);
     const totalSpend = data.breakdown.reduce((sum: number, r: any) => sum + r.spend, 0);
     
     csvRows.push([
       `"TOTAL"`,
-      totalImpressions,
       totalConversions,
       `$${totalSpend.toFixed(2)}`
     ].join(","));
@@ -3660,7 +3657,6 @@ function AdvertiserReportsPage({ t }: any) {
               <thead>
                 <tr style={{ borderBottom: `2px solid ${t.border}` }}>
                   <th style={{ textAlign: "left", padding: 12, color: t.textDim, fontWeight: 600 }}>{breakdown.toUpperCase()}</th>
-                  <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>IMPRESSIONS</th>
                   <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>CONVERSIONS</th>
                   <th style={{ textAlign: "right", padding: 12, color: t.textDim, fontWeight: 600 }}>SPEND</th>
                 </tr>
@@ -3677,7 +3673,6 @@ function AdvertiserReportsPage({ t }: any) {
                     <td style={{ padding: 12, fontWeight: 600, color: t.text }}>
                       {breakdown === 'campaign' ? row.campaign_name : row.key}
                     </td>
-                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{num(row.impressions)}</td>
                     <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600, color: t.green }}>{num(row.conversions)}</td>
                     <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{money(row.spend)}</td>
                   </tr>
@@ -3685,7 +3680,7 @@ function AdvertiserReportsPage({ t }: any) {
                 
                 {(!data.breakdown || data.breakdown.length === 0) && (
                   <tr>
-                    <td colSpan={4} style={{ padding: 40, textAlign: "center", color: t.textFaint }}>No data available for this range</td>
+                    <td colSpan={3} style={{ padding: 40, textAlign: "center", color: t.textFaint }}>No data available for this range</td>
                   </tr>
                 )}
               </tbody>
@@ -3694,7 +3689,6 @@ function AdvertiserReportsPage({ t }: any) {
                 <tfoot>
                   <tr style={{ borderTop: `2px solid ${t.border}`, fontWeight: 800, background: t.panelAlt }}>
                     <td style={{ padding: 12, color: t.text }}>TOTAL</td>
-                    <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{num(totalImpressions)}</td>
                     <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums", color: t.green }}>{num(totalConversions)}</td>
                     <td style={{ padding: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(totalSpend)}</td>
                   </tr>
