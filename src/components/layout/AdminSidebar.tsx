@@ -217,6 +217,13 @@ const adminMenuStructure = [
     type: "single" as const,
   },
   {
+    title: "Automation",
+    url: "/admin/automation",
+    icon: Zap,
+    tab: "automation",
+    type: "single" as const,
+  },
+  {
     title: "Platform Settings",
     url: "/admin/platform-settings",
     icon: Settings,

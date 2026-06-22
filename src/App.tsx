@@ -69,6 +69,7 @@ const AdminSupportInbox = lazy(() => import("./pages/AdminSupportInbox"));
 const AdminOfferAnalytics = lazy(() => import("./pages/AdminOfferAnalytics"));
 const AdminSearchLogs = lazy(() => import("./pages/AdminSearchLogs"));
 const AdminActivityLogs = lazy(() => import("./pages/AdminActivityLogs"));
+const AdminAutomation = lazy(() => import("./pages/AdminAutomation"));
 const AdminRecentActivity = lazy(() => import("./pages/AdminRecentActivity"));
 const AdminCampaignRequests = lazy(() => import("./pages/AdminCampaignRequests"));
 const AdminReportsTracking = lazy(() => import("./pages/AdminReportsTracking"));
@@ -241,6 +242,7 @@ const App = () => (
                 <Route path="active-users" element={<AdminActiveUsers />} />
                 <Route path="fraud-management" element={<AdminFraudManagement />} />
                 <Route path="activity-logs" element={<AdminActivityLogs />} />
+                <Route path="automation" element={<AdminAutomation />} />
                 <Route path="recent-activity" element={<AdminRecentActivity />} />
                 <Route path="analytics" element={<AdminAnalytics />} />
                 <Route path="partners" element={<Partners />} />

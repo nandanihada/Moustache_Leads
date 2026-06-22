@@ -121,6 +121,7 @@ search_auto_activation_bp = safe_import_blueprint('routes.search_auto_activation
 top_offers_bp = safe_import_blueprint('routes.top_offers', 'top_offers_bp')
 admin_reversals_bp = safe_import_blueprint('routes.admin_reversals', 'admin_reversals_bp')
 admin_invoices_bp = safe_import_blueprint('routes.admin_invoices', 'admin_invoices_bp')
+admin_automation_bp = safe_import_blueprint('routes.admin_automation', 'admin_automation_bp')
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
@@ -231,6 +232,7 @@ blueprints = [
     (top_offers_bp, '/api/admin'),
     (admin_reversals_bp, ''),
     (admin_invoices_bp, ''),
+    (admin_automation_bp, ''),
 ]
 
 def create_app():
@@ -658,96 +660,69 @@ def start_background_services():
             logging.warning(f"⚠️ Scheduled email service failed to start: {str(e)}")
         
         # =====================================================================
-        # DISABLED SERVICES (memory optimization — move to Render Cron later)
+        # DISABLED SERVICES (admin manages via Automation tab buttons)
         # All data remains in MongoDB. These can be re-enabled anytime.
         # =====================================================================
         
-        # DISABLED: Placement Auto-Approval — run manually or via daily cron
-        # try:
-        #     from services.placement_auto_approval_service import get_placement_auto_approval_service
-        #     auto_approval_service = get_placement_auto_approval_service()
-        #     auto_approval_service.start_service()
-        #     logging.info("✅ Placement auto-approval service started (3 days)")
-        # except Exception as e:
-        #     logging.warning(f"⚠️ Placement auto-approval service failed to start: {str(e)}")
-        logging.info("ℹ️ Placement auto-approval service DISABLED (memory optimization)")
+        # DISABLED: Placement Auto-Approval — admin approves manually
+        logging.info("ℹ️ Placement auto-approval service DISABLED (admin does manually)")
         
-        # DISABLED: Offer Inactivity — 30-day check, run weekly via cron
-        # try:
-        #     from services.offer_inactivity_service import get_offer_inactivity_service
-        #     inactivity_service = get_offer_inactivity_service()
-        #     inactivity_service.start_service()
-        #     logging.info("✅ Offer inactivity service started (30-day no-click auto-deactivation)")
-        # except Exception as e:
-        #     logging.warning(f"⚠️ Offer inactivity service failed to start: {str(e)}")
-        logging.info("ℹ️ Offer inactivity service DISABLED (memory optimization)")
-        
-        # DISABLED: Offer Rotation — not needed at 22 users/day
-        # try:
-        #     from services.offer_rotation_service import get_rotation_service
-        #     rotation_service = get_rotation_service()
-        #     rot_state = rotation_service._get_state()
-        #     if rot_state.get('enabled'):
-        #         rotation_service.start()
-        # except Exception as e:
-        #     logging.warning(f"⚠️ Offer rotation service failed to start: {str(e)}")
-        logging.info("ℹ️ Offer rotation service DISABLED (memory optimization)")
-        
-        # DISABLED: Campaign Processor — at this scale, emails send synchronously
-        # try:
-        #     from services.campaign_processor import get_campaign_processor
-        #     campaign_processor = get_campaign_processor()
-        #     campaign_processor.start()
-        #     logging.info("✅ Campaign processor started (email queue processing)")
-        # except Exception as e:
-        #     logging.warning(f"⚠️ Campaign processor failed to start: {str(e)}")
-        logging.info("ℹ️ Campaign processor DISABLED (memory optimization)")
+        # DISABLED: Offer Inactivity — admin triggers via Automation tab button
+        logging.info("ℹ️ Offer inactivity service DISABLED (admin button in Automation tab)")
 
-        # DISABLED: Location Retry — will retry lazily on next user request
-        # try:
-        #     from services.location_retry_service import get_location_retry_service
-        #     location_retry_service = get_location_retry_service()
-        #     location_retry_service.start_service()
-        # except Exception as e:
-        #     logging.warning(f"⚠️ Location retry service failed to start: {str(e)}")
-        logging.info("ℹ️ Location retry service DISABLED (memory optimization)")
+        # =====================================================================
+        # RE-ENABLED SERVICES (essential for 20K offers + platform operation)
+        # =====================================================================
+        
+        # RE-ENABLED: Offer Rotation — 20K offers need rotation for visibility
+        try:
+            from services.offer_rotation_service import get_rotation_service
+            rotation_service = get_rotation_service()
+            rot_state = rotation_service._get_state()
+            if rot_state.get('enabled'):
+                rotation_service.start()
+                logging.info("✅ Offer rotation service started (was enabled)")
+            else:
+                logging.info("ℹ️ Offer rotation service loaded (currently disabled in settings)")
+        except Exception as e:
+            logging.warning(f"⚠️ Offer rotation service failed to start: {str(e)}")
+        
+        # RE-ENABLED: Campaign Processor — processes bulk email campaigns
+        try:
+            from services.campaign_processor import get_campaign_processor
+            campaign_processor = get_campaign_processor()
+            campaign_processor.start()
+            logging.info("✅ Campaign processor started (email queue processing)")
+        except Exception as e:
+            logging.warning(f"⚠️ Campaign processor failed to start: {str(e)}")
 
-        # DISABLED: Automation Engine — no active automation rules at this scale
-        # try:
-        #     from services.automation_service import get_automation_service
-        #     automation_service = get_automation_service()
-        #     automation_service.start_service()
-        # except Exception as e:
-        #     logging.warning(f"⚠️ Automation Engine failed to start: {str(e)}")
-        logging.info("ℹ️ Automation Engine DISABLED (memory optimization)")
+        # RE-ENABLED: Location Retry — resolves failed geo lookups (15 min interval)
+        try:
+            from services.location_retry_service import get_location_retry_service
+            location_retry_service = get_location_retry_service()
+            location_retry_service.start_service()
+            logging.info("✅ Location retry service started")
+        except Exception as e:
+            logging.warning(f"⚠️ Location retry service failed to start: {str(e)}")
 
-        # DISABLED: Search Auto-Activation — not enough search volume
-        # try:
-        #     from services.search_auto_activation_service import get_search_auto_activation_service
-        #     search_auto_activation_svc = get_search_auto_activation_service()
-        #     search_auto_activation_svc.start_service()
-        # except Exception as e:
-        #     logging.warning(f"⚠️ Search auto-activation service failed to start: {str(e)}")
-        logging.info("ℹ️ Search auto-activation service DISABLED (memory optimization)")
+        # DISABLED: Automation Engine — not in use
+        logging.info("ℹ️ Automation Engine DISABLED (not in use)")
+
+        # DISABLED: Search Auto-Activation — access request flow handles this
+        logging.info("ℹ️ Search auto-activation DISABLED (access request flow is used)")
         
-        # DISABLED: Invoice Scheduler — runs once/month, move to cron
-        # try:
-        #     from services.invoice_scheduler_service import get_invoice_scheduler
-        #     invoice_scheduler = get_invoice_scheduler()
-        #     invoice_scheduler.start()
-        # except Exception as e:
-        #     logging.warning(f"⚠️ Invoice scheduler service failed to start: {str(e)}")
-        logging.info("ℹ️ Invoice scheduler DISABLED (memory optimization — run manually on 1st)")
+        # DISABLED: Invoice Scheduler — admin triggers via Automation tab button
+        logging.info("ℹ️ Invoice scheduler DISABLED (admin button in Automation tab)")
         
-        # DISABLED: Telegram Bot — move to Render Cron (every 7 hours)
-        # try:
-        #     from services.telegram_trending_bot import start_scheduler as start_telegram_scheduler
-        #     start_telegram_scheduler()
-        # except Exception as e:
-        #     logging.warning(f"⚠️ Telegram trending bot failed to start: {str(e)}")
-        logging.info("ℹ️ Telegram trending bot DISABLED (memory optimization — move to cron)")
+        # RE-ENABLED: Telegram Bot — posts trending offers every 7 hours
+        try:
+            from services.telegram_trending_bot import start_scheduler as start_telegram_scheduler
+            start_telegram_scheduler()
+            logging.info("✅ Telegram trending bot scheduler started (every 7 hours)")
+        except Exception as e:
+            logging.warning(f"⚠️ Telegram trending bot failed to start: {str(e)}")
         
-        logging.info("✅ Background services initialization completed (5 active, 9 disabled for memory)")
+        logging.info("✅ Background services initialization completed (9 active, 5 disabled)")
     except Exception as e:
         logging.error(f"Error in background services initialization: {str(e)}")
 
