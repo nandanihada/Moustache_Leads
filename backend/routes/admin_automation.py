@@ -47,11 +47,19 @@ def run_inactivity_check():
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
         deactivated = []
         checked = 0
+        skipped = 0
         
         for offer in active_offers:
-            checked += 1
             offer_id = offer.get('offer_id')
             if not offer_id:
+                skipped += 1
+                continue
+            
+            checked += 1
+            
+            # Skip offers created less than 30 days ago (give them time)
+            created_at = offer.get('created_at')
+            if created_at and isinstance(created_at, datetime) and created_at > thirty_days_ago:
                 continue
             
             # Check if this offer has any clicks in the last 30 days
@@ -83,6 +91,7 @@ def run_inactivity_check():
         return jsonify({
             'success': True,
             'checked': checked,
+            'skipped': skipped,
             'deactivated_count': len(deactivated),
             'deactivated_offers': deactivated[:50],  # Return first 50 for display
             'run_at': datetime.utcnow().isoformat() + 'Z'
@@ -98,48 +107,33 @@ def run_inactivity_check():
 @admin_required
 def run_invoice_generation():
     """
-    Manually trigger invoice generation for the current month.
-    Calls the existing invoice scheduler logic.
+    Manually trigger invoice generation for the previous month.
+    Uses the same logic as the invoice scheduler service.
     """
     try:
-        from services.invoice_scheduler_service import get_invoice_scheduler
-        scheduler = get_invoice_scheduler()
+        from routes.admin_invoices import _generate_invoices_for_month
         
-        # Call the generation method directly (without starting the background thread)
-        result = scheduler.generate_invoices_now()
+        now = datetime.utcnow()
+        # Generate for previous month
+        prev_month_end = now.replace(day=1) - timedelta(days=1)
+        year = prev_month_end.year
+        month = prev_month_end.month
         
-        logger.info(f"✅ Invoice generation triggered manually")
+        count = _generate_invoices_for_month(year, month)
+        
+        logger.info(f"✅ Invoice generation triggered manually: {count} invoices for {year}-{month:02d}")
         
         return jsonify({
             'success': True,
-            'message': 'Invoice generation completed',
-            'result': result if result else 'Generated successfully',
+            'message': f'Generated {count} invoices for {year}-{month:02d}',
+            'count': count,
+            'period': f'{year}-{month:02d}',
             'run_at': datetime.utcnow().isoformat() + 'Z'
         })
         
-    except ImportError:
-        # If the service doesn't have generate_invoices_now, try alternative
-        try:
-            from services.invoice_scheduler_service import get_invoice_scheduler
-            scheduler = get_invoice_scheduler()
-            # Try the internal method
-            if hasattr(scheduler, '_generate_monthly_invoices'):
-                scheduler._generate_monthly_invoices()
-            elif hasattr(scheduler, 'run_once'):
-                scheduler.run_once()
-            elif hasattr(scheduler, '_run'):
-                scheduler._run()
-            else:
-                return jsonify({'error': 'Invoice generation method not found'}), 500
-            
-            return jsonify({
-                'success': True,
-                'message': 'Invoice generation completed',
-                'run_at': datetime.utcnow().isoformat() + 'Z'
-            })
-        except Exception as e2:
-            logger.error(f"Invoice generation failed: {str(e2)}")
-            return jsonify({'error': str(e2)}), 500
+    except ImportError as e:
+        logger.error(f"Invoice generation import failed: {str(e)}")
+        return jsonify({'error': 'Invoice generation function not available. Check admin_invoices route.'}), 500
     except Exception as e:
         logger.error(f"Invoice generation failed: {str(e)}")
         return jsonify({'error': str(e)}), 500
