@@ -68,7 +68,7 @@ def get_invoices():
         results = []
         for inv in invoices:
             uid = inv.get('user_id', '')
-            if uid not in user_cache and users_col:
+            if uid not in user_cache and users_col is not None:
                 try:
                     u = users_col.find_one({'_id': ObjectId(uid)}, {'username': 1, 'email': 1})
                     user_cache[uid] = u if u else {}
@@ -271,7 +271,7 @@ def get_invoice_stats():
         # Get threshold
         settings_col = get_collection('platform_settings')
         threshold = 50
-        if settings_col:
+        if settings_col is not None:
             s = settings_col.find_one({'key': 'payment_threshold'})
             if s:
                 threshold = s.get('value', 50)
@@ -299,7 +299,7 @@ def _generate_invoices_for_month(year, month):
     payout_settings_col = get_collection('user_payout_settings')
     carry_col = get_collection('carry_forwards')
 
-    if not all([invoices_col, conversions_col, users_col]):
+    if invoices_col is None or conversions_col is None or users_col is None:
         return 0
 
     # Period boundaries
@@ -309,7 +309,7 @@ def _generate_invoices_for_month(year, month):
 
     # Get threshold
     threshold = 50
-    if settings_col:
+    if settings_col is not None:
         s = settings_col.find_one({'key': 'payment_threshold'})
         if s:
             threshold = s.get('value', 50)
@@ -370,7 +370,7 @@ def _generate_invoices_for_month(year, month):
 
         # Get carry_forward from previous unpaid or from carry_forwards collection
         carry_forward = 0
-        if carry_col:
+        if carry_col is not None:
             carry_doc = carry_col.find_one({'user_id': pub_id})
             if carry_doc:
                 carry_forward = carry_doc.get('amount', 0)
@@ -397,7 +397,7 @@ def _generate_invoices_for_month(year, month):
 
         # Get user's net terms
         net_terms = 30
-        if payout_settings_col:
+        if payout_settings_col is not None:
             try:
                 ups = payout_settings_col.find_one({'user_id': ObjectId(pub_id)})
                 if ups:
@@ -409,7 +409,7 @@ def _generate_invoices_for_month(year, month):
         if net_amount < 0:
             status = 'held'
             # Store negative balance for next month
-            if carry_col:
+            if carry_col is not None:
                 carry_col.update_one(
                     {'user_id': pub_id},
                     {'$set': {'amount': abs(net_amount), 'updated_at': datetime.utcnow()}},

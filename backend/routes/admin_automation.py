@@ -28,7 +28,7 @@ def run_inactivity_check():
         offers_col = db_instance.get_collection('offers')
         clicks_col = db_instance.get_collection('clicks')
         
-        if not offers_col or not clicks_col:
+        if offers_col is None or clicks_col is None:
             return jsonify({'error': 'Database not available'}), 500
         
         # Get all active offers
