@@ -42,7 +42,7 @@ def process_single_postback(postback):
             payout = 0
             logger.warning(f"⚠️ Could not parse payout value: '{raw_payout}' — defaulting to 0")
         
-        status = 'approved' if merged_data.get('status') == 'pass' else 'pending'
+        status = 'approved' if merged_data.get('status', '').lower() in ('pass', 'approved', '1', 'true', 'success', 'confirmed') else 'approved'
         survey_id = merged_data.get('survey_id')
         session_id = merged_data.get('session_id')
         
@@ -195,23 +195,53 @@ def process_single_postback(postback):
         # Update advertiser campaign stats if this is an advertiser-sourced offer
         try:
             campaign_id = click.get('campaign_id')
+            offer_id = click.get('offer_id')
+            
+            # Determine advertiser deduction amount:
+            # Use advertiser_rate if set, otherwise fallback to payout
+            deduction_amount = float(payout or 0)
+            offer_doc = None
+            if offer_id:
+                from bson import ObjectId as _ObjId
+                offers_col = db_instance.get_collection('offers')
+                if offers_col:
+                    offer_doc = offers_col.find_one({'offer_id': offer_id}, {'partner_id': 1, 'advertiser_rate': 1})
+                    if offer_doc and offer_doc.get('advertiser_rate') and float(offer_doc['advertiser_rate']) > 0:
+                        deduction_amount = float(offer_doc['advertiser_rate'])
+                        logger.info(f"💰 Using advertiser_rate={deduction_amount} (publisher payout={payout}) for offer {offer_id}")
+            
             if campaign_id:
                 from bson import ObjectId as _ObjId
                 campaigns_col = db_instance.get_collection('campaigns')
                 if campaigns_col:
                     campaigns_col.update_one(
                         {'_id': _ObjId(campaign_id)},
-                        {'$inc': {'conversions': 1, 'spent': float(payout or 0)}}
+                        {'$inc': {'conversions': 1, 'spent': deduction_amount}}
                     )
                     # Deduct from advertiser balance
                     campaign = campaigns_col.find_one({'_id': _ObjId(campaign_id)}, {'advertiser_id': 1})
-                    if campaign and campaign.get('advertiser_id') and float(payout or 0) > 0:
+                    if campaign and campaign.get('advertiser_id') and deduction_amount > 0:
                         advertisers_col = db_instance.get_collection('advertisers')
                         if advertisers_col:
                             advertisers_col.update_one(
                                 {'_id': _ObjId(campaign.get('advertiser_id'))},
-                                {'$inc': {'balance': -float(payout or 0)}}
+                                {'$inc': {'balance': -deduction_amount}}
                             )
+                            logger.info(f"💰 Deducted {deduction_amount} from advertiser {campaign.get('advertiser_id')} via campaign {campaign_id}")
+            else:
+                # For non-advertiser-sourced offers with a partner_id mapped to an advertiser
+                # partner_id format: "adv_<advertiser_id>" means this offer is linked to an advertiser
+                from bson import ObjectId as _ObjId
+                if offer_doc and offer_doc.get('partner_id', '').startswith('adv_'):
+                    adv_id = offer_doc['partner_id'][4:]  # Strip "adv_" prefix
+                    if adv_id and deduction_amount > 0:
+                        advertisers_col = db_instance.get_collection('advertisers')
+                        if advertisers_col:
+                            advertisers_col.update_one(
+                                {'_id': _ObjId(adv_id)},
+                                {'$inc': {'balance': -deduction_amount}}
+                            )
+                            logger.info(f"💰 Deducted {deduction_amount} from advertiser {adv_id} via partner_id mapping on offer {offer_id}")
         except Exception:
             pass
         

@@ -718,6 +718,10 @@ class OfferExtended:
                 'terms_notes', 'conversion_goal',
                 'offer_source', 'advertiser_id', 'campaign_request_id',
                 'vpn', 'zone_mode', 'zones',
+                # Partner/advertiser mapping for postbacks
+                'partner_id',
+                # Advertiser rate (deduction amount per conversion)
+                'advertiser_rate',
                 # Promo code fields
                 'promo_code_id', 'promo_code', 'bonus_amount', 'bonus_type',
                 'promo_code_assigned_at', 'promo_code_assigned_by',

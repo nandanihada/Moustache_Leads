@@ -653,6 +653,10 @@ class Offer:
                 # Different payouts per country - base payout applies to all other GEOs
                 'geo_payouts': offer_data.get('geo_payouts', []),  # [{country: 'CH', payout: 1000, type: 'CPA'}, ...]
                 
+                # SECTION 3.3: ADVERTISER RATE (What to deduct from advertiser per conversion)
+                # Publisher sees `payout`, advertiser is charged `advertiser_rate`
+                'advertiser_rate': float(offer_data.get('advertiser_rate', 0)) if offer_data.get('advertiser_rate') else None,
+                
                 # SECTION 4: TRACKING SETUP
                 'network': offer_data['network'].strip(),
                 'partner_id': offer_data.get('partner_id', '').strip(),  # Partner ID for postback

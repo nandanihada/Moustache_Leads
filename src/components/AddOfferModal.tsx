@@ -725,6 +725,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
           vertical: formData.vertical || 'OTHER',
           status: formData.status || 'pending',
           payout: Number(formData.payout) || 0,
+          advertiser_rate: (formData as any).advertiser_rate ? Number((formData as any).advertiser_rate) : undefined,
           target_url: formData.target_url,
           network: formData.network || 'Advertiser',
           image_url: formData.image_url || '',
@@ -1096,6 +1097,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                                   handleInputChange('description', camp.description || fd.description || '');
                                   handleInputChange('vertical', camp.category || camp.vertical || fd.vertical || 'OTHER');
                                   handleInputChange('payout', camp.payout || camp.bid_amount || fd.cpaGoal || fd.bid_amount || 0);
+                                  handleInputChange('advertiser_rate', camp.bid_amount || camp.payout || fd.cpaGoal || fd.bid_amount || 0);
                                   handleInputChange('target_url', camp.landing_url || fd.targetUrl || camp.target_url || '');
                                   handleInputChange('campaign_id', camp._id || camp.id);
                                   handleInputChange('image_url', camp.image_url || fd.image_url || '');
@@ -1262,16 +1264,29 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                           </Select>
                         </div>
                         <div>
-                          <Label htmlFor="adv_payout">Payout ($) *</Label>
+                          <Label htmlFor="adv_payout">Publisher Payout ($) *</Label>
                           <Input
                             id="adv_payout"
                             type="number"
                             step="0.01"
                             value={formData.payout}
                             onChange={(e) => handleInputChange('payout', e.target.value)}
-                            placeholder="1.50"
+                            placeholder="0.93"
                             required
                           />
+                          <p className="text-xs text-gray-500 mt-1">What publisher earns per conversion</p>
+                        </div>
+                        <div>
+                          <Label htmlFor="adv_advertiser_rate">Advertiser Rate ($)</Label>
+                          <Input
+                            id="adv_advertiser_rate"
+                            type="number"
+                            step="0.01"
+                            value={(formData as any).advertiser_rate || ''}
+                            onChange={(e) => handleInputChange('advertiser_rate', parseFloat(e.target.value) || undefined)}
+                            placeholder="1.50"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">Amount deducted from advertiser</p>
                         </div>
                       </div>
 
@@ -1812,6 +1827,49 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                           <SelectItem value="percentage">Percentage</SelectItem>
                         </SelectContent>
                       </Select>
+                    </div>
+                  </div>
+
+                  {/* ADVERTISER RATE - Amount to deduct from advertiser per conversion */}
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <Label htmlFor="advertiser_rate">Advertiser Rate ($)</Label>
+                      <Input
+                        id="advertiser_rate"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={(formData as any).advertiser_rate || ''}
+                        onChange={(e) => handleInputChange('advertiser_rate', parseFloat(e.target.value) || undefined)}
+                        placeholder="1.50"
+                      />
+                      <p className="text-sm text-gray-500 mt-1">Amount deducted from advertiser per conversion</p>
+                    </div>
+                    <div className="col-span-2">
+                      <Label htmlFor="campaign_request_id">Campaign Request (Advertiser)</Label>
+                      <Select value={(formData as any).campaign_request_id || 'none'} onValueChange={(value) => {
+                        handleInputChange('campaign_request_id', value === 'none' ? '' : value);
+                        // Auto-fill advertiser_rate from campaign bid_amount if available
+                        if (value !== 'none') {
+                          const campaign = campaigns.find((c: any) => c._id === value);
+                          if (campaign && campaign.bid_amount) {
+                            handleInputChange('advertiser_rate', campaign.bid_amount);
+                          }
+                        }
+                      }}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Link to advertiser campaign request" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No Campaign Request</SelectItem>
+                          {campaigns.map((cr: any) => (
+                            <SelectItem key={cr._id} value={cr._id}>
+                              {cr.name} — {cr.advertiser_name || 'Unknown'} (${cr.bid_amount || 0})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-sm text-gray-500 mt-1">Map this offer to an advertiser's campaign request</p>
                     </div>
                   </div>
 

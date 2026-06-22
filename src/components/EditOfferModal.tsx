@@ -337,6 +337,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
   const [smartRules, setSmartRules] = useState<SmartRule[]>([]);
   const [showJsonPreview, setShowJsonPreview] = useState(false);
   const [partners, setPartners] = useState<any[]>([]);
+  const [campaignRequests, setCampaignRequests] = useState<any[]>([]);
 
   // Fallback Redirect state
   const [fallbackRedirect, setFallbackRedirect] = useState<FallbackRedirect>({
@@ -390,6 +391,9 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
     expiration_date: '',
     device_targeting: 'all',
     partner_id: '',
+    // Advertiser rate and campaign request mapping
+    advertiser_rate: undefined,
+    campaign_request_id: '',
     // Additional comprehensive fields
     category: '',
     offer_type: '',
@@ -471,6 +475,9 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
         expiration_date: offer.expiration_date || '',
         device_targeting: offer.device_targeting,
         partner_id: (offer as any).partner_id || '',
+        // Advertiser rate and campaign request mapping
+        advertiser_rate: (offer as any).advertiser_rate || undefined,
+        campaign_request_id: (offer as any).campaign_request_id || '',
         // Additional fields (using any to handle missing type definitions)
         category: (offer as any).category || '',
         offer_type: (offer as any).offer_type || '',
@@ -632,6 +639,21 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
         }
       } catch (error) {
         console.error('Error fetching promo codes:', error);
+      }
+
+      // Fetch advertiser campaign requests (for mapping offers to campaigns)
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/admin/advertiser-campaigns`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setCampaignRequests(data.campaigns || []);
+        }
+      } catch (error) {
+        console.error('Error fetching campaign requests:', error);
       }
     };
 
@@ -1321,6 +1343,40 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                           <SelectItem value="percentage">Percentage</SelectItem>
                         </SelectContent>
                       </Select>
+                    </div>
+                  </div>
+
+                  {/* ADVERTISER RATE & CAMPAIGN REQUEST MAPPING */}
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <Label htmlFor="advertiser_rate">Advertiser Rate ($)</Label>
+                      <Input
+                        id="advertiser_rate"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={(formData as any).advertiser_rate || ''}
+                        onChange={(e) => handleInputChange('advertiser_rate' as any, parseFloat(e.target.value) || undefined)}
+                        placeholder="1.50"
+                      />
+                      <p className="text-sm text-gray-500 mt-1">Amount deducted from advertiser per conversion</p>
+                    </div>
+                    <div className="col-span-2">
+                      <Label htmlFor="campaign_request_id">Campaign Request (Advertiser)</Label>
+                      <Select value={(formData as any).campaign_request_id || 'none'} onValueChange={(value) => handleInputChange('campaign_request_id' as any, value === 'none' ? '' : value)}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Link to advertiser campaign request" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No Campaign Request</SelectItem>
+                          {campaignRequests.map((cr: any) => (
+                            <SelectItem key={cr._id} value={cr._id}>
+                              {cr.name} — {cr.advertiser_name || 'Unknown'} (${cr.bid_amount || 0})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-sm text-gray-500 mt-1">Map this offer to an advertiser's campaign request</p>
                     </div>
                   </div>
 

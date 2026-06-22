@@ -85,8 +85,9 @@ def get_dashboard_stats():
         campaign_model = get_campaign_model()
         stats = campaign_model.get_campaign_stats(advertiser_id)
         
-        # Get advertiser balance and total deposited
-        balance = float(advertiser.get('balance', 0.0))
+        # Get advertiser balance - compute dynamically as (deposited - spent)
+        # This ensures balance is always accurate even if historical deductions were missed
+        stored_balance = float(advertiser.get('balance', 0.0))
         tx_col = db_instance.get_collection('wallet_transactions')
         total_deposited = 0.0
         if tx_col is not None:
@@ -97,6 +98,17 @@ def get_dashboard_stats():
             agg = list(tx_col.aggregate(pipeline))
             if agg:
                 total_deposited = float(agg[0].get('total', 0.0))
+        
+        # Calculate actual spent from conversions using advertiser_rate
+        total_spent = float(stats.get('total_spent', 0.0))
+        
+        # Use computed balance (deposited - spent) if it's more accurate than stored balance
+        # This covers cases where historical conversions didn't trigger balance deductions
+        computed_balance = total_deposited - total_spent
+        if total_deposited > 0:
+            balance = computed_balance
+        else:
+            balance = stored_balance
 
         return jsonify({
             'account_status': account_status,
@@ -140,10 +152,13 @@ def get_campaigns():
         if db is not None:
             for c in campaigns:
                 campaign_id = c.get('_id') or ''
-                # Find the offer linked to this campaign
+                # Find the offer linked to this campaign (try both campaign_id and campaign_request_id)
                 offer = db.offers.find_one(
-                    {'campaign_id': str(campaign_id), 'offer_source': 'advertiser'},
-                    {'offer_id': 1}
+                    {'$or': [
+                        {'campaign_id': str(campaign_id), 'offer_source': 'advertiser'},
+                        {'campaign_request_id': str(campaign_id), 'offer_source': 'advertiser'}
+                    ]},
+                    {'offer_id': 1, 'advertiser_rate': 1, 'payout': 1}
                 )
                 if offer and offer.get('offer_id'):
                     offer_id = offer['offer_id']
@@ -151,13 +166,22 @@ def get_campaigns():
                     real_clicks = db.clicks.count_documents({'offer_id': offer_id})
                     # Count real conversions
                     real_conversions = db.conversions.count_documents({'offer_id': offer_id})
-                    # Sum real spend from conversions
-                    spend_pipeline = [
-                        {'$match': {'offer_id': offer_id}},
-                        {'$group': {'_id': None, 'total': {'$sum': {'$toDouble': {'$ifNull': ['$payout', 0]}}}}}
-                    ]
-                    spend_result = list(db.conversions.aggregate(spend_pipeline))
-                    real_spent = spend_result[0]['total'] if spend_result else 0.0
+                    # Calculate spend using advertiser_rate if available
+                    adv_rate = offer.get('advertiser_rate')
+                    if adv_rate and float(adv_rate) > 0:
+                        real_spent = real_conversions * float(adv_rate)
+                    else:
+                        # Fallback: use campaign bid_amount or sum from conversions
+                        bid_amount = float(c.get('bid_amount', 0))
+                        if bid_amount > 0:
+                            real_spent = real_conversions * bid_amount
+                        else:
+                            spend_pipeline = [
+                                {'$match': {'offer_id': offer_id}},
+                                {'$group': {'_id': None, 'total': {'$sum': {'$toDouble': {'$ifNull': ['$payout', 0]}}}}}
+                            ]
+                            spend_result = list(db.conversions.aggregate(spend_pipeline))
+                            real_spent = spend_result[0]['total'] if spend_result else 0.0
                     
                     c['clicks'] = real_clicks
                     c['conversions'] = real_conversions
@@ -842,7 +866,15 @@ def get_reports():
             end_date = now
             
         # Get advertiser offers/campaigns
-        offers = list(db.offers.find({'offer_source': 'advertiser', 'advertiser_id': advertiser_id}, {'offer_id': 1, 'name': 1, 'payout': 1}))
+        # Include both advertiser-sourced offers AND offers mapped via partner_id
+        adv_partner_id = f"adv_{advertiser_id}"
+        offers = list(db.offers.find(
+            {'$or': [
+                {'offer_source': 'advertiser', 'advertiser_id': advertiser_id},
+                {'partner_id': adv_partner_id}
+            ]},
+            {'offer_id': 1, 'name': 1, 'payout': 1, 'advertiser_rate': 1, 'campaign_request_id': 1, 'campaign_id': 1, 'offer_source': 1}
+        ))
         offer_ids = [o.get('offer_id') for o in offers if o.get('offer_id')]
         offer_names = {o.get('offer_id'): o.get('name', 'Unknown Offer') for o in offers}
         
@@ -877,7 +909,7 @@ def get_reports():
         }
         conversions = list(db.conversions.find(conv_query, {
             'conversion_time': 1, 'offer_id': 1, 'country': 1, 'country_code': 1, 'device_type': 1,
-            'payout': 1, 'conversion_id': 1, 'status': 1
+            'payout': 1, 'conversion_id': 1, 'status': 1, 'verified': 1
         }))
         
         # Query Impressions/Views
@@ -895,16 +927,36 @@ def get_reports():
         total_conversions = len(conversions)
         
         # Build offer payout map for fallback when conversion payout is 0
-        offer_payouts = {o.get('offer_id'): float(o.get('payout') or 0) for o in offers}
+        # Use advertiser_rate if set, otherwise check linked campaign bid_amount, finally fallback to offer payout
+        offer_payouts = {}
+        for o in offers:
+            adv_rate = o.get('advertiser_rate')
+            if adv_rate and float(adv_rate) > 0:
+                offer_payouts[o.get('offer_id')] = float(adv_rate)
+            else:
+                # Fallback: check if this offer has a linked campaign with bid_amount
+                campaign_id = o.get('campaign_request_id') or o.get('campaign_id')
+                if campaign_id and o.get('offer_source') == 'advertiser':
+                    try:
+                        from bson import ObjectId as _BsonObjId
+                        camp = db.campaigns.find_one({'_id': _BsonObjId(campaign_id)}, {'bid_amount': 1})
+                        if camp and camp.get('bid_amount') and float(camp['bid_amount']) > 0:
+                            offer_payouts[o.get('offer_id')] = float(camp['bid_amount'])
+                            continue
+                    except Exception:
+                        pass
+                offer_payouts[o.get('offer_id')] = float(o.get('payout') or 0)
         
         total_spend = 0.0
         for c in conversions:
             try:
-                conv_payout = float(c.get('payout') or 0.0)
-                if conv_payout == 0:
-                    # Fallback: use the offer's configured payout
-                    conv_payout = offer_payouts.get(c.get('offer_id'), 0.0)
-                total_spend += conv_payout
+                # For advertiser reports, use advertiser_rate from offer (not publisher payout)
+                offer_rate = offer_payouts.get(c.get('offer_id'), 0.0)
+                if offer_rate > 0:
+                    total_spend += offer_rate
+                else:
+                    conv_payout = float(c.get('payout') or 0.0)
+                    total_spend += conv_payout
             except (ValueError, TypeError):
                 pass
                 
@@ -959,10 +1011,13 @@ def get_reports():
                 breakdown_data[key] = {'impressions': 0, 'clicks': 0, 'conversions': 0, 'spend': 0.0}
             breakdown_data[key]['conversions'] += 1
             try:
-                conv_payout = float(c.get('payout') or 0.0)
-                if conv_payout == 0:
-                    conv_payout = offer_payouts.get(c.get('offer_id'), 0.0)
-                breakdown_data[key]['spend'] += conv_payout
+                # Use advertiser_rate from offer if available, otherwise use conversion payout
+                offer_rate = offer_payouts.get(c.get('offer_id'), 0.0)
+                if offer_rate > 0:
+                    breakdown_data[key]['spend'] += offer_rate
+                else:
+                    conv_payout = float(c.get('payout') or 0.0)
+                    breakdown_data[key]['spend'] += conv_payout
             except (ValueError, TypeError):
                 pass
 
@@ -996,6 +1051,15 @@ def get_reports():
         # Format conversions list (Conversion log)
         conversions_list = []
         for c in conversions[:100]: # limit to 100 recent
+            # Show advertiser_rate to advertiser, not publisher payout
+            display_payout = offer_payouts.get(c.get('offer_id'), 0.0)
+            if display_payout == 0:
+                display_payout = float(c.get('payout') or 0)
+            # For advertiser view: verified postback conversions are "approved"
+            # Only show "rejected" if explicitly rejected by admin
+            conv_status = c.get('status', 'approved')
+            if conv_status == 'pending' and c.get('verified', False):
+                conv_status = 'approved'
             conversions_list.append({
                 'time': c.get('conversion_time').isoformat() if c.get('conversion_time') else '',
                 'conversion_id': c.get('conversion_id', ''),
@@ -1003,8 +1067,8 @@ def get_reports():
                 'geo': c.get('country') or c.get('country_code') or 'Unknown',
                 'device': c.get('device_type') or 'unknown',
                 'goal': 'Conversion',
-                'payout': float(c.get('payout') or 0),
-                'status': c.get('status', 'approved')
+                'payout': display_payout,
+                'status': conv_status
             })
 
         return jsonify({

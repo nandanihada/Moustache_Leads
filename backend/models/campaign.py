@@ -272,10 +272,14 @@ class Campaign:
         total_spent = 0.0
         
         if db is not None:
-            # Find all offers belonging to this advertiser
+            # Find all offers belonging to this advertiser (both advertiser-sourced and partner-mapped)
+            adv_partner_id = f"adv_{advertiser_id}"
             offers = list(db.offers.find(
-                {'offer_source': 'advertiser', 'advertiser_id': advertiser_id},
-                {'offer_id': 1}
+                {'$or': [
+                    {'offer_source': 'advertiser', 'advertiser_id': advertiser_id},
+                    {'partner_id': adv_partner_id}
+                ]},
+                {'offer_id': 1, 'advertiser_rate': 1}
             ))
             offer_ids = [o.get('offer_id') for o in offers if o.get('offer_id')]
             
@@ -284,13 +288,37 @@ class Campaign:
                 total_clicks = db.clicks.count_documents({'offer_id': {'$in': offer_ids}})
                 # Count real conversions
                 total_conversions = db.conversions.count_documents({'offer_id': {'$in': offer_ids}})
-                # Sum real spend from conversions
-                spend_pipeline = [
-                    {'$match': {'offer_id': {'$in': offer_ids}}},
-                    {'$group': {'_id': None, 'total': {'$sum': {'$toDouble': {'$ifNull': ['$payout', 0]}}}}}
-                ]
-                spend_result = list(db.conversions.aggregate(spend_pipeline))
-                total_spent = spend_result[0]['total'] if spend_result else 0.0
+                # Calculate spend using advertiser_rate when available
+                # Build a map of offer_id -> advertiser rate
+                offer_rates = {}
+                for o in offers:
+                    adv_rate = o.get('advertiser_rate')
+                    if adv_rate and float(adv_rate) > 0:
+                        offer_rates[o.get('offer_id')] = float(adv_rate)
+                
+                if offer_rates:
+                    # If any offer has advertiser_rate, calculate spend per-offer
+                    for oid in offer_ids:
+                        count = db.conversions.count_documents({'offer_id': oid})
+                        rate = offer_rates.get(oid)
+                        if rate:
+                            total_spent += count * rate
+                        else:
+                            # Fallback: sum payout from conversions for this offer
+                            pipeline = [
+                                {'$match': {'offer_id': oid}},
+                                {'$group': {'_id': None, 'total': {'$sum': {'$toDouble': {'$ifNull': ['$payout', 0]}}}}}
+                            ]
+                            result = list(db.conversions.aggregate(pipeline))
+                            total_spent += result[0]['total'] if result else 0.0
+                else:
+                    # No advertiser_rate set - sum payout from conversions directly
+                    spend_pipeline = [
+                        {'$match': {'offer_id': {'$in': offer_ids}}},
+                        {'$group': {'_id': None, 'total': {'$sum': {'$toDouble': {'$ifNull': ['$payout', 0]}}}}}
+                    ]
+                    spend_result = list(db.conversions.aggregate(spend_pipeline))
+                    total_spent = spend_result[0]['total'] if spend_result else 0.0
         
         return {
             'total_campaigns': total,
