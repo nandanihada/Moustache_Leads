@@ -26,7 +26,6 @@ import {
   RefreshCw,
   CreditCard,
   ShieldCheck,
-  MapPin,
   Globe,
   Layers,
   Activity,
@@ -141,17 +140,6 @@ const adminMenuStructure = [
       { title: "Reactivation", url: "/admin/reactivation", icon: RefreshCw, tab: "reactivation" },
       { title: "Per-User Offer Track", url: "/admin/per-user-offers", icon: Zap, tab: "per-user-offers" },
       { title: "Masked Links", url: "/admin/masked-links", icon: Link2, tab: "masked-links" },
-    ]
-  },
-  {
-    title: "Deep Analytics",
-    icon: Activity,
-    type: "group" as const,
-    subtabs: [
-      { title: "Network Analytics", url: "/admin/network-analytics", icon: Globe, tab: "network-analytics" },
-      { title: "Vertical Analytics", url: "/admin/vertical-analytics", icon: Layers, tab: "vertical-analytics" },
-      { title: "Geo Analytics", url: "/admin/geo-analytics", icon: MapPin, tab: "geo-analytics" },
-      { title: "Status Analytics", url: "/admin/status-analytics", icon: Activity, tab: "status-analytics" },
     ]
   },
   {

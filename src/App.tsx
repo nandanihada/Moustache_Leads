@@ -67,7 +67,6 @@ const AdminAdvertiserManagement = lazy(() => import("./pages/AdminAdvertiserMana
 const AdminPlacementProofs = lazy(() => import("./pages/AdminPlacementProofs"));
 const AdminSupportInbox = lazy(() => import("./pages/AdminSupportInbox"));
 const AdminOfferAnalytics = lazy(() => import("./pages/AdminOfferAnalytics"));
-const AdminDetailedAnalytics = lazy(() => import("./pages/AdminDetailedAnalytics"));
 const AdminSearchLogs = lazy(() => import("./pages/AdminSearchLogs"));
 const AdminActivityLogs = lazy(() => import("./pages/AdminActivityLogs"));
 const AdminRecentActivity = lazy(() => import("./pages/AdminRecentActivity"));
@@ -237,10 +236,6 @@ const App = () => (
                 <Route path="placement-approval" element={<AdminPlacementApproval />} />
                 <Route path="campaign-requests" element={<AdminCampaignRequests />} />
                 <Route path="offerwall-analytics" element={<AdminOfferwallAnalytics />} />
-                <Route path="network-analytics" element={<AdminDetailedAnalytics type="network" />} />
-                <Route path="vertical-analytics" element={<AdminDetailedAnalytics type="vertical" />} />
-                <Route path="geo-analytics" element={<AdminDetailedAnalytics type="geo" />} />
-                <Route path="status-analytics" element={<AdminDetailedAnalytics type="status" />} />
                 <Route path="click-tracking" element={<AdminClickTracking />} />
                 <Route path="login-logs" element={<AdminLoginLogs />} />
                 <Route path="active-users" element={<AdminActiveUsers />} />
