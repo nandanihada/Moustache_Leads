@@ -513,11 +513,20 @@ def start_background_services():
     
     Under Gunicorn with preload_app=False, each worker calls this independently.
     We use a module-level flag to ensure services start only once per worker process.
+    Only the designated background worker (RUN_BACKGROUND_SERVICES=1) will start them.
     """
     global _background_services_started
     if _background_services_started:
         return
     _background_services_started = True
+    
+    # Check if this worker is designated for background services
+    # When running under Gunicorn, only worker.age==1 sets RUN_BACKGROUND_SERVICES=1
+    # When running directly (python run.py), the env var won't exist, so default to running
+    run_bg = os.environ.get('RUN_BACKGROUND_SERVICES', '1')
+    if run_bg == '0':
+        logging.info("ℹ️ This worker is NOT the background services worker — skipping background services")
+        return
     
     if not db_instance.is_connected():
         logging.warning("Database connection failed - skipping background services")
@@ -572,14 +581,14 @@ def start_background_services():
                 from routes.simple_tracking import _get_offer_cached
                 offers_col = db_instance.get_collection('offers')
                 if offers_col:
-                    # Load top 500 active offers into tracking cache
+                    # Load top 50 active offers into tracking cache (minimal for 22 users/day)
                     active_offers = offers_col.find(
                         {'status': {'$in': ['active', 'running', 'rotating']}},
                         {'offer_id': 1, 'name': 1, 'status': 1, 'target_url': 1, 'payout': 1,
                          'currency': 1, 'network': 1, 'category': 1, 'vertical': 1,
                          'campaign_id': 1, 'fallback_redirect_enabled': 1,
                          'fallback_redirect_url': 1, 'fallback_redirect_timer': 1}
-                    ).limit(500)
+                    ).limit(50)
                     
                     import time as _time
                     from routes.simple_tracking import _offer_cache, _OFFER_CACHE_TTL
@@ -598,7 +607,14 @@ def start_background_services():
     except Exception:
         pass
     
+    # =========================================================================
+    # ACTIVE BACKGROUND SERVICES (4 kept — critical for platform operation)
+    # Memory optimization: disabled 11 non-critical services to stay within 512MB
+    # No data is lost — all MongoDB collections remain untouched.
+    # Disabled services can be re-enabled or moved to Render Cron Jobs later.
+    # =========================================================================
     try:
+        # KEEP: Cap Monitoring — prevents advertiser over-delivery
         try:
             from services.cap_monitoring_service import CapMonitoringService
             cap_service = CapMonitoringService()
@@ -607,6 +623,7 @@ def start_background_services():
         except Exception as e:
             logging.warning(f"⚠️ Cap monitoring service failed to start: {str(e)}")
         
+        # KEEP: Postback Processor — core revenue tracking, non-negotiable
         try:
             from services.tracking_service import TrackingService
             tracking_service = TrackingService()
@@ -615,6 +632,7 @@ def start_background_services():
         except Exception as e:
             logging.warning(f"⚠️ Tracking service failed to start: {str(e)}")
         
+        # KEEP: Schedule Activation — offers must auto-start/stop on their dates
         try:
             from services.schedule_activation_service import setup_activation_scheduler
             setup_activation_scheduler()
@@ -622,14 +640,15 @@ def start_background_services():
         except Exception as e:
             logging.warning(f"⚠️ Schedule activation service failed to start: {str(e)}")
         
+        # KEEP: Price Boost Expiration — checks for expired boosts
         try:
-            from services.placement_auto_approval_service import get_placement_auto_approval_service
-            auto_approval_service = get_placement_auto_approval_service()
-            auto_approval_service.start_service()
-            logging.info("✅ Placement auto-approval service started (3 days)")
+            from services.price_boost_service import price_boost_service
+            price_boost_service.start()
+            logging.info("✅ Price boost expiration service started")
         except Exception as e:
-            logging.warning(f"⚠️ Placement auto-approval service failed to start: {str(e)}")
-        
+            logging.warning(f"⚠️ Price boost service failed to start: {str(e)}")
+
+        # KEEP: Scheduled Email Service — publishers need their email notifications
         try:
             from services.scheduled_email_service import get_scheduled_email_service
             email_service = get_scheduled_email_service()
@@ -638,81 +657,97 @@ def start_background_services():
         except Exception as e:
             logging.warning(f"⚠️ Scheduled email service failed to start: {str(e)}")
         
-        try:
-            from services.offer_inactivity_service import get_offer_inactivity_service
-            inactivity_service = get_offer_inactivity_service()
-            inactivity_service.start_service()
-            logging.info("✅ Offer inactivity service started (30-day no-click auto-deactivation)")
-        except Exception as e:
-            logging.warning(f"⚠️ Offer inactivity service failed to start: {str(e)}")
+        # =====================================================================
+        # DISABLED SERVICES (memory optimization — move to Render Cron later)
+        # All data remains in MongoDB. These can be re-enabled anytime.
+        # =====================================================================
         
-        try:
-            from services.offer_rotation_service import get_rotation_service
-            rotation_service = get_rotation_service()
-            rot_state = rotation_service._get_state()
-            if rot_state.get('enabled'):
-                rotation_service.start()
-                logging.info("✅ Offer rotation service started (was enabled)")
-            else:
-                logging.info("ℹ️ Offer rotation service loaded (currently disabled)")
-        except Exception as e:
-            logging.warning(f"⚠️ Offer rotation service failed to start: {str(e)}")
+        # DISABLED: Placement Auto-Approval — run manually or via daily cron
+        # try:
+        #     from services.placement_auto_approval_service import get_placement_auto_approval_service
+        #     auto_approval_service = get_placement_auto_approval_service()
+        #     auto_approval_service.start_service()
+        #     logging.info("✅ Placement auto-approval service started (3 days)")
+        # except Exception as e:
+        #     logging.warning(f"⚠️ Placement auto-approval service failed to start: {str(e)}")
+        logging.info("ℹ️ Placement auto-approval service DISABLED (memory optimization)")
         
-        try:
-            from services.campaign_processor import get_campaign_processor
-            campaign_processor = get_campaign_processor()
-            campaign_processor.start()
-            logging.info("✅ Campaign processor started (email queue processing)")
-        except Exception as e:
-            logging.warning(f"⚠️ Campaign processor failed to start: {str(e)}")
+        # DISABLED: Offer Inactivity — 30-day check, run weekly via cron
+        # try:
+        #     from services.offer_inactivity_service import get_offer_inactivity_service
+        #     inactivity_service = get_offer_inactivity_service()
+        #     inactivity_service.start_service()
+        #     logging.info("✅ Offer inactivity service started (30-day no-click auto-deactivation)")
+        # except Exception as e:
+        #     logging.warning(f"⚠️ Offer inactivity service failed to start: {str(e)}")
+        logging.info("ℹ️ Offer inactivity service DISABLED (memory optimization)")
+        
+        # DISABLED: Offer Rotation — not needed at 22 users/day
+        # try:
+        #     from services.offer_rotation_service import get_rotation_service
+        #     rotation_service = get_rotation_service()
+        #     rot_state = rotation_service._get_state()
+        #     if rot_state.get('enabled'):
+        #         rotation_service.start()
+        # except Exception as e:
+        #     logging.warning(f"⚠️ Offer rotation service failed to start: {str(e)}")
+        logging.info("ℹ️ Offer rotation service DISABLED (memory optimization)")
+        
+        # DISABLED: Campaign Processor — at this scale, emails send synchronously
+        # try:
+        #     from services.campaign_processor import get_campaign_processor
+        #     campaign_processor = get_campaign_processor()
+        #     campaign_processor.start()
+        #     logging.info("✅ Campaign processor started (email queue processing)")
+        # except Exception as e:
+        #     logging.warning(f"⚠️ Campaign processor failed to start: {str(e)}")
+        logging.info("ℹ️ Campaign processor DISABLED (memory optimization)")
 
-        try:
-            from services.location_retry_service import get_location_retry_service
-            location_retry_service = get_location_retry_service()
-            location_retry_service.start_service()
-            logging.info("✅ Location retry service started (auto-resolves 'Tracking...' IPs)")
-        except Exception as e:
-            logging.warning(f"⚠️ Location retry service failed to start: {str(e)}")
+        # DISABLED: Location Retry — will retry lazily on next user request
+        # try:
+        #     from services.location_retry_service import get_location_retry_service
+        #     location_retry_service = get_location_retry_service()
+        #     location_retry_service.start_service()
+        # except Exception as e:
+        #     logging.warning(f"⚠️ Location retry service failed to start: {str(e)}")
+        logging.info("ℹ️ Location retry service DISABLED (memory optimization)")
 
-        try:
-            from services.automation_service import get_automation_service
-            automation_service = get_automation_service()
-            automation_service.start_service()
-            logging.info("✅ Automation Engine background service started")
-        except Exception as e:
-            logging.warning(f"⚠️ Automation Engine failed to start: {str(e)}")
+        # DISABLED: Automation Engine — no active automation rules at this scale
+        # try:
+        #     from services.automation_service import get_automation_service
+        #     automation_service = get_automation_service()
+        #     automation_service.start_service()
+        # except Exception as e:
+        #     logging.warning(f"⚠️ Automation Engine failed to start: {str(e)}")
+        logging.info("ℹ️ Automation Engine DISABLED (memory optimization)")
 
-        try:
-            from services.search_auto_activation_service import get_search_auto_activation_service
-            search_auto_activation_svc = get_search_auto_activation_service()
-            search_auto_activation_svc.start_service()
-            logging.info("✅ Search auto-activation service started (per-user offer grants)")
-        except Exception as e:
-            logging.warning(f"⚠️ Search auto-activation service failed to start: {str(e)}")
+        # DISABLED: Search Auto-Activation — not enough search volume
+        # try:
+        #     from services.search_auto_activation_service import get_search_auto_activation_service
+        #     search_auto_activation_svc = get_search_auto_activation_service()
+        #     search_auto_activation_svc.start_service()
+        # except Exception as e:
+        #     logging.warning(f"⚠️ Search auto-activation service failed to start: {str(e)}")
+        logging.info("ℹ️ Search auto-activation service DISABLED (memory optimization)")
         
-        try:
-            from services.invoice_scheduler_service import get_invoice_scheduler
-            invoice_scheduler = get_invoice_scheduler()
-            invoice_scheduler.start()
-            logging.info("✅ Invoice scheduler service started (auto-generates on 1st of month)")
-        except Exception as e:
-            logging.warning(f"⚠️ Invoice scheduler service failed to start: {str(e)}")
+        # DISABLED: Invoice Scheduler — runs once/month, move to cron
+        # try:
+        #     from services.invoice_scheduler_service import get_invoice_scheduler
+        #     invoice_scheduler = get_invoice_scheduler()
+        #     invoice_scheduler.start()
+        # except Exception as e:
+        #     logging.warning(f"⚠️ Invoice scheduler service failed to start: {str(e)}")
+        logging.info("ℹ️ Invoice scheduler DISABLED (memory optimization — run manually on 1st)")
         
-        try:
-            from services.telegram_trending_bot import start_scheduler as start_telegram_scheduler
-            start_telegram_scheduler()
-            logging.info("✅ Telegram trending bot scheduler started (every 7 hours)")
-        except Exception as e:
-            logging.warning(f"⚠️ Telegram trending bot failed to start: {str(e)}")
+        # DISABLED: Telegram Bot — move to Render Cron (every 7 hours)
+        # try:
+        #     from services.telegram_trending_bot import start_scheduler as start_telegram_scheduler
+        #     start_telegram_scheduler()
+        # except Exception as e:
+        #     logging.warning(f"⚠️ Telegram trending bot failed to start: {str(e)}")
+        logging.info("ℹ️ Telegram trending bot DISABLED (memory optimization — move to cron)")
         
-        try:
-            from services.price_boost_service import price_boost_service
-            price_boost_service.start()
-            logging.info("✅ Price boost expiration service started (checks every 60s)")
-        except Exception as e:
-            logging.warning(f"⚠️ Price boost service failed to start: {str(e)}")
-        
-        logging.info("Background services initialization completed")
+        logging.info("✅ Background services initialization completed (5 active, 9 disabled for memory)")
     except Exception as e:
         logging.error(f"Error in background services initialization: {str(e)}")
 

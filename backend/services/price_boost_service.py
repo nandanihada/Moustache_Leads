@@ -19,7 +19,7 @@ class PriceBoostService:
     def __init__(self):
         self._running = False
         self._thread = None
-        self._check_interval = 60  # Check every 60 seconds
+        self._check_interval = 300  # Check every 5 minutes (sufficient for boost expiry)
 
     def start(self):
         """Start the background expiration checker."""
