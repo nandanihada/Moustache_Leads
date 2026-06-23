@@ -192,11 +192,15 @@ def get_available_offers():
         
         # Add search if provided
         if search:
+            # Escape special regex characters to prevent regex injection
+            import re as re_module
+            escaped_search = re_module.escape(search)
             search_conditions = [
-                {'name': {'$regex': search, '$options': 'i'}},
-                {'offer_id': {'$regex': search, '$options': 'i'}},
-                {'category': {'$regex': search, '$options': 'i'}},
-                {'categories': {'$regex': search, '$options': 'i'}}
+                {'name': {'$regex': escaped_search, '$options': 'i'}},
+                {'offer_id': {'$regex': escaped_search, '$options': 'i'}},
+                {'category': {'$regex': escaped_search, '$options': 'i'}},
+                {'categories': {'$regex': escaped_search, '$options': 'i'}},
+                {'network': {'$regex': escaped_search, '$options': 'i'}},
             ]
             
             if granted_offer_ids:
