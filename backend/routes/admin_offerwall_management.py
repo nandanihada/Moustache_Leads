@@ -520,14 +520,19 @@ def get_offerwall_offers():
             ]})
 
         # Fetch ALL matching offers (no health check — admin needs to see ALL show_in_offerwall offers)
+        # OPTIMIZATION: Don't include large text fields in list projection
+        # description and refined_description.summary can be huge — only fetch for individual editor
         projection = {
             'offer_id': 1, 'name': 1, 'original_name': 1, 'status': 1, 'category': 1, 'vertical': 1,
             'payout': 1, 'network': 1, 'image_url': 1, 'thumbnail_url': 1,
-            'description': 1, 'countries': 1, 'allowed_countries': 1,
+            'countries': 1, 'allowed_countries': 1,
             'created_at': 1, 'updated_at': 1, 'refined_at': 1, 'renamed_at': 1,
             'target_url': 1, 'payout_model': 1, 'offer_type': 1, 'payout_type': 1,
             'offerwall_position': 1, 'price_boost': 1, 'publisher_payout_override': 1,
-            'refined_description': 1, 'refined_via_admin': 1,
+            'refined_description.event_flow': 1, 'refined_description.difficulty': 1,
+            'refined_description.estimated_time': 1, 'refined_description.countries': 1,
+            'refined_description.allowed_countries': 1, 'refined_description.restricted_areas': 1,
+            'refined_via_admin': 1,
             'show_in_offerwall_source': 1, 'show_in_offerwall_added_at': 1,
             'offerwall_exclusive': 1, 'offerwall_exclusive_since': 1,
             'auto_deactivated': 1, 'auto_deactivated_at': 1,
@@ -535,20 +540,15 @@ def get_offerwall_offers():
             'fallback_redirect_enabled': 1, 'fallback_redirect_url': 1, 'fallback_redirect_message': 1,
         }
 
-        all_offers = list(offers_collection.find(query_filter, projection).sort('created_at', -1))
-
-        # Apply health check — Offer Controls shows only what's actually live in the offerwall
-        try:
-            health_service = HealthCheckService()
-            health_results = health_service.evaluate_offers_batch(all_offers)
-            all_offers = [o for o in all_offers if health_results.get(o.get('offer_id'), {}).get('status') == 'healthy']
-        except Exception as e:
-            logger.warning(f"Health check failed in offer controls, returning all: {e}")
-
-        # Paginate after health filter
-        total = len(all_offers)
+        # Use DB-level pagination — do NOT load all offers into memory
+        total = offers_collection.count_documents(query_filter)
         skip = (page - 1) * per_page
-        paginated_offers = all_offers[skip:skip + per_page]
+        paginated_offers = list(
+            offers_collection.find(query_filter, projection)
+            .sort('created_at', -1)
+            .skip(skip)
+            .limit(per_page)
+        )
 
         # Serialize
         serialized = []
