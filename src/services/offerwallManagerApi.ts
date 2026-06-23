@@ -194,6 +194,27 @@ class OfferwallManagerApi {
     return res.json();
   }
 
+  // ===== Fallback URL =====
+  async setFallback(offer_ids: string[], fallback_enabled: boolean, fallback_url: string, fallback_message: string): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/fallback/set`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ offer_ids, fallback_enabled, fallback_url, fallback_message })
+    });
+    if (!res.ok) throw new Error('Failed to set fallback');
+    return res.json();
+  }
+
+  async removeFallback(offer_ids: string[]): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/fallback/remove`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ offer_ids })
+    });
+    if (!res.ok) throw new Error('Failed to remove fallback');
+    return res.json();
+  }
+
   // ===== Position Ordering =====
   async setPositions(positions: Array<{offer_id: string; position: number}>): Promise<any> {
     const res = await fetch(`${API_BASE_URL}/set-positions`, {

@@ -238,7 +238,8 @@ def get_available_offers():
             'level_payouts': 1, 'geo_payouts': 1,
             'daily_cap': 1, 'weekly_cap': 1, 'monthly_cap': 1, 'limit': 1,
             'expiration_date': 1, 'conversion_window': 1, 'incentive_type': 1,
-            'offer_type': 1, 'conversion_goal': 1, 'languages': 1
+            'offer_type': 1, 'conversion_goal': 1, 'languages': 1,
+            'refined_description': 1
         }
         
         # Get paginated results with projection
@@ -488,6 +489,7 @@ def get_available_offers():
                     'languages': offer.get('languages', []),
                     'allowed_countries': offer.get('allowed_countries', []),
                     'updated_at': offer.get('updated_at'),
+                    'refined_description': offer.get('refined_description'),
                 }
                 
                 # Add level_payouts with 80% applied to each level
@@ -1476,7 +1478,8 @@ def get_my_offers():
             'level_payouts': 1, 'geo_payouts': 1,
             'daily_cap': 1, 'weekly_cap': 1, 'monthly_cap': 1, 'limit': 1,
             'expiration_date': 1, 'conversion_window': 1, 'incentive_type': 1,
-            'offer_type': 1, 'conversion_goal': 1, 'languages': 1
+            'offer_type': 1, 'conversion_goal': 1, 'languages': 1,
+            'refined_description': 1
         }
 
         offers = list(offers_collection.find(

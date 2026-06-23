@@ -532,6 +532,7 @@ def get_offerwall_offers():
             'offerwall_exclusive': 1, 'offerwall_exclusive_since': 1,
             'auto_deactivated': 1, 'auto_deactivated_at': 1,
             'is_pinned': 1, 'pinnedPosition': 1,
+            'fallback_redirect_enabled': 1, 'fallback_redirect_url': 1, 'fallback_redirect_message': 1,
         }
 
         all_offers = list(offers_collection.find(query_filter, projection).sort('created_at', -1))
@@ -1079,6 +1080,99 @@ def remove_price_boost():
         return jsonify({'error': 'Failed to remove price boost'}), 500
 
 
+# ===================== FALLBACK URL ENDPOINTS =====================
+
+@admin_offerwall_management_bp.route('/offerwall-management/fallback/set', methods=['POST'])
+@token_required
+def set_fallback_redirect():
+    """Set fallback redirect URL and message for one or multiple offers."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        offer_ids = data.get('offer_ids', [])
+        if not offer_ids:
+            return jsonify({'error': 'offer_ids required'}), 400
+
+        fallback_enabled = data.get('fallback_enabled', True)
+        fallback_url = (data.get('fallback_url') or '').strip()
+        fallback_message = (data.get('fallback_message') or '').strip()
+
+        if fallback_enabled and not fallback_url and not fallback_message:
+            return jsonify({'error': 'Provide at least a fallback URL or message'}), 400
+
+        offers_col = get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        update_fields = {
+            'fallback_redirect_enabled': fallback_enabled,
+            'fallback_redirect_url': fallback_url if fallback_enabled else '',
+            'fallback_redirect_message': fallback_message if fallback_enabled else '',
+        }
+
+        result = offers_col.update_many(
+            {'offer_id': {'$in': offer_ids}},
+            {'$set': update_fields}
+        )
+
+        return jsonify({
+            'success': True,
+            'message': f'Fallback updated for {result.modified_count} offers',
+            'modified_count': result.modified_count
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error setting fallback: {e}")
+        return jsonify({'error': 'Failed to set fallback'}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/fallback/remove', methods=['POST'])
+@token_required
+def remove_fallback_redirect():
+    """Remove fallback redirect from one or multiple offers."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        offer_ids = data.get('offer_ids', [])
+        if not offer_ids:
+            return jsonify({'error': 'offer_ids required'}), 400
+
+        offers_col = get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        result = offers_col.update_many(
+            {'offer_id': {'$in': offer_ids}},
+            {'$set': {
+                'fallback_redirect_enabled': False,
+                'fallback_redirect_url': '',
+                'fallback_redirect_message': '',
+            }}
+        )
+
+        return jsonify({
+            'success': True,
+            'message': f'Fallback removed from {result.modified_count} offers',
+            'modified_count': result.modified_count
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error removing fallback: {e}")
+        return jsonify({'error': 'Failed to remove fallback'}), 500
+
+
 # ===================== POSITION ORDERING ENDPOINTS =====================
 
 @admin_offerwall_management_bp.route('/offerwall-management/set-positions', methods=['POST'])
@@ -1263,29 +1357,49 @@ def refine_offer_description_endpoint():
             return jsonify({'error': 'GROQ_API_KEY not configured'}), 500
 
         prompt = f"""You are an offer description refiner for an affiliate marketing platform.
-Given a raw offer description (often messy with campaign/tracking data), produce a clean structured JSON output.
+Given a raw offer description AND the offer name, produce a clean structured JSON output.
 
 RULES:
 - Write for END USERS who will complete the offer (not advertisers)
 - Keep it simple, friendly, professional
+- "refined_name" — suggest a cleaner, shorter name for this offer based on the original name. Remove country codes, US state codes, tracking IDs, network references, dollar amounts, and jargon like "FTD" (First Time Deposit), "Baseline", "SOI" (Single Opt-In), "DOI" (Double Opt-In). Keep the brand/app name and core action. Max 80 chars. If the name is already clean, keep it as-is.
 - "event_flow" is a SHORT subtitle showing the conversion flow, e.g. "Register → Deposit → Get Bonus" or "Install → Open App → Complete Tutorial". Max 60 chars. NEVER include dollar amounts or monetary values in event_flow.
 - "steps" should list the CONVERSION EVENTS (what actions trigger payout), not generic instructions. E.g. "Registration", "First Deposit", "App Activation" — not "Sign up for the app". Do NOT include dollar amounts in steps.
-- CRITICAL: NEVER include any monetary amounts, dollar values ($), payout numbers, or currency in ANY field. The amounts in the raw description are internal advertiser data and must NOT be shown to end users. Write "Deposit" instead of "Deposit $25", write "Purchase" instead of "$50 Purchase".
+- CRITICAL: NEVER include any monetary amounts, dollar values ($), payout numbers, or currency amounts in ANY field EXCEPT deposit_requirement. The amounts in the raw description are internal advertiser data and must NOT be shown to end users.
+- EXCEPTION FOR DEPOSITS: If the description mentions a required deposit or minimum spend (e.g. "Deposit a minimum of $10", "Make a first deposit of $25", "FTD" means First Time Deposit), extract that EXACT deposit amount into "deposit_requirement" field. This is the user's action cost, NOT a payout.
 - In payout_levels, set the "payout" field to empty string "" for every level. Only include the event name.
-- Extract COUNTRY CODES (ISO 2-letter) mentioned in the description (e.g. US, UK, CA, DE, AU). Look for country names, GEO mentions, geo-targeting info. Return as array of uppercase 2-letter codes.
-- Extract any restrictions (device, VPN, new users only, age, etc.)
+- IMPORTANT - COUNTRY AND STATE PARSING FROM NAME:
+  - The offer NAME often contains geo info like "(Excluding CT, LA, MI, NV, NJ, NY, WA)" or "(US only)" or "- US, CA, UK"
+  - US STATE CODES (2 letters): CT, MI, NV, NY, MT, NJ, LA, WV, TN, WA, CA (California), FL, TX, IL, PA, OH, GA, NC, VA, MD, MA, AZ, CO, MN, WI, MO, IN, SC, AL, KY, OR, OK, IA, MS, AR, KS, UT, NE, NM, WV, ID, HI, NH, ME, RI, MT, DE, SD, ND, AK, VT, WY, DC — these are US STATES, not countries!
+  - When you see "(Excluding CT, MI, NV...)" in the name — these are EXCLUDED US STATES. Put them in "restricted_areas".
+  - When you see country codes like US, UK, CA (Canada), AU, DE — put them in "allowed_countries".
+  - If the offer only mentions US states as excluded but the offer is clearly US-targeted, set allowed_countries to ["US"].
+- Extract ALLOWED COUNTRY CODES (ISO 2-letter) from the description or name. Return as "allowed_countries" array.
+- Extract RESTRICTED/EXCLUDED states or regions. Return as "restricted_areas" array of strings (e.g. ["CT", "MI", "NV", "NY"]).
+- Extract specific CITIES if mentioned. Return as "cities" array.
+- Extract APPROVAL PERIOD if mentioned (e.g. "Approvals are provided by the latest on DAY 15 of next month", "Weekly approvals"). Return as "approval_period" string.
+- Extract any restrictions (device, VPN, new users only, age, traffic sources, etc.)
 - Estimate difficulty and time based on the conversion events
+- FTD = First Time Deposit. This is a common affiliate marketing term.
+- CPA = Cost Per Action/Acquisition
 
 OFFER NAME: {name}
 RAW DESCRIPTION:
 {description}
 
+EXISTING COUNTRIES IN SYSTEM: {', '.join(existing_countries) if existing_countries else 'None set'}
+
 Return ONLY valid JSON (no markdown, no explanation):
 {{
+  "refined_name": "Cleaner shorter offer name (max 80 chars)",
   "event_flow": "Short flow subtitle max 60 chars (NO dollar amounts)",
   "summary": "1-2 sentence user-friendly description (NO dollar amounts)",
   "steps": ["Event 1: Registration", "Event 2: First Deposit"],
-  "countries": ["US", "UK"],
+  "allowed_countries": ["US"],
+  "restricted_areas": ["CT", "LA", "MI"],
+  "cities": [],
+  "approval_period": "Monthly, by DAY 15 of next month",
+  "deposit_requirement": "$20 minimum first deposit required",
   "payout_levels": [{{"event": "Event Name", "payout": ""}}],
   "restrictions": ["restriction 1", "restriction 2"],
   "difficulty": "Easy|Medium|Hard",
@@ -1322,19 +1436,29 @@ Return ONLY valid JSON (no markdown, no explanation):
 
         # Validate and clean
         refined = {
+            "refined_name": str(result.get("refined_name", "")).strip()[:80] or None,
             "event_flow": str(result.get("event_flow", "")).strip()[:60] or None,
             "summary": str(result.get("summary", "")).strip() or description[:200],
             "steps": result.get("steps", []) if isinstance(result.get("steps"), list) else [],
-            "countries": [],
+            "allowed_countries": [],
+            "restricted_areas": result.get("restricted_areas", []) if isinstance(result.get("restricted_areas"), list) else [],
+            "cities": result.get("cities", []) if isinstance(result.get("cities"), list) else [],
+            "approval_period": str(result.get("approval_period", "")).strip() or None,
+            "deposit_requirement": str(result.get("deposit_requirement", "")).strip() or None,
             "payout_levels": [],
             "restrictions": result.get("restrictions", []) if isinstance(result.get("restrictions"), list) else [],
             "difficulty": result.get("difficulty", "Medium") if result.get("difficulty") in ("Easy", "Medium", "Hard") else "Medium",
             "estimated_time": str(result.get("estimated_time", "5 min")).strip()
         }
 
-        # Strip any monetary amounts from all text fields (safety net)
+        # Strip any monetary amounts from text fields EXCEPT deposit_requirement (safety net)
         import re
         money_pattern = r'\$[\d,]+\.?\d*'
+        
+        if refined["refined_name"]:
+            refined["refined_name"] = re.sub(money_pattern, '', refined["refined_name"]).strip()
+            refined["refined_name"] = re.sub(r'\s{2,}', ' ', refined["refined_name"])
+            refined["refined_name"] = refined["refined_name"][:80] or None
         
         if refined["event_flow"]:
             refined["event_flow"] = re.sub(money_pattern, '', refined["event_flow"]).strip()
@@ -1346,15 +1470,23 @@ Return ONLY valid JSON (no markdown, no explanation):
         
         refined["steps"] = [re.sub(r'\s{2,}', ' ', re.sub(money_pattern, '', s)).strip() for s in refined["steps"]]
 
-        # Validate countries - must be 2-letter uppercase codes
-        raw_countries = result.get("countries", [])
+        # Validate allowed_countries - must be 2-letter uppercase codes
+        raw_countries = result.get("allowed_countries", result.get("countries", []))
         if isinstance(raw_countries, list):
             valid_countries = []
             for c in raw_countries:
                 code = str(c).strip().upper()
                 if len(code) == 2 and code.isalpha():
                     valid_countries.append(code)
-            refined["countries"] = valid_countries
+            refined["allowed_countries"] = valid_countries
+
+        # Clean restricted_areas
+        if isinstance(refined["restricted_areas"], list):
+            refined["restricted_areas"] = [str(r).strip() for r in refined["restricted_areas"] if str(r).strip()]
+
+        # Clean cities
+        if isinstance(refined["cities"], list):
+            refined["cities"] = [str(c).strip() for c in refined["cities"] if str(c).strip()]
 
         # Validate payout_levels — strip amounts, keep event name only
         raw_levels = result.get("payout_levels", [])
@@ -1367,6 +1499,8 @@ Return ONLY valid JSON (no markdown, no explanation):
 
         # Include existing countries for comparison
         refined["existing_countries"] = existing_countries
+        # Also keep backward-compatible "countries" field
+        refined["countries"] = refined["allowed_countries"]
 
         return jsonify({
             'success': True,
@@ -1407,6 +1541,7 @@ def save_refined_description():
         # Build update
         update_fields = {
             'refined_description': {
+                'refined_name': refined.get('refined_name'),
                 'event_flow': refined.get('event_flow'),
                 'summary': refined.get('summary', ''),
                 'steps': refined.get('steps', []),
@@ -1414,15 +1549,21 @@ def save_refined_description():
                 'restrictions': refined.get('restrictions', []),
                 'difficulty': refined.get('difficulty', 'Medium'),
                 'estimated_time': refined.get('estimated_time', '5 min'),
+                'allowed_countries': refined.get('allowed_countries', refined.get('countries', [])),
+                'restricted_areas': refined.get('restricted_areas', []),
+                'cities': refined.get('cities', []),
+                'approval_period': refined.get('approval_period'),
+                'deposit_requirement': refined.get('deposit_requirement'),
             },
             'refined_at': datetime.utcnow(),
             'refined_via_admin': True  # Marker: refined from admin dialog
         }
 
         # Optionally update countries from AI extraction
-        if update_countries and refined.get('countries'):
-            update_fields['countries'] = refined['countries']
-            update_fields['allowed_countries'] = refined['countries']
+        if update_countries and (refined.get('allowed_countries') or refined.get('countries')):
+            countries_to_save = refined.get('allowed_countries') or refined.get('countries', [])
+            update_fields['countries'] = countries_to_save
+            update_fields['allowed_countries'] = countries_to_save
 
         result = offers_col.update_one(
             {'offer_id': offer_id},

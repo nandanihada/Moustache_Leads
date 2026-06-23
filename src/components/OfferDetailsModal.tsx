@@ -335,12 +335,62 @@ export const OfferDetailsModal: React.FC<OfferDetailsModalProps> = ({
                     </Badge>
                   </div>
                 </div>
-                {offer.description && (
+                {(offer as any).refined_description && ((offer as any).refined_description.summary || (offer as any).refined_description.steps?.length) ? (
+                  <div className="text-sm pt-2 border-t space-y-2">
+                    <span className="text-muted-foreground font-medium">✨ Refined Description:</span>
+                    {(offer as any).refined_description.summary && (
+                      <p className="mt-1 p-2 bg-purple-50 rounded text-gray-700 text-xs">{(offer as any).refined_description.summary}</p>
+                    )}
+                    {(offer as any).refined_description.event_flow && (
+                      <p className="text-xs text-purple-600 font-medium px-2">{(offer as any).refined_description.event_flow}</p>
+                    )}
+                    {(offer as any).refined_description.steps?.length > 0 && (
+                      <div className="px-2">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Steps:</p>
+                        <ol className="list-decimal list-inside text-xs text-gray-700 space-y-0.5">
+                          {(offer as any).refined_description.steps.map((s: string, i: number) => (
+                            <li key={i}>{s}</li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+                    {(offer as any).refined_description.deposit_requirement && (
+                      <p className="text-xs text-blue-700 bg-blue-50 px-2 py-1 rounded">💰 {(offer as any).refined_description.deposit_requirement}</p>
+                    )}
+                    {(offer as any).refined_description.approval_period && (
+                      <p className="text-xs text-indigo-700 bg-indigo-50 px-2 py-1 rounded">⏱️ {(offer as any).refined_description.approval_period}</p>
+                    )}
+                    {(offer as any).refined_description.restrictions?.length > 0 && (
+                      <div className="px-2">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Restrictions:</p>
+                        <ul className="text-xs text-amber-700 space-y-0.5">
+                          {(offer as any).refined_description.restrictions.map((r: string, i: number) => (
+                            <li key={i}>• {r}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {((offer as any).refined_description.difficulty || (offer as any).refined_description.estimated_time) && (
+                      <div className="flex gap-2 px-2">
+                        {(offer as any).refined_description.difficulty && (
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                            (offer as any).refined_description.difficulty === 'Easy' ? 'bg-green-100 text-green-700' :
+                            (offer as any).refined_description.difficulty === 'Hard' ? 'bg-red-100 text-red-700' :
+                            'bg-yellow-100 text-yellow-700'
+                          }`}>{(offer as any).refined_description.difficulty}</span>
+                        )}
+                        {(offer as any).refined_description.estimated_time && (
+                          <span className="text-[10px] text-gray-500">⏱️ {(offer as any).refined_description.estimated_time}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : offer.description ? (
                   <div className="text-sm pt-2 border-t">
                     <span className="text-muted-foreground">Description:</span>
                     <p className="mt-1 p-2 bg-gray-50 rounded text-gray-700 text-xs">{offer.description}</p>
                   </div>
-                )}
+                ) : null}
                 <div className="grid grid-cols-2 gap-3 text-sm pt-2 border-t">
                   <div>
                     <span className="text-muted-foreground">Expires:</span>

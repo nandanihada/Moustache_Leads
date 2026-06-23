@@ -272,7 +272,7 @@ const PublisherOffersContent = () => {
     offers.forEach((o) => {
       // Support both old single category and new categories array
       const cats = (o as any).categories;
-      if (Array.isArray(cats)) {
+      if (Array.isArray(cats) && cats.length > 0) {
         cats.forEach((c: string) => {
           if (c) {
             // Split slash-separated categories into individual items

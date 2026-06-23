@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Globe, Smartphone, Monitor, Star, ChevronRight, Clock, AlertTriangle, Sparkles, Shield, QrCode, Users } from 'lucide-react';
+import { X, Globe, Smartphone, Monitor, Star, ChevronRight, Clock, AlertTriangle, Sparkles, Shield, QrCode, Users, DollarSign, CalendarClock } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { getOfferImage } from '@/utils/categoryImages';
 
@@ -9,6 +9,7 @@ interface Offer {
   network?: string; countries?: string[]; devices?: string[]; device_targeting?: string;
   created_at?: string; payout_type?: string; payout?: number; star_rating?: number; click_count?: number;
   refined_description?: {
+    refined_name?: string;
     event_flow?: string;
     summary?: string;
     steps?: string[];
@@ -17,6 +18,11 @@ interface Offer {
     restrictions?: string[];
     difficulty?: string;
     estimated_time?: string;
+    allowed_countries?: string[];
+    restricted_areas?: string[];
+    cities?: string[];
+    approval_period?: string;
+    deposit_requirement?: string;
   };
 }
 
@@ -43,9 +49,10 @@ const getOfferCountries = (offer: Offer): string[] => {
 interface OfferModalProps {
   offer: Offer; open: boolean; onClose: () => void;
   onStartOffer: (offer: Offer) => void; currencyName?: string;
+  userCountry?: string;
 }
 
-export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, onStartOffer, currencyName = 'Points' }) => {
+export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, onStartOffer, currencyName = 'Points', userCountry = '' }) => {
   const [showQR, setShowQR] = useState(false);
   if (!open) return null;
 
@@ -53,6 +60,13 @@ export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, on
   const countries = getOfferCountries(offer);
   const stars = Math.min(5, Math.max(1, Math.round((offer as any).star_rating || 5)));
   const isWW = offer.countries?.some(c => ['WW','GLOBAL','ALL','WORLDWIDE'].includes(c.toUpperCase()));
+
+  // Calculate "also available in" — other countries besides the user's
+  const userCountryUpper = (userCountry || '').toUpperCase();
+  const otherCountries = countries.filter(c => c !== userCountryUpper);
+  const allowedCountries = offer.refined_description?.allowed_countries || countries;
+  const restrictedAreas = offer.refined_description?.restricted_areas || [];
+  const targetCities = offer.refined_description?.cities || [];
 
   const getDeviceIcon = (d?: string) => {
     if (!d) return null;
@@ -241,6 +255,66 @@ export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, on
                   </div>
                 </div>
               )}
+
+              {/* Deposit Requirement */}
+              {offer.refined_description.deposit_requirement && (
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
+                  <div className="flex items-start gap-2">
+                    <DollarSign className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-bold text-blue-800 mb-1">Deposit Required</p>
+                      <p className="text-sm text-blue-700 font-medium">{offer.refined_description.deposit_requirement}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Approval Period */}
+              {offer.refined_description.approval_period && (
+                <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3">
+                  <div className="flex items-start gap-2">
+                    <CalendarClock className="w-4 h-4 text-indigo-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-bold text-indigo-800 mb-1">Approval Period</p>
+                      <p className="text-sm text-indigo-700">{offer.refined_description.approval_period}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Geo Availability - show other countries this offer is available in */}
+              {otherCountries.length > 0 && (
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
+                  <div className="flex items-start gap-2">
+                    <Globe className={`w-4 h-4 flex-shrink-0 mt-0.5 text-blue-600`} />
+                    <div className="flex-1">
+                      <p className="text-xs font-bold text-blue-800 mb-1.5">
+                        Also available in {otherCountries.length} more {otherCountries.length === 1 ? 'country' : 'countries'}
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        {otherCountries.slice(0, 8).map((c: string) => (
+                          <span key={c} className="text-[11px] font-medium text-blue-700 bg-blue-100 border border-blue-200 px-2 py-0.5 rounded-full">
+                            {FLAG_MAP[c.toUpperCase()] || ''} {c}
+                          </span>
+                        ))}
+                        {otherCountries.length > 8 && (
+                          <span className="text-[11px] text-blue-500 px-2 py-0.5">+{otherCountries.length - 8} more</span>
+                        )}
+                      </div>
+                      {restrictedAreas.length > 0 && (
+                        <div className="mt-2">
+                          <p className="text-[10px] font-semibold text-gray-600 mb-1">Excluded regions:</p>
+                          <div className="flex flex-wrap gap-1">
+                            {restrictedAreas.map((r: string) => (
+                              <span key={r} className="text-[10px] text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-full">✗ {r}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           ) : offer.description ? (
             <div className="mb-3">
@@ -298,6 +372,30 @@ export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, on
                     <li>• No VPN or proxies — new users only</li>
                     <li>• Rewards credited within 24–48 hours</li>
                   </ul>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Geo info for offers WITHOUT refined description */}
+          {!offer.refined_description && otherCountries.length > 0 && (
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
+              <div className="flex items-start gap-2">
+                <Globe className="w-4 h-4 flex-shrink-0 mt-0.5 text-blue-600" />
+                <div className="flex-1">
+                  <p className="text-xs font-bold text-blue-800 mb-1.5">
+                    Also available in {otherCountries.length} more {otherCountries.length === 1 ? 'country' : 'countries'}
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {otherCountries.slice(0, 8).map((c: string) => (
+                      <span key={c} className="text-[11px] font-medium text-blue-700 bg-blue-100 border border-blue-200 px-2 py-0.5 rounded-full">
+                        {FLAG_MAP[c] || ''} {c}
+                      </span>
+                    ))}
+                    {otherCountries.length > 8 && (
+                      <span className="text-[11px] text-blue-500 px-2 py-0.5">+{otherCountries.length - 8} more</span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

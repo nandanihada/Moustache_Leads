@@ -73,6 +73,8 @@ import { OfferDetailsModal } from '@/components/OfferDetailsModal';
 import { BulkOfferUpload } from '@/components/BulkOfferUpload';
 import { ApiImportModal } from '@/components/ApiImportModal';
 import { adminOfferApi, Offer, RunningOffer, RotationStatus } from '@/services/adminOfferApi';
+import { offerwallManagerApi } from '@/services/offerwallManagerApi';
+import { OfferEditorPanel } from '@/components/OfferwallOfferEditor';
 import { API_BASE_URL } from '@/services/apiConfig';
 import { useToast } from '@/hooks/use-toast';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
@@ -1224,6 +1226,49 @@ const AdminOffers = () => {
     setRenamingModalOpen(true);
   };
 
+  // AI Refine Description handler
+  const handleRefineOffer = async (offerId: string) => {
+    try {
+      toast({ title: "Refining...", description: `Running AI refine on ${offerId}` });
+      const data = await offerwallManagerApi.refineDescription(offerId);
+      if (data.refined) {
+        await offerwallManagerApi.saveRefinedDescription(offerId, data.refined, true);
+        toast({ title: "Refined!", description: `Description refined for ${data.offer_name}` });
+        fetchOffers();
+      }
+    } catch (e: any) {
+      toast({ title: "Refine Failed", description: e.message || "AI unavailable", variant: "destructive" });
+    }
+  };
+
+  // Fallback dialog state
+  const [fallbackDialogOpen, setFallbackDialogOpen] = useState(false);
+  const [fallbackUrl, setFallbackUrl] = useState('');
+  const [fallbackMessage, setFallbackMessage] = useState('');
+  const [fallbackSaving, setFallbackSaving] = useState(false);
+
+  const handleSetFallback = async () => {
+    if (!fallbackUrl && !fallbackMessage) { toast({ title: "Provide URL or message" }); return; }
+    const ids = Array.from(selectedOffers);
+    if (ids.length === 0) { toast({ title: "Select offers first" }); return; }
+    setFallbackSaving(true);
+    try {
+      await offerwallManagerApi.setFallback(ids, true, fallbackUrl, fallbackMessage);
+      toast({ title: "Fallback Set!", description: `Applied to ${ids.length} offer(s)` });
+      setFallbackDialogOpen(false);
+      setFallbackUrl('');
+      setFallbackMessage('');
+    } catch {
+      toast({ title: "Error", description: "Failed to set fallback", variant: "destructive" });
+    } finally {
+      setFallbackSaving(false);
+    }
+  };
+
+  // Refine Editor Panel state (same as Offerwall Manager inline editor)
+  const [refineEditorOpen, setRefineEditorOpen] = useState(false);
+  const [refineEditorOffer, setRefineEditorOffer] = useState<any>(null);
+
   const handleBulkMarkStarter = async () => {
     const ids = Array.from(selectedOffers);
     if (ids.length === 0) {
@@ -2167,6 +2212,26 @@ const AdminOffers = () => {
             <TooltipContent>Filters</TooltipContent>
           </Tooltip>
 
+          {/* Quick Refined filter toggle */}
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              size="sm"
+              variant={healthFilter === 'ai_refined' ? 'default' : 'outline'}
+              className={`h-7 text-xs px-2 ${healthFilter === 'ai_refined' ? 'bg-purple-600 hover:bg-purple-700' : ''}`}
+              onClick={() => { setHealthFilter(healthFilter === 'ai_refined' ? 'all' : 'ai_refined'); setPagination(prev => ({ ...prev, page: 1 })); }}
+            >
+              ✨ Refined
+            </Button>
+            <Button
+              size="sm"
+              variant={healthFilter === 'not_refined' ? 'default' : 'outline'}
+              className={`h-7 text-xs px-2 ${healthFilter === 'not_refined' ? 'bg-orange-600 hover:bg-orange-700' : ''}`}
+              onClick={() => { setHealthFilter(healthFilter === 'not_refined' ? 'all' : 'not_refined'); setPagination(prev => ({ ...prev, page: 1 })); }}
+            >
+              📝 Not Refined
+            </Button>
+          </div>
+
           {/* Selected offers actions (shown when offers are selected) */}
           {selectedOffers.size > 0 && (
             <>
@@ -2238,6 +2303,18 @@ const AdminOffers = () => {
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={handleBulkMarkStarter}>
                     <span className="mr-2">🌟</span> Mark as Starter Offer
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => {
+                    if (selectedOffers.size === 0) { toast({ title: 'Select offers first' }); return; }
+                    const firstId = Array.from(selectedOffers)[0];
+                    const offerData = offers.find(o => o.offer_id === firstId);
+                    if (offerData) { setRefineEditorOffer(offerData); setRefineEditorOpen(true); }
+                  }}>
+                    <span className="mr-2">🤖</span> Refine Description (AI)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setFallbackDialogOpen(true)}>
+                    <span className="mr-2">🔀</span> Set Fallback URL
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => handleBulkOfferwallExclusive('activate')}>
@@ -2632,6 +2709,7 @@ const AdminOffers = () => {
                                 <DropdownMenuContent align="end">
                                   <DropdownMenuItem onClick={() => { setSelectedOffer(offer); setOfferDetailsModalOpen(true); }}><Eye className="h-4 w-4 mr-2" />View</DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => { setSelectedOffer(offer); setEditOfferModalOpen(true); }}><Edit className="h-4 w-4 mr-2" />Edit</DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => { setRefineEditorOffer(offer); setRefineEditorOpen(true); }}><Zap className="h-4 w-4 mr-2" />Refine & Edit</DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => { setMailScheduleOffers([offer as any]); setMailScheduleModalOpen(true); }}><Mail className="h-4 w-4 mr-2" />Mail Schedule</DropdownMenuItem>
                                   <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteOffer(offer.offer_id, offer.name)}><Trash2 className="h-4 w-4 mr-2" />Delete</DropdownMenuItem>
                                 </DropdownMenuContent>
@@ -5295,6 +5373,125 @@ const AdminOffers = () => {
         offers={mailScheduleOffers}
         onSuccess={() => fetchOffers()}
       />
+
+      {/* Refine & Edit Panel (same as Offerwall Manager) */}
+      <Dialog open={refineEditorOpen} onOpenChange={setRefineEditorOpen}>
+        <DialogContent className="max-w-[95vw] w-full max-h-[95vh] h-[95vh] overflow-y-auto p-0">
+          <div className="sticky top-0 z-10 bg-white border-b px-6 py-3 flex items-center justify-between">
+            <DialogTitle className="flex items-center gap-2 text-lg">
+              <Zap className="h-5 w-5 text-purple-500" />
+              Refine & Edit Offer
+              {selectedOffers.size > 1 && (
+                <span className="text-sm font-normal text-muted-foreground ml-2">
+                  ({Array.from(selectedOffers).indexOf(refineEditorOffer?.offer_id) + 1} / {selectedOffers.size} selected)
+                </span>
+              )}
+            </DialogTitle>
+            <div className="flex items-center gap-2">
+              {/* Navigate between selected offers */}
+              {selectedOffers.size > 1 && (
+                <div className="flex items-center gap-1 mr-4">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                    onClick={() => {
+                      const ids = Array.from(selectedOffers);
+                      const idx = ids.indexOf(refineEditorOffer?.offer_id);
+                      const prevIdx = idx > 0 ? idx - 1 : ids.length - 1;
+                      const prevOffer = offers.find(o => o.offer_id === ids[prevIdx]);
+                      if (prevOffer) setRefineEditorOffer(prevOffer);
+                    }}
+                  >
+                    ← Prev
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                    onClick={() => {
+                      const ids = Array.from(selectedOffers);
+                      const idx = ids.indexOf(refineEditorOffer?.offer_id);
+                      const nextIdx = idx < ids.length - 1 ? idx + 1 : 0;
+                      const nextOffer = offers.find(o => o.offer_id === ids[nextIdx]);
+                      if (nextOffer) setRefineEditorOffer(nextOffer);
+                    }}
+                  >
+                    Next →
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="p-6 overflow-y-auto" style={{ maxHeight: 'calc(95vh - 60px)' }}>
+            {refineEditorOffer && (
+              <OfferEditorPanel
+                offer={{
+                  offer_id: refineEditorOffer.offer_id,
+                  name: refineEditorOffer.name,
+                  original_name: refineEditorOffer.original_name,
+                  status: refineEditorOffer.status || 'active',
+                  category: refineEditorOffer.category || refineEditorOffer.vertical || 'OTHER',
+                  payout: refineEditorOffer.payout || 0,
+                  payout_type: refineEditorOffer.payout_type,
+                  network: refineEditorOffer.network || 'Unknown',
+                  image_url: refineEditorOffer.image_url || '',
+                  description: refineEditorOffer.description || '',
+                  countries: refineEditorOffer.countries || [],
+                  created_at: refineEditorOffer.created_at || '',
+                  refined_description: refineEditorOffer.refined_description,
+                  has_refined: !!refineEditorOffer.refined_description?.event_flow,
+                }}
+                onClose={() => setRefineEditorOpen(false)}
+                inline
+                onSaved={() => { fetchOffers(); }}
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Fallback URL Dialog */}
+      <Dialog open={fallbackDialogOpen} onOpenChange={setFallbackDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              🔀 Set Fallback Redirect
+            </DialogTitle>
+            <DialogDescription>
+              Apply fallback to {selectedOffers.size} selected offer(s). When a user is blocked, they'll see this instead.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div>
+              <Label>Fallback URL</Label>
+              <Input
+                value={fallbackUrl}
+                onChange={e => setFallbackUrl(e.target.value)}
+                placeholder="https://example.com/alternative"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label>Fallback Message (shown if no URL)</Label>
+              <textarea
+                value={fallbackMessage}
+                onChange={e => setFallbackMessage(e.target.value)}
+                placeholder="This offer is not available in your region."
+                className="w-full mt-1 text-sm border rounded-md p-2 resize-none min-h-[60px]"
+                rows={2}
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setFallbackDialogOpen(false)}>Cancel</Button>
+              <Button onClick={handleSetFallback} disabled={fallbackSaving} className="bg-orange-600 hover:bg-orange-700">
+                {fallbackSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Apply Fallback
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

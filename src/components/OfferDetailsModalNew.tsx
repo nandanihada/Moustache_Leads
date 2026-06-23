@@ -347,13 +347,106 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
             </GlassCard>
           )}
 
-          {/* Description */}
-          {offer.description && (
+          {/* Description — structured refined version or raw */}
+          {(offer as any).refined_description && ((offer as any).refined_description.summary || (offer as any).refined_description.steps?.length) ? (
+            <GlassCard>
+              <div className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">Offer Details</div>
+              <div className="space-y-4">
+                {/* Summary */}
+                {(offer as any).refined_description.summary && (
+                  <p className="text-sm text-white/80 leading-relaxed">{(offer as any).refined_description.summary}</p>
+                )}
+
+                {/* Event Flow */}
+                {(offer as any).refined_description.event_flow && (
+                  <div className="px-3 py-2 rounded-lg" style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.25)' }}>
+                    <p className="text-xs text-violet-300 font-medium">{(offer as any).refined_description.event_flow}</p>
+                  </div>
+                )}
+
+                {/* Steps */}
+                {(offer as any).refined_description.steps?.length > 0 && (
+                  <div>
+                    <div className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-2">How to Complete</div>
+                    <div className="space-y-2">
+                      {(offer as any).refined_description.steps.map((step: string, i: number) => (
+                        <div key={i} className="flex items-start gap-2.5">
+                          <span className="flex-shrink-0 w-5 h-5 rounded-full bg-violet-500/30 flex items-center justify-center text-[10px] font-bold text-violet-300 mt-0.5">{i + 1}</span>
+                          <span className="text-sm text-white/70">{step.replace(/^Step\s*\d+:\s*/i, '')}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Deposit Requirement */}
+                {(offer as any).refined_description.deposit_requirement && (
+                  <div className="px-3 py-2.5 rounded-lg" style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.25)' }}>
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="h-4 w-4 text-blue-400" />
+                      <div>
+                        <span className="text-xs font-semibold text-blue-300">Deposit Required: </span>
+                        <span className="text-sm text-white/80">{(offer as any).refined_description.deposit_requirement}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Approval Period */}
+                {(offer as any).refined_description.approval_period && (
+                  <div className="px-3 py-2.5 rounded-lg" style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)' }}>
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-indigo-400" />
+                      <div>
+                        <span className="text-xs font-semibold text-indigo-300">Approval Period: </span>
+                        <span className="text-sm text-white/80">{(offer as any).refined_description.approval_period}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Restrictions */}
+                {(offer as any).refined_description.restrictions?.length > 0 && (
+                  <div className="px-3 py-2.5 rounded-lg" style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)' }}>
+                    <div className="flex items-start gap-2">
+                      <Lock className="h-4 w-4 text-amber-400 mt-0.5" />
+                      <div>
+                        <span className="text-xs font-semibold text-amber-300 block mb-1">Restrictions</span>
+                        <ul className="space-y-0.5">
+                          {(offer as any).refined_description.restrictions.map((r: string, i: number) => (
+                            <li key={i} className="text-xs text-white/60">• {r}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Difficulty & Time */}
+                {((offer as any).refined_description.difficulty || (offer as any).refined_description.estimated_time) && (
+                  <div className="flex items-center gap-3">
+                    {(offer as any).refined_description.difficulty && (
+                      <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${
+                        (offer as any).refined_description.difficulty === 'Easy' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25' :
+                        (offer as any).refined_description.difficulty === 'Hard' ? 'bg-red-500/15 text-red-300 border-red-500/25' :
+                        'bg-yellow-500/15 text-yellow-300 border-yellow-500/25'
+                      }`}>{(offer as any).refined_description.difficulty}</span>
+                    )}
+                    {(offer as any).refined_description.estimated_time && (
+                      <span className="text-xs text-white/50 flex items-center gap-1">
+                        <Clock className="h-3 w-3" /> {(offer as any).refined_description.estimated_time}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </GlassCard>
+          ) : offer.description ? (
             <GlassCard>
               <div className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2">Description</div>
               <p className="text-sm text-white/80 leading-relaxed">{offer.description}</p>
             </GlassCard>
-          )}
+          ) : null}
 
           {/* Main info grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -534,36 +627,75 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
             </GlassCard>
           )}
 
-          {/* Countries */}
+          {/* Countries & Geo Targeting */}
           <GlassCard>
             <div className="flex items-center gap-2 mb-3">
               <Globe className="h-4 w-4 text-violet-300" />
-              <span className="text-xs font-semibold text-white/50 uppercase tracking-wider">Allowed Countries</span>
+              <span className="text-xs font-semibold text-white/50 uppercase tracking-wider">Geo Targeting</span>
               {offer.countries.length > 0 && (
                 <span className="text-xs px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/30 ml-auto">
                   {offer.countries.length} countries
                 </span>
               )}
             </div>
+            
+            {/* Allowed Countries */}
             {offer.countries.length === 0 ? (
-              <span className="text-sm text-white/40">All countries allowed</span>
+              <span className="text-sm text-white/40">All countries allowed (Worldwide)</span>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                {offer.countries.map((country) => (
-                  <div
-                    key={country}
-                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs text-white/80 font-mono"
-                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
-                  >
-                    <img
-                      src={getFlag(country)}
-                      alt={country}
-                      className="w-4 h-3 object-cover rounded-sm"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                    />
-                    {country}
-                  </div>
-                ))}
+              <div className="mb-3">
+                <div className="text-xs text-emerald-400 font-medium mb-1.5 flex items-center gap-1">
+                  <CheckCircle className="h-3 w-3" /> Allowed Countries
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {offer.countries.map((country) => (
+                    <div
+                      key={country}
+                      className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs text-white/80 font-mono"
+                      style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
+                    >
+                      <img
+                        src={getFlag(country)}
+                        alt={country}
+                        className="w-4 h-3 object-cover rounded-sm"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                      {country}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Restricted Areas from refined description */}
+            {(offer as any).refined_description?.restricted_areas?.length > 0 && (
+              <div className="mb-3">
+                <div className="text-xs text-red-400 font-medium mb-1.5 flex items-center gap-1">
+                  <Lock className="h-3 w-3" /> Excluded Regions
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(offer as any).refined_description.restricted_areas.map((area: string) => (
+                    <span key={area} className="text-xs px-2 py-0.5 rounded-full bg-red-500/15 text-red-300 border border-red-500/25">
+                      ✗ {area}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Target Cities from refined description */}
+            {(offer as any).refined_description?.cities?.length > 0 && (
+              <div>
+                <div className="text-xs text-blue-400 font-medium mb-1.5 flex items-center gap-1">
+                  <Eye className="h-3 w-3" /> Target Cities
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(offer as any).refined_description.cities.map((city: string) => (
+                    <span key={city} className="text-xs px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/25">
+                      📍 {city}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
           </GlassCard>

@@ -2055,7 +2055,7 @@ def get_offers():
         
         # Build query filter for REGULAR offers (excludes starter offers — they're fetched separately)
         if is_admin_mode:
-            # Admin mode: show offerwall-visible offers (active + show_in_offerwall) but skip health check
+            # Admin mode: show ALL active offers for management (no show_in_offerwall restriction)
             query_filter = {
                 '$and': [
                     {'$or': [
@@ -2068,14 +2068,14 @@ def get_offers():
                         {'is_active': {'$exists': False}},
                         {'status': 'running'}
                     ]},
-                    {'$or': [
-                        {'show_in_offerwall': True},
-                        {'show_in_offerwall': {'$exists': False}}
-                    ]},
                     {'status': {'$in': ['active', 'running']}}
                 ]
             }
         else:
+            # NON-ADMIN MODE: End users only see:
+            # 1. Offerwall-exclusive offers (visible to everyone)
+            # 2. Offers the publisher has been approved/granted for
+            # Regular offers that the publisher hasn't requested are NOT shown
             query_filter = {
                 '$and': [
                     {'$or': [
@@ -2083,15 +2083,9 @@ def get_offers():
                         {'deleted': False},
                         {'deleted': None}
                     ]},
-                    {'$or': [
-                        # Standard path: active + shown in offerwall
-                        {'$and': [
-                            {'$or': [{'is_active': True}, {'is_active': {'$exists': False}}, {'status': 'running'}]},
-                            {'$or': [{'show_in_offerwall': True}, {'show_in_offerwall': {'$exists': False}}]}
-                        ]},
-                        # Offerwall exclusive: always show regardless of other flags
-                        {'offerwall_exclusive': True}
-                    ]}
+                    # Only offerwall-exclusive offers in the base query
+                    # Publisher-specific offers will be fetched separately using their approved IDs
+                    {'offerwall_exclusive': True}
                 ]
             }
         
@@ -2258,22 +2252,32 @@ def get_offers():
                 if new_granted_ids:
                     granted_query = {
                         'offer_id': {'$in': new_granted_ids},
-                        '$or': [
-                            {'deleted': {'$exists': False}},
-                            {'deleted': False},
-                            {'deleted': None}
+                        '$and': [
+                            {'$or': [
+                                {'deleted': {'$exists': False}},
+                                {'deleted': False},
+                                {'deleted': None}
+                            ]},
+                            {'$or': [
+                                {'is_active': True},
+                                {'is_active': {'$exists': False}},
+                                {'status': 'running'}
+                            ]},
+                            {'status': {'$in': ['active', 'running']}}
                         ]
                     }
                     granted_offers_list = list(offers_collection.find(granted_query, projection))
                     offers_list = offers_list + granted_offers_list
                     total_count += len(granted_offers_list)
-                    logger.info(f"✅ Added {len(granted_offers_list)} user-granted offers for publisher {publisher_for_access}")
+                    logger.info(f"✅ Added {len(granted_offers_list)} publisher-approved offers for publisher {publisher_for_access}")
             except Exception as e:
-                logger.warning(f"Failed to fetch user-granted offers: {e}")
+                logger.warning(f"Failed to fetch publisher-approved offers: {e}")
         
         # OPTIMIZATION: Compute tracking base URL ONCE (not per-offer)
         
         # === COUNTRY FILTER: Only show offers available in user's country ===
+        # Offers not matching user's country are hidden from the offerwall
+        # The user only sees offers they can actually complete
         if user_country_code and not is_admin_mode:
             before_geo_filter = len(offers_list)
             offers_list = [

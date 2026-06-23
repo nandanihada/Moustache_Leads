@@ -4,6 +4,7 @@ import { offerwallManagerApi, OfferwallSettings, OfferwallStats } from "@/servic
 import { useToast } from "@/hooks/use-toast";
 import { TEMPLATE_OPTIONS, TemplateName } from "@/components/survey-templates/SurveyTemplateRenderer";
 import { OfferwallOfferEditor } from "@/components/OfferwallOfferEditor";
+import { OfferwallReports } from "@/components/OfferwallReports";
 import {
   Card, CardContent, CardHeader, CardTitle
 } from "@/components/ui/card";
@@ -56,171 +57,9 @@ const BoostTimer: React.FC<{ expiresAt: string }> = ({ expiresAt }) => {
 
 // ===================== TRACKING TAB COMPONENT =====================
 const TrackingTab: React.FC = () => {
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [logs, setLogs] = useState<any[]>([]);
-  const [summary, setSummary] = useState({ total: 0, picked: 0, clicked: 0, pending: 0, completed: 0 });
-  const [pagination, setPagination] = useState({ page: 1, total: 0, pages: 1 });
-  const [loading, setLoading] = useState(false);
-  const [debugInfo, setDebugInfo] = useState<any>(null);
-
-  const fetchLogs = async (newPage = 1) => {
-    setLoading(true);
-    try {
-      const data = await offerwallManagerApi.getTrackingLogs({ status: statusFilter, page: newPage, per_page: 50, search });
-      setLogs(data.logs || []);
-      setSummary(data.summary || { total: 0, picked: 0, clicked: 0, pending: 0, completed: 0 });
-      setPagination(data.pagination || { page: 1, total: 0, pages: 1 });
-      setDebugInfo(data.debug || null);
-    } catch (e) {
-      console.error('Failed to load tracking logs:', e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { fetchLogs(1); setPage(1); }, [statusFilter]);
-
-  const formatTime = (ts: string) => {
-    try {
-      const d = new Date(ts);
-      return d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' }) +
-        ' ' + d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true }) + ' IST';
-    } catch { return ts; }
-  };
-
-  const getStatusBadge = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case 'completed': return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200"><CheckCircle className="h-3 w-3" />Completed</span>;
-      case 'pending': return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200"><Clock className="h-3 w-3" />Pending</span>;
-      case 'picked': return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700 border border-purple-200"><Activity className="h-3 w-3" />Picked</span>;
-      default: return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 border border-blue-200"><Activity className="h-3 w-3" />Clicked</span>;
-    }
-  };
-
   return (
-    <TabsContent value="tracking">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Activity className="h-5 w-5 text-purple-600" />
-            Offerwall Tracking Logs
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {/* Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
-            {[
-              { label: 'Total', value: summary.total, color: 'text-gray-700 bg-gray-100', icon: <Activity className="h-4 w-4" /> },
-              { label: 'Picked', value: summary.picked, color: 'text-purple-700 bg-purple-100', icon: <Activity className="h-4 w-4" /> },
-              { label: 'Clicked', value: summary.clicked, color: 'text-blue-700 bg-blue-100', icon: <Activity className="h-4 w-4" /> },
-              { label: 'Pending', value: summary.pending, color: 'text-amber-700 bg-amber-100', icon: <Clock className="h-4 w-4" /> },
-              { label: 'Completed', value: summary.completed, color: 'text-green-700 bg-green-100', icon: <CheckCircle className="h-4 w-4" /> },
-            ].map(s => (
-              <div key={s.label} className={`rounded-xl p-3 flex items-center gap-3 ${s.color}`}>
-                {s.icon}
-                <div>
-                  <p className="text-xs font-semibold opacity-70">{s.label}</p>
-                  <p className="text-xl font-black">{s.value}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Filters Row */}
-          <div className="flex flex-wrap items-center gap-3 mb-4">
-            <div className="flex gap-1 flex-wrap">
-              {['all', 'picked', 'clicked', 'pending', 'completed'].map(s => (
-                <Button key={s} size="sm" variant={statusFilter === s ? 'default' : 'outline'}
-                  className={statusFilter === s ? 'bg-purple-600 text-white' : ''}
-                  onClick={() => setStatusFilter(s)}>
-                  {s.charAt(0).toUpperCase() + s.slice(1)}
-                </Button>
-              ))}
-            </div>
-            <div className="flex-1 flex items-center gap-2 max-w-xs">
-              <div className="relative flex-1">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input placeholder="Search offer, user, placement…" value={search} onChange={e => setSearch(e.target.value)}
-                  className="pl-8 h-8 text-sm" onKeyDown={e => { if (e.key === 'Enter') fetchLogs(1); }} />
-              </div>
-              <Button size="sm" variant="outline" onClick={() => fetchLogs(1)}><RefreshCw className="h-4 w-4" /></Button>
-            </div>
-          </div>
-
-          {/* Table */}
-          <div className="border rounded-lg overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-gray-50">
-                  <TableHead className="text-xs">Offer</TableHead>
-                  <TableHead className="text-xs">End User</TableHead>
-                  <TableHead className="text-xs">Publisher</TableHead>
-                  <TableHead className="text-xs">Iframe</TableHead>
-                  <TableHead className="text-xs">Status</TableHead>
-                  <TableHead className="text-xs text-right">Reward</TableHead>
-                  <TableHead className="text-xs">Time (IST)</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                    <div className="flex items-center justify-center gap-2"><RefreshCw className="h-4 w-4 animate-spin" /> Loading…</div>
-                  </TableCell></TableRow>
-                ) : logs.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                    <AlertCircle className="h-8 w-8 mx-auto mb-2 text-gray-300" />
-                    No tracking logs found
-                    {debugInfo && (
-                      <div className="mt-2 text-xs font-mono text-left inline-block bg-gray-50 rounded p-3 border">
-                        <p className="font-semibold mb-1 text-gray-600">DB counts:</p>
-                        {Object.entries(debugInfo).map(([k, v]) => (
-                          <p key={k}>{k}: <strong>{String(v)}</strong></p>
-                        ))}
-                      </div>
-                    )}
-                  </TableCell></TableRow>
-                ) : logs.map((log, i) => (
-                  <TableRow key={`${log.id}-${i}`} className="hover:bg-purple-50/30">
-                    <TableCell className="max-w-[200px]">
-                      <p className="font-medium text-sm truncate">{log.offer_name || 'Unknown'}</p>
-                      <p className="text-xs text-muted-foreground truncate font-mono">{log.offer_id}</p>
-                    </TableCell>
-                    <TableCell className="text-xs font-mono text-muted-foreground truncate max-w-[100px]">{log.user_id || '—'}</TableCell>
-                    <TableCell className="text-xs truncate max-w-[120px]">
-                      <p className="font-medium">{log.publisher_name || '—'}</p>
-                      <p className="text-muted-foreground font-mono text-[10px]">{log.publisher_id || ''}</p>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground truncate max-w-[100px]">{log.iframe_title || log.placement_id || '—'}</TableCell>
-                    <TableCell>{getStatusBadge(log.status)}</TableCell>
-                    <TableCell className="text-right text-sm font-semibold text-purple-700">
-                      {log.reward > 0 ? `+${log.reward}` : '—'}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatTime(log.timestamp)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-
-          {/* Pagination */}
-          {pagination.pages > 1 && (
-            <div className="flex items-center justify-between mt-4">
-              <p className="text-xs text-muted-foreground">Showing {logs.length} of {pagination.total} records</p>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => { const np = page - 1; setPage(np); fetchLogs(np); }}>
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="text-sm font-medium">{page} / {pagination.pages}</span>
-                <Button size="sm" variant="outline" disabled={page >= pagination.pages} onClick={() => { const np = page + 1; setPage(np); fetchLogs(np); }}>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+    <TabsContent value="tracking" className="mt-0">
+      <OfferwallReports />
     </TabsContent>
   );
 };
@@ -653,6 +492,16 @@ const AdminOfferwallManager = () => {
     setRefineSaving(true);
     try {
       await offerwallManagerApi.saveRefinedDescription(refiningOfferId, refinedResult.refined, refineUpdateCountries);
+      
+      // Also save refined_name as the offer's permanent name
+      if (refinedResult.refined.refined_name && refinedResult.refined.refined_name.trim() && refinedResult.refined.refined_name !== refinedResult.offer_name) {
+        try {
+          await offerwallManagerApi.renameOffer(refiningOfferId, refinedResult.refined.refined_name.trim(), refinedResult.offer_name);
+        } catch {
+          // Name rename failed but description saved OK — don't block
+        }
+      }
+      
       toast({ title: "Saved!", description: "Refined description saved successfully" });
       setRefineDialogOpen(false);
       setRefinedResult(null);
@@ -1330,7 +1179,7 @@ const AdminOfferwallManager = () => {
                   <Input
                     type="number"
                     min={0}
-                    max={720}
+                    max={8760}
                     value={boostDuration}
                     onChange={(e) => setBoostDuration(Number(e.target.value))}
                     className="w-20"
@@ -1349,15 +1198,19 @@ const AdminOfferwallManager = () => {
                   <span className="text-xs text-muted-foreground">min</span>
                 </div>
               </div>
-              <div className="flex gap-1 mt-1">
+              <div className="flex flex-wrap gap-1 mt-1">
                 {[
-                  { label: '15m', h: 0, m: 15 },
                   { label: '30m', h: 0, m: 30 },
                   { label: '1h', h: 1, m: 0 },
                   { label: '6h', h: 6, m: 0 },
                   { label: '12h', h: 12, m: 0 },
                   { label: '24h', h: 24, m: 0 },
-                  { label: '48h', h: 48, m: 0 },
+                  { label: '2d', h: 48, m: 0 },
+                  { label: '3d', h: 72, m: 0 },
+                  { label: '5d', h: 120, m: 0 },
+                  { label: '1w', h: 168, m: 0 },
+                  { label: '2w', h: 336, m: 0 },
+                  { label: '30d', h: 720, m: 0 },
                 ].map(p => (
                   <Button key={p.label} size="sm" variant={boostDuration === p.h && boostMinutes === p.m ? 'default' : 'outline'}
                     onClick={() => { setBoostDuration(p.h); setBoostMinutes(p.m); }} className="text-xs px-2">
@@ -1369,7 +1222,11 @@ const AdminOfferwallManager = () => {
             <div className="bg-muted rounded-lg p-3 text-sm">
               <p className="font-medium">Summary:</p>
               <p className="text-muted-foreground">
-                {boostDirection === 'increase' ? 'Boost' : 'Reduce'} publisher payout by {boostPercentage}% for {boostDuration > 0 ? `${boostDuration}h` : ''}{boostMinutes > 0 ? ` ${boostMinutes}m` : ''} on {selectedOffers.size} offer(s).
+                {boostDirection === 'increase' ? 'Boost' : 'Reduce'} publisher payout by {boostPercentage}% for {
+                  boostDuration >= 168 ? `${Math.floor(boostDuration / 168)}w${boostDuration % 168 > 0 ? ` ${Math.floor((boostDuration % 168) / 24)}d` : ''}` :
+                  boostDuration >= 24 ? `${Math.floor(boostDuration / 24)}d${boostDuration % 24 > 0 ? ` ${boostDuration % 24}h` : ''}` :
+                  boostDuration > 0 ? `${boostDuration}h` : ''
+                }{boostMinutes > 0 ? ` ${boostMinutes}m` : ''} on {selectedOffers.size} offer(s).
                 The boost will expire automatically and price will revert to default 80%.
               </p>
             </div>
@@ -1429,6 +1286,23 @@ const AdminOfferwallManager = () => {
                     Remove
                   </Button>
                 </div>
+              </div>
+
+              {/* Refined Name */}
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                <p className="text-xs text-green-600 font-medium mb-1">✏️ Refined Name (suggested)</p>
+                {refineEditMode ? (
+                  <Input
+                    value={refinedResult.refined.refined_name || ''}
+                    onChange={(e) => handleRefineFieldChange('refined_name', e.target.value)}
+                    className="text-sm font-medium"
+                    placeholder="Cleaner offer name"
+                    maxLength={80}
+                  />
+                ) : (
+                  <p className="text-sm font-medium text-green-900">{refinedResult.refined.refined_name || '—'}</p>
+                )}
+                <p className="text-[10px] text-green-500 mt-1">Original: {refinedResult.offer_name}</p>
               </div>
 
               {/* Event Flow - Subtitle Preview */}
@@ -1512,22 +1386,22 @@ const AdminOfferwallManager = () => {
               )}
 
               {/* Countries Extracted */}
-              {refinedResult.refined.countries?.length > 0 && (
+              {(refinedResult.refined.allowed_countries?.length > 0 || refinedResult.refined.countries?.length > 0) && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                   <div className="flex items-center justify-between mb-1">
                     <p className="text-xs text-blue-600 font-medium flex items-center gap-1">
                       <Globe className="h-3.5 w-3.5" />
-                      Countries Extracted from Description
+                      Allowed Countries
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-1 mb-2">
-                    {refinedResult.refined.countries.map((c: string) => (
+                    {(refinedResult.refined.allowed_countries || refinedResult.refined.countries || []).map((c: string) => (
                       <span key={c} className="px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded-full font-medium">{c}</span>
                     ))}
                   </div>
                   {refinedResult.refined.existing_countries?.length > 0 && (
                     <p className="text-[10px] text-blue-500">
-                      Current countries: {refinedResult.refined.existing_countries.join(', ')}
+                      Current countries in system: {refinedResult.refined.existing_countries.join(', ')}
                     </p>
                   )}
                   <div className="flex items-center gap-2 mt-2">
@@ -1542,6 +1416,136 @@ const AdminOfferwallManager = () => {
                   </div>
                 </div>
               )}
+
+              {/* Restricted Areas */}
+              {(refinedResult.refined.restricted_areas?.length > 0 || refineEditMode) && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <p className="text-xs text-red-600 font-medium mb-1 flex items-center gap-1">
+                    🚫 Excluded Regions / States
+                  </p>
+                  {refineEditMode ? (
+                    <div className="space-y-2">
+                      {(refinedResult.refined.restricted_areas || []).map((r: string, i: number) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <Input
+                            value={r}
+                            onChange={(e) => {
+                              const newR = [...(refinedResult.refined.restricted_areas || [])];
+                              newR[i] = e.target.value;
+                              handleRefineFieldChange('restricted_areas', newR);
+                            }}
+                            className="text-sm flex-1"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-red-500 hover:text-red-700"
+                            onClick={() => {
+                              const newR = (refinedResult.refined.restricted_areas || []).filter((_: any, idx: number) => idx !== i);
+                              handleRefineFieldChange('restricted_areas', newR);
+                            }}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleRefineFieldChange('restricted_areas', [...(refinedResult.refined.restricted_areas || []), ''])}
+                      >
+                        <Plus className="h-3.5 w-3.5 mr-1" /> Add Region
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-1">
+                      {(refinedResult.refined.restricted_areas || []).map((r: string, i: number) => (
+                        <span key={i} className="px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded-full border border-red-200">✗ {r}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Cities */}
+              {(refinedResult.refined.cities?.length > 0 || refineEditMode) && (
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                  <p className="text-xs text-purple-600 font-medium mb-1 flex items-center gap-1">
+                    📍 Target Cities
+                  </p>
+                  {refineEditMode ? (
+                    <div className="space-y-2">
+                      {(refinedResult.refined.cities || []).map((c: string, i: number) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <Input
+                            value={c}
+                            onChange={(e) => {
+                              const newC = [...(refinedResult.refined.cities || [])];
+                              newC[i] = e.target.value;
+                              handleRefineFieldChange('cities', newC);
+                            }}
+                            className="text-sm flex-1"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-red-500 hover:text-red-700"
+                            onClick={() => {
+                              const newC = (refinedResult.refined.cities || []).filter((_: any, idx: number) => idx !== i);
+                              handleRefineFieldChange('cities', newC);
+                            }}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleRefineFieldChange('cities', [...(refinedResult.refined.cities || []), ''])}
+                      >
+                        <Plus className="h-3.5 w-3.5 mr-1" /> Add City
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-1">
+                      {(refinedResult.refined.cities || []).map((c: string, i: number) => (
+                        <span key={i} className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full border border-purple-200">📍 {c}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Approval Period */}
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">⏱️ Approval Period</p>
+                {refineEditMode ? (
+                  <Input
+                    value={refinedResult.refined.approval_period || ''}
+                    onChange={(e) => handleRefineFieldChange('approval_period', e.target.value)}
+                    className="text-sm"
+                    placeholder="e.g. Monthly, by DAY 15 of next month"
+                  />
+                ) : (
+                  <p className="text-sm">{refinedResult.refined.approval_period || '—'}</p>
+                )}
+              </div>
+
+              {/* Deposit Requirement */}
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">💰 Deposit Requirement</p>
+                {refineEditMode ? (
+                  <Input
+                    value={refinedResult.refined.deposit_requirement || ''}
+                    onChange={(e) => handleRefineFieldChange('deposit_requirement', e.target.value)}
+                    className="text-sm"
+                    placeholder="e.g. $10 minimum deposit required"
+                  />
+                ) : (
+                  <p className="text-sm">{refinedResult.refined.deposit_requirement || '—'}</p>
+                )}
+              </div>
 
               {/* Restrictions */}
               {(refinedResult.refined.restrictions?.length > 0 || refineEditMode) && (
@@ -1647,11 +1651,14 @@ const AdminOfferwallManager = () => {
               <div className="border-t pt-4">
                 <p className="text-xs font-medium text-muted-foreground mb-2">📱 Offerwall Card Preview</p>
                 <div className="border rounded-xl p-4 bg-white shadow-sm max-w-xs">
-                  <h3 className="font-bold text-gray-900 text-sm leading-snug">{refinedResult.offer_name}</h3>
+                  <h3 className="font-bold text-gray-900 text-sm leading-snug">{refinedResult.refined.refined_name || refinedResult.offer_name}</h3>
                   {refinedResult.refined.event_flow && (
                     <p className="text-xs text-purple-600 mt-0.5 font-medium">{refinedResult.refined.event_flow}</p>
                   )}
                   <p className="text-xs text-gray-500 mt-1 line-clamp-2">{refinedResult.refined.summary}</p>
+                  {refinedResult.refined.deposit_requirement && (
+                    <p className="text-[10px] text-blue-600 mt-1 font-medium">💰 {refinedResult.refined.deposit_requirement}</p>
+                  )}
                 </div>
               </div>
 

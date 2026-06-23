@@ -22,7 +22,7 @@ import {
   ChevronDown, ChevronRight, RefreshCw, Wand2, Image as ImageIcon,
   RotateCcw, Save, Eye, EyeOff, Star, Sparkles, Pin, Flame,
   Loader2, CheckCircle, X, Pencil, Edit3, Globe, Clock, Layers,
-  SlidersHorizontal, AlertCircle
+  SlidersHorizontal, AlertCircle, ExternalLink
 } from 'lucide-react';
 import { offerwallManagerApi } from '@/services/offerwallManagerApi';
 import { useToast } from '@/hooks/use-toast';
@@ -49,6 +49,7 @@ interface OfferItem {
   refined_at?: string;
   renamed_at?: string;
   refined_description?: {
+    refined_name?: string;
     event_flow?: string;
     summary?: string;
     steps?: string[];
@@ -56,6 +57,12 @@ interface OfferItem {
     restrictions?: string[];
     difficulty?: string;
     estimated_time?: string;
+    allowed_countries?: string[];
+    restricted_areas?: string[];
+    cities?: string[];
+    approval_period?: string;
+    deposit_requirement?: string;
+    countries?: string[];
   };
   is_boosted?: boolean;
   has_refined?: boolean;
@@ -95,10 +102,15 @@ const FLAG_MAP: Record<string, string> = {
 };
 
 const REFINE_FIELDS = [
+  { key: 'refined_name', label: 'Refined Name', icon: '✏️' },
   { key: 'event_flow', label: 'Event Flow', icon: '⚡' },
   { key: 'summary', label: 'Summary', icon: '📝' },
   { key: 'steps', label: 'Conversion Events', icon: '📋' },
   { key: 'restrictions', label: 'Restrictions', icon: '🚫' },
+  { key: 'deposit_requirement', label: 'Deposit Required', icon: '💰' },
+  { key: 'approval_period', label: 'Approval Period', icon: '⏱️' },
+  { key: 'restricted_areas', label: 'Excluded Regions', icon: '🚷' },
+  { key: 'cities', label: 'Target Cities', icon: '📍' },
   { key: 'difficulty', label: 'Difficulty', icon: '🎯' },
   { key: 'estimated_time', label: 'Est. Time', icon: '⏱️' },
   { key: 'countries', label: 'Countries', icon: '🌍' },
@@ -204,10 +216,24 @@ export function OfferEditorPanel({ offer, onClose, inline = false, onSaved }: Of
     setSaving(true);
     try {
       await offerwallManagerApi.saveRefinedDescription(offer.offer_id, localRefined, updateCountries);
+      
+      // Also save refined_name as the offer's actual name (permanently)
+      if (localRefined?.refined_name && localRefined.refined_name.trim() && localRefined.refined_name !== offer.name) {
+        try {
+          await offerwallManagerApi.renameOffer(offer.offer_id, localRefined.refined_name.trim(), offer.name);
+          setLocalName(localRefined.refined_name.trim());
+          onSaved?.(offer.offer_id, { refined_description: localRefined, has_refined: true, name: localRefined.refined_name.trim(), original_name: offer.name });
+        } catch {
+          // Name save failed but refined description saved OK
+          onSaved?.(offer.offer_id, { refined_description: localRefined, has_refined: true });
+        }
+      } else {
+        onSaved?.(offer.offer_id, { refined_description: localRefined, has_refined: true });
+      }
+      
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
       qc.invalidateQueries({ queryKey: ['offerwall-management-offers'] });
-      onSaved?.(offer.offer_id, { refined_description: localRefined, has_refined: true });
       toast({ title: 'Saved!', description: 'Refined description saved.' });
     } catch {
       toast({ title: 'Error', description: 'Failed to save', variant: 'destructive' });
@@ -320,10 +346,10 @@ export function OfferEditorPanel({ offer, onClose, inline = false, onSaved }: Of
             <Badge variant="outline" className="text-[10px] px-1.5 py-0">{offer.network}</Badge>
             <Badge variant="outline" className="text-[10px] px-1.5 py-0">{offer.category}</Badge>
             <span className="text-[10px] font-semibold text-green-700">${offer.payout}</span>
-            {offer.countries.slice(0, 4).map(c => (
+            {(offer.countries || []).slice(0, 4).map(c => (
               <span key={c} className="text-[11px]" title={c}>{FLAG_MAP[c] || c}</span>
             ))}
-            {offer.countries.length > 4 && <span className="text-[10px] text-muted-foreground">+{offer.countries.length - 4}</span>}
+            {(offer.countries || []).length > 4 && <span className="text-[10px] text-muted-foreground">+{offer.countries.length - 4}</span>}
             {offer.has_refined && <span className="text-[10px] text-purple-600 font-medium">✨ refined</span>}
           </div>
           {/* Last edited */}
@@ -468,6 +494,18 @@ export function OfferEditorPanel({ offer, onClose, inline = false, onSaved }: Of
                 </div>
 
                 {/* Editable field */}
+                {key === 'refined_name' && (
+                  <div className="space-y-1.5">
+                    <Input
+                      value={(value as string) || ''}
+                      onChange={e => setLocalRefined(prev => ({ ...prev, refined_name: e.target.value }))}
+                      placeholder="Clean offer name (no country codes, jargon)"
+                      className="h-8 text-sm font-medium"
+                      maxLength={80}
+                    />
+                    <p className="text-[10px] text-muted-foreground">Original: {offer.name}</p>
+                  </div>
+                )}
                 {key === 'event_flow' && (
                   <Input
                     value={(value as string) || ''}
@@ -555,6 +593,95 @@ export function OfferEditorPanel({ offer, onClose, inline = false, onSaved }: Of
                     </Button>
                   </div>
                 )}
+                {key === 'deposit_requirement' && (
+                  <Input
+                    value={(value as string) || ''}
+                    onChange={e => setLocalRefined(prev => ({ ...prev, deposit_requirement: e.target.value }))}
+                    placeholder="e.g. $20 minimum first deposit required"
+                    className="h-8 text-sm"
+                  />
+                )}
+                {key === 'approval_period' && (
+                  <Input
+                    value={(value as string) || ''}
+                    onChange={e => setLocalRefined(prev => ({ ...prev, approval_period: e.target.value }))}
+                    placeholder="e.g. Monthly, by DAY 15 of next month"
+                    className="h-8 text-sm"
+                  />
+                )}
+                {key === 'restricted_areas' && (
+                  <div className="space-y-1.5">
+                    <div className="flex flex-wrap gap-1.5">
+                      {((value as string[]) || []).map((area, i) => (
+                        <span
+                          key={i}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded-full font-medium cursor-pointer hover:bg-red-200 transition-colors"
+                          onClick={() => {
+                            const arr = ((localRefined?.restricted_areas as string[]) || []).filter((_, idx) => idx !== i);
+                            setLocalRefined(prev => ({ ...prev, restricted_areas: arr } as any));
+                          }}
+                          title="Click to remove"
+                        >
+                          ✗ {area} ×
+                        </span>
+                      ))}
+                      {(!value || (value as string[]).length === 0) && (
+                        <span className="text-xs text-muted-foreground italic">No excluded regions</span>
+                      )}
+                    </div>
+                    <Input
+                      placeholder="Add state/region code (e.g. CT, NY) then Enter"
+                      className="h-7 text-xs w-56"
+                      maxLength={20}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          const val = (e.target as HTMLInputElement).value.toUpperCase().trim();
+                          if (val) {
+                            const arr = [...new Set([...((localRefined?.restricted_areas as string[]) || []), val])];
+                            setLocalRefined(prev => ({ ...prev, restricted_areas: arr } as any));
+                            (e.target as HTMLInputElement).value = '';
+                          }
+                        }
+                      }}
+                    />
+                  </div>
+                )}
+                {key === 'cities' && (
+                  <div className="space-y-1.5">
+                    <div className="flex flex-wrap gap-1.5">
+                      {((value as string[]) || []).map((city, i) => (
+                        <span
+                          key={i}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full font-medium cursor-pointer hover:bg-purple-200 transition-colors"
+                          onClick={() => {
+                            const arr = ((localRefined?.cities as string[]) || []).filter((_, idx) => idx !== i);
+                            setLocalRefined(prev => ({ ...prev, cities: arr } as any));
+                          }}
+                          title="Click to remove"
+                        >
+                          📍 {city} ×
+                        </span>
+                      ))}
+                      {(!value || (value as string[]).length === 0) && (
+                        <span className="text-xs text-muted-foreground italic">No target cities</span>
+                      )}
+                    </div>
+                    <Input
+                      placeholder="Add city name then Enter"
+                      className="h-7 text-xs w-56"
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          const val = (e.target as HTMLInputElement).value.trim();
+                          if (val) {
+                            const arr = [...new Set([...((localRefined?.cities as string[]) || []), val])];
+                            setLocalRefined(prev => ({ ...prev, cities: arr } as any));
+                            (e.target as HTMLInputElement).value = '';
+                          }
+                        }
+                      }}
+                    />
+                  </div>
+                )}
                 {key === 'difficulty' && (
                   <div className="flex gap-2">
                     {(['Easy', 'Medium', 'Hard'] as const).map(d => (
@@ -630,7 +757,7 @@ export function OfferEditorPanel({ offer, onClose, inline = false, onSaved }: Of
                       </div>
                     </div>
                     <p className="text-[10px] text-muted-foreground">
-                      Current: {offer.countries.join(', ') || 'none'}
+                      Current: {(offer.countries || []).join(', ') || 'none'}
                     </p>
                   </div>
                 )}
@@ -639,6 +766,75 @@ export function OfferEditorPanel({ offer, onClose, inline = false, onSaved }: Of
           })}
         </div>
       </div>
+
+      {/* Fallback URL Section */}
+      <FallbackEditor offer={offer} />
+    </div>
+  );
+}
+
+// ===================== FALLBACK EDITOR =====================
+function FallbackEditor({ offer }: { offer: OfferItem }) {
+  const { toast } = useToast();
+  const [enabled, setEnabled] = useState(!!((offer as any).fallback_redirect_enabled));
+  const [url, setUrl] = useState((offer as any).fallback_redirect_url || '');
+  const [message, setMessage] = useState((offer as any).fallback_redirect_message || '');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await offerwallManagerApi.setFallback([offer.offer_id], enabled, url, message);
+      toast({ title: 'Fallback saved!' });
+    } catch {
+      toast({ title: 'Error', description: 'Failed to save fallback', variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="border rounded-xl overflow-hidden border-orange-200">
+      <div className="bg-orange-50 px-4 py-2 border-b border-orange-200 flex items-center justify-between">
+        <p className="text-xs font-semibold text-orange-700 uppercase tracking-wide">🔀 Fallback Redirect</p>
+        <div className="flex items-center gap-2">
+          <label className="text-[10px] text-muted-foreground">Enabled</label>
+          <Checkbox checked={enabled} onCheckedChange={v => setEnabled(!!v)} />
+        </div>
+      </div>
+      {enabled && (
+        <div className="p-4 space-y-3">
+          <div>
+            <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide block mb-1">Fallback URL</label>
+            <Input
+              value={url}
+              onChange={e => setUrl(e.target.value)}
+              placeholder="https://example.com/alternative-offer"
+              className="h-8 text-sm"
+            />
+            <p className="text-[10px] text-muted-foreground mt-0.5">User will be redirected here if blocked (geo/device)</p>
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide block mb-1">Fallback Message (shown if no URL)</label>
+            <textarea
+              value={message}
+              onChange={e => setMessage(e.target.value)}
+              placeholder="This offer is not available in your region. Please try another offer from our catalog."
+              className="w-full text-sm border rounded-md p-2 resize-none min-h-[60px] focus:outline-none focus:ring-1 focus:ring-orange-500"
+              rows={2}
+            />
+          </div>
+          <Button size="sm" onClick={handleSave} disabled={saving} className="bg-orange-600 hover:bg-orange-700 gap-1">
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            {saving ? 'Saving…' : 'Save Fallback'}
+          </Button>
+        </div>
+      )}
+      {!enabled && (
+        <div className="p-3 text-xs text-muted-foreground">
+          Disabled — generic geo-block page will be shown to restricted users.
+        </div>
+      )}
     </div>
   );
 }
@@ -1082,6 +1278,10 @@ export function OfferwallOfferEditor({
   const [expandedOffers, setExpandedOffers] = useState<Set<string>>(new Set());
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkFallbackOpen, setBulkFallbackOpen] = useState(false);
+  const [bulkFallbackUrl, setBulkFallbackUrl] = useState('');
+  const [bulkFallbackMessage, setBulkFallbackMessage] = useState('');
+  const [bulkFallbackSaving, setBulkFallbackSaving] = useState(false);
   // Cache of selected offer data across searches/pages — synced whenever offers load
   const [selectedOffersCache, setSelectedOffersCache] = useState<Map<string, OfferItem>>(new Map());
 
@@ -1231,6 +1431,15 @@ export function OfferwallOfferEditor({
           <Button
             size="sm"
             variant="outline"
+            className="h-8 border-orange-300 text-orange-700 hover:bg-orange-50 gap-1.5"
+            onClick={() => setBulkFallbackOpen(true)}
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            Set Fallback
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
             className="h-8 text-muted-foreground"
             onClick={() => onSelectAll(false)}
           >
@@ -1301,12 +1510,12 @@ export function OfferwallOfferEditor({
                         <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-gray-100 text-gray-600 border uppercase">{offer.status}</span>
                       )}
                       {isBoosted && (
-                        <span className="text-[10px] font-bold text-orange-600 bg-orange-50 border border-orange-200 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1">
+                        <span className="text-xs font-bold text-orange-600 bg-orange-50 border border-orange-200 px-2 py-1 rounded-full inline-flex items-center gap-1.5">
                           🔥 {boostInfo?.direction === 'increase' ? '+' : '-'}{boostInfo?.percentage}%
                           {onRemoveBoost && (
                             <button
                               onClick={(e) => { e.stopPropagation(); onRemoveBoost([id]); }}
-                              className="ml-0.5 text-orange-400 hover:text-red-600 font-bold"
+                              className="ml-1 w-5 h-5 flex items-center justify-center rounded-full bg-red-100 hover:bg-red-500 text-red-600 hover:text-white font-bold text-sm transition-colors"
                               title="Remove boost"
                             >
                               ×
@@ -1321,10 +1530,10 @@ export function OfferwallOfferEditor({
                       <span className="text-[10px] text-gray-500">{offer.network}</span>
                       <span className="text-[10px] font-semibold text-green-700">${offer.payout}</span>
                       <span className="text-[10px] text-gray-500">{offer.category}</span>
-                      {offer.countries.slice(0, 3).map(c => (
+                      {(offer.countries || []).slice(0, 3).map(c => (
                         <span key={c} className="text-[11px]">{FLAG_MAP[c] || c}</span>
                       ))}
-                      {offer.countries.length > 3 && <span className="text-[10px] text-muted-foreground">+{offer.countries.length - 3}</span>}
+                      {(offer.countries || []).length > 3 && <span className="text-[10px] text-muted-foreground">+{offer.countries.length - 3}</span>}
                     </div>
                     {offer.refined_description?.event_flow && (
                       <p className="text-[11px] text-purple-600 font-medium mt-0.5 truncate max-w-xs">{offer.refined_description.event_flow}</p>
@@ -1444,6 +1653,64 @@ export function OfferwallOfferEditor({
         open={bulkEditOpen}
         onClose={() => setBulkEditOpen(false)}
       />
+
+      {/* Bulk Fallback Dialog */}
+      <Dialog open={bulkFallbackOpen} onOpenChange={setBulkFallbackOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ExternalLink className="h-5 w-5 text-orange-500" />
+              Set Fallback Redirect
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              Apply fallback to <strong>{selectedOffers.size}</strong> selected offer(s). When a user is blocked (geo/device), they'll be redirected to this URL or shown this message.
+            </p>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground block mb-1">Fallback URL</label>
+              <Input
+                value={bulkFallbackUrl}
+                onChange={e => setBulkFallbackUrl(e.target.value)}
+                placeholder="https://example.com/alternative"
+                className="text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground block mb-1">Fallback Message (if no URL)</label>
+              <textarea
+                value={bulkFallbackMessage}
+                onChange={e => setBulkFallbackMessage(e.target.value)}
+                placeholder="This offer is not available in your region."
+                className="w-full text-sm border rounded-md p-2 resize-none min-h-[60px] focus:outline-none focus:ring-1 focus:ring-orange-500"
+                rows={2}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setBulkFallbackOpen(false)}>Cancel</Button>
+              <Button
+                onClick={async () => {
+                  if (!bulkFallbackUrl && !bulkFallbackMessage) { toast({ title: 'Provide URL or message' }); return; }
+                  setBulkFallbackSaving(true);
+                  try {
+                    await offerwallManagerApi.setFallback(Array.from(selectedOffers), true, bulkFallbackUrl, bulkFallbackMessage);
+                    toast({ title: 'Fallback set!', description: `Applied to ${selectedOffers.size} offers` });
+                    setBulkFallbackOpen(false);
+                    setBulkFallbackUrl('');
+                    setBulkFallbackMessage('');
+                  } catch { toast({ title: 'Error', variant: 'destructive' }); }
+                  finally { setBulkFallbackSaving(false); }
+                }}
+                disabled={bulkFallbackSaving}
+                className="bg-orange-600 hover:bg-orange-700"
+              >
+                {bulkFallbackSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ExternalLink className="h-4 w-4 mr-2" />}
+                Apply Fallback
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

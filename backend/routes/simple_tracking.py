@@ -42,7 +42,7 @@ def _get_offer_cached(offer_id):
         {'offer_id': 1, 'name': 1, 'status': 1, 'target_url': 1, 'payout': 1, 
          'currency': 1, 'network': 1, 'category': 1, 'vertical': 1,
          'campaign_id': 1, 'offer_source': 1, 'fallback_redirect_enabled': 1, 
-         'fallback_redirect_url': 1, 'fallback_redirect_timer': 1,
+         'fallback_redirect_url': 1, 'fallback_redirect_timer': 1, 'fallback_redirect_message': 1,
          'countries': 1, 'allowed_countries': 1, 'geo': 1}
     )
     
@@ -160,6 +160,35 @@ p{font-size:16px;opacity:0.9;line-height:1.6}
 </body>
 </html>"""
 
+# HTML template for custom fallback message
+FALLBACK_MESSAGE_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Offer Notice</title>
+<style>
+body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#4c1d95 0%,#7c3aed 50%,#a78bfa 100%);color:#fff}
+.container{text-align:center;padding:48px 32px;max-width:560px;background:rgba(255,255,255,0.1);backdrop-filter:blur(12px);border-radius:24px;border:1px solid rgba(255,255,255,0.2);box-shadow:0 25px 50px rgba(0,0,0,0.2)}
+.icon{font-size:56px;margin-bottom:16px}
+h1{font-size:22px;margin-bottom:16px;font-weight:700}
+.message{font-size:16px;opacity:0.95;line-height:1.7;padding:16px 24px;background:rgba(255,255,255,0.1);border-radius:12px;margin-bottom:20px;text-align:left}
+.meta{font-size:12px;opacity:0.6;margin-top:12px}
+.back-btn{display:inline-block;margin-top:20px;padding:14px 36px;background:#fff;color:#4c1d95;border-radius:12px;text-decoration:none;font-weight:700;font-size:15px;transition:all 0.2s}
+.back-btn:hover{transform:scale(1.05);box-shadow:0 8px 20px rgba(0,0,0,0.2)}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="icon">📋</div>
+<h1>{{ offer_name }}</h1>
+<div class="message">{{ message }}</div>
+<div class="meta">Your detected region: {{ user_country }}</div>
+<a href="javascript:history.back()" class="back-btn">← Go Back</a>
+</div>
+</body>
+</html>"""
+
 @simple_tracking_bp.route('/track/<offer_id>', methods=['GET'])
 def track_offer_click(offer_id):
     """
@@ -227,7 +256,26 @@ def track_offer_click(offer_id):
                     
                     if user_country and user_country not in allowed_codes:
                         logger.info(f"🚫 Geo-blocked: user from {user_country}, offer requires {allowed_codes} (offer={offer_id})")
-                        # Return a blocked page instead of redirecting
+                        
+                        # Check for custom fallback redirect
+                        if offer.get('fallback_redirect_enabled'):
+                            fallback_url = (offer.get('fallback_redirect_url') or '').strip()
+                            fallback_message = (offer.get('fallback_redirect_message') or '').strip()
+                            
+                            if fallback_url:
+                                # Redirect to custom fallback URL
+                                logger.info(f"↪️ Redirecting geo-blocked user to fallback URL: {fallback_url}")
+                                return redirect(fallback_url)
+                            elif fallback_message:
+                                # Show custom fallback message page
+                                return render_template_string(
+                                    FALLBACK_MESSAGE_TEMPLATE,
+                                    offer_name=offer.get('name', 'This Offer'),
+                                    message=fallback_message,
+                                    user_country=user_country
+                                ), 403
+                        
+                        # Default: show generic geo-blocked page
                         return render_template_string(
                             GEO_BLOCKED_TEMPLATE,
                             offer_name=offer.get('name', 'This Offer'),

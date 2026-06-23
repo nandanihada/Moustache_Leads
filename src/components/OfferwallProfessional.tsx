@@ -22,6 +22,7 @@ interface Offer {
   boost_direction?: string;
   boost_expires_at?: string;
   refined_description?: {
+    refined_name?: string;
     event_flow?: string;
     summary?: string;
     steps?: string[];
@@ -30,6 +31,11 @@ interface Offer {
     restrictions?: string[];
     difficulty?: string;
     estimated_time?: string;
+    allowed_countries?: string[];
+    restricted_areas?: string[];
+    cities?: string[];
+    approval_period?: string;
+    deposit_requirement?: string;
   };
   tracking_params: { placement_id: string; user_id: string; timestamp: string; };
 }
@@ -561,7 +567,8 @@ export const OfferwallProfessional: React.FC<Props> = ({
         else f = [];
       }
 
-      // ===== STRONG COUNTRY FILTERING =====
+      // ===== COUNTRY FILTERING =====
+      // Only show offers available in user's country
       if (userCountry && userCountry !== 'UNKNOWN') {
         f = f.filter(o => isOfferAvailableForCountry(o, userCountry));
       }
@@ -1024,7 +1031,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
       )}
 
       {selOffer && (
-        <OfferModal offer={{...selOffer, status: selOffer.status||'active'}} open={modalOpen} onClose={() => setModalOpen(false)} currencyName={currency}
+        <OfferModal offer={{...selOffer, status: selOffer.status||'active'}} open={modalOpen} onClose={() => setModalOpen(false)} currencyName={currency} userCountry={userCountry}
           onStartOffer={async offer => {
             // Strip virtual category-expansion suffix
             const realId = offer.id.replace(/__cat\d+$/, '');

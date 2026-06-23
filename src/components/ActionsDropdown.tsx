@@ -38,6 +38,8 @@ interface ActionsDropdownProps {
   onCarouselView: () => void;
   onManageDomains: () => void;
   onMailSchedule?: () => void;
+  onRefineDescription?: () => void;
+  onSetFallback?: () => void;
 }
 
 const ActionsDropdown: React.FC<ActionsDropdownProps> = ({
@@ -54,6 +56,8 @@ const ActionsDropdown: React.FC<ActionsDropdownProps> = ({
   onCarouselView,
   onManageDomains,
   onMailSchedule,
+  onRefineDescription,
+  onSetFallback,
 }) => {
   return (
     <DropdownMenu>
@@ -123,6 +127,19 @@ const ActionsDropdown: React.FC<ActionsDropdownProps> = ({
               Mail Schedule
             </DropdownMenuItem>
           </>
+        )}
+        {(onRefineDescription || onSetFallback) && <DropdownMenuSeparator />}
+        {onRefineDescription && (
+          <DropdownMenuItem onClick={onRefineDescription}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Refine Description (AI)
+          </DropdownMenuItem>
+        )}
+        {onSetFallback && (
+          <DropdownMenuItem onClick={onSetFallback}>
+            <Globe className="mr-2 h-4 w-4" />
+            Set Fallback URL
+          </DropdownMenuItem>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

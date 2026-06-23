@@ -36,7 +36,7 @@ export default function PublisherOfferDetail() {
   const [customSubId, setCustomSubId] = useState('');
   const [trackingLink, setTrackingLink] = useState('');
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    description: true, geo: false, device: false, traffic: false, levels: true, geosplit: true
+    description: true, geo: true, device: true, traffic: true, levels: true, geosplit: true
   });
   const [geoSearch, setGeoSearch] = useState('');
 
@@ -431,7 +431,97 @@ export default function PublisherOfferDetail() {
             expanded={expandedSections.description}
             onToggle={() => toggleSection('description')}
           >
-            <p className="text-gray-600 text-[15px] leading-relaxed">{offer.description || 'No description available for this offer.'}</p>
+            {(offer as any).refined_description && ((offer as any).refined_description.summary || (offer as any).refined_description.steps?.length) ? (
+              <div className="space-y-4">
+                {/* Summary */}
+                {(offer as any).refined_description.summary && (
+                  <p className="text-gray-600 text-[15px] leading-relaxed">{(offer as any).refined_description.summary}</p>
+                )}
+
+                {/* Event Flow */}
+                {(offer as any).refined_description.event_flow && (
+                  <div className="px-4 py-2.5 rounded-lg bg-[#eaddff]/50 border border-[#630ed4]/10">
+                    <p className="text-sm font-medium text-[#630ed4]">{(offer as any).refined_description.event_flow}</p>
+                  </div>
+                )}
+
+                {/* Steps */}
+                {(offer as any).refined_description.steps?.length > 0 && (
+                  <div>
+                    <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">How to Complete</h4>
+                    <div className="space-y-2">
+                      {(offer as any).refined_description.steps.map((step: string, i: number) => (
+                        <div key={i} className="flex items-start gap-3 p-2.5 rounded-lg bg-[#f7f9fb]">
+                          <div className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-white text-[11px] font-bold" style={{ background: 'linear-gradient(135deg, #630ed4, #4b41e1)' }}>{i + 1}</div>
+                          <span className="text-sm text-gray-700 leading-snug pt-0.5">{step.replace(/^Step\s*\d+:\s*/i, '')}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Deposit Requirement */}
+                {(offer as any).refined_description.deposit_requirement && (
+                  <div className="px-4 py-3 rounded-lg bg-blue-50 border border-blue-100 flex items-start gap-3">
+                    <DollarSign className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-xs font-bold text-blue-800 uppercase tracking-wider mb-0.5">Deposit Required</h4>
+                      <p className="text-sm text-blue-700 font-medium">{(offer as any).refined_description.deposit_requirement}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Approval Period */}
+                {(offer as any).refined_description.approval_period && (
+                  <div className="px-4 py-3 rounded-lg bg-indigo-50 border border-indigo-100 flex items-start gap-3">
+                    <Clock className="h-5 w-5 text-indigo-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-xs font-bold text-indigo-800 uppercase tracking-wider mb-0.5">Approval Period</h4>
+                      <p className="text-sm text-indigo-700">{(offer as any).refined_description.approval_period}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Restrictions */}
+                {(offer as any).refined_description.restrictions?.length > 0 && (
+                  <div className="px-4 py-3 rounded-lg bg-amber-50 border border-amber-100">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider mb-1.5">Restrictions</h4>
+                        <ul className="space-y-1">
+                          {(offer as any).refined_description.restrictions.map((r: string, i: number) => (
+                            <li key={i} className="text-sm text-amber-700 flex items-start gap-2">
+                              <span className="w-1.5 h-1.5 bg-amber-500 rounded-full mt-1.5 flex-shrink-0" />{r}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Difficulty & Time */}
+                {((offer as any).refined_description.difficulty || (offer as any).refined_description.estimated_time) && (
+                  <div className="flex items-center gap-3">
+                    {(offer as any).refined_description.difficulty && (
+                      <span className={`text-xs px-3 py-1 rounded-full font-semibold ${
+                        (offer as any).refined_description.difficulty === 'Easy' ? 'bg-emerald-100 text-emerald-700' :
+                        (offer as any).refined_description.difficulty === 'Hard' ? 'bg-red-100 text-red-700' :
+                        'bg-yellow-100 text-yellow-700'
+                      }`}>{(offer as any).refined_description.difficulty}</span>
+                    )}
+                    {(offer as any).refined_description.estimated_time && (
+                      <span className="text-xs text-gray-500 flex items-center gap-1">
+                        <Clock className="h-3.5 w-3.5" /> {(offer as any).refined_description.estimated_time}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-gray-600 text-[15px] leading-relaxed">{offer.description || 'No description available for this offer.'}</p>
+            )}
           </ExpandableCard>
 
           {/* Level-Based Payouts */}
@@ -480,18 +570,48 @@ export default function PublisherOfferDetail() {
               {offer.countries?.length === 0 ? (
                 <p className="text-gray-400 text-sm">All countries — worldwide</p>
               ) : (
-                <div className="space-y-1.5">
-                  {(offer.countries || []).slice(0, 10).map(c => (
-                    <div key={c} className="flex items-center justify-between p-2.5 rounded-lg bg-[#f7f9fb] hover:bg-[#eaddff]/20 transition-colors">
-                      <div className="flex items-center gap-2.5">
-                        <span className="font-mono text-[11px] bg-white px-2 py-0.5 rounded border border-gray-200 shadow-sm tracking-wider">{c}</span>
-                        <img src={getFlag(c)} alt={c} className="w-5 h-3.5 rounded-sm object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                      </div>
-                      <CheckCircle className="h-4 w-4 text-emerald-500" />
+                <div className="space-y-3">
+                  {/* Allowed Countries */}
+                  <div>
+                    <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2 flex items-center gap-1"><CheckCircle className="h-3.5 w-3.5" /> Allowed Countries</h4>
+                    <div className="space-y-1.5">
+                      {(offer.countries || []).slice(0, 10).map(c => (
+                        <div key={c} className="flex items-center justify-between p-2.5 rounded-lg bg-[#f7f9fb] hover:bg-[#eaddff]/20 transition-colors">
+                          <div className="flex items-center gap-2.5">
+                            <span className="font-mono text-[11px] bg-white px-2 py-0.5 rounded border border-gray-200 shadow-sm tracking-wider">{c}</span>
+                            <img src={getFlag(c)} alt={c} className="w-5 h-3.5 rounded-sm object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                          </div>
+                          <CheckCircle className="h-4 w-4 text-emerald-500" />
+                        </div>
+                      ))}
+                      {(offer.countries || []).length > 10 && (
+                        <p className="text-xs text-gray-400 mt-2">+ {offer.countries.length - 10} more countries</p>
+                      )}
                     </div>
-                  ))}
-                  {(offer.countries || []).length > 10 && (
-                    <p className="text-xs text-gray-400 mt-2">+ {offer.countries.length - 10} more countries</p>
+                  </div>
+
+                  {/* Restricted Areas */}
+                  {(offer as any).refined_description?.restricted_areas?.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-bold text-red-600 uppercase tracking-wider mb-2 flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" /> Excluded Regions</h4>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(offer as any).refined_description.restricted_areas.map((area: string, i: number) => (
+                          <span key={i} className="px-2.5 py-1 bg-red-50 text-red-700 text-xs rounded-lg border border-red-200 font-medium">✗ {area}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Target Cities */}
+                  {(offer as any).refined_description?.cities?.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-bold text-purple-600 uppercase tracking-wider mb-2 flex items-center gap-1"><Globe className="h-3.5 w-3.5" /> Target Cities</h4>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(offer as any).refined_description.cities.map((city: string, i: number) => (
+                          <span key={i} className="px-2.5 py-1 bg-purple-50 text-purple-700 text-xs rounded-lg border border-purple-200 font-medium">📍 {city}</span>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
               )}
