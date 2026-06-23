@@ -1941,6 +1941,28 @@ def _offer_matches_country(offer, user_country_code):
     return user_country_code in allowed
 
 
+def _get_all_approved_offer_ids(db_instance):
+    """Get ALL offer IDs that have been approved for ANY publisher.
+    This is the union of all publisher-approved offers across the platform.
+    Used for admin mode to show only what's actually live on the offerwall."""
+    approved_ids = set()
+    try:
+        affiliate_requests_col = db_instance.get_collection('affiliate_requests')
+        if affiliate_requests_col:
+            # Get all distinct approved offer_ids in one query
+            approved_ids = set(
+                affiliate_requests_col.distinct('offer_id', {'status': 'approved'})
+            )
+        # Also get offer_grants
+        offer_grants_col = db_instance.get_collection('offer_grants')
+        if offer_grants_col:
+            grant_ids = set(offer_grants_col.distinct('offer_id', {'status': 'active'}))
+            approved_ids.update(grant_ids)
+    except Exception as e:
+        logger.warning(f"Failed to get all approved offer IDs: {e}")
+    return approved_ids
+
+
 @offerwall_bp.route('/api/offerwall/offers', methods=['GET'])
 def get_offers():
     """Get offers for the offerwall (JSON API) - fetches from admin's offer database
@@ -1983,7 +2005,7 @@ def get_offers():
                 is_admin_mode = (api_key == 'iK66hQRakcvRVj08CX7qfqNzE1Zqt0uF')
         
         if is_admin_mode:
-            limit = 0  # No limit in admin mode — fetch all matching offers
+            limit = 500  # Admin mode: reasonable cap, paginated
             skip = 0
         
         logger.info(f"📥 Fetching offers - placement_id: {placement_id}, user_id: {user_id}, page: {page}, limit: {limit}, admin_mode: {is_admin_mode}")
@@ -2055,7 +2077,9 @@ def get_offers():
         
         # Build query filter for REGULAR offers (excludes starter offers — they're fetched separately)
         if is_admin_mode:
-            # Admin mode: show ALL active offers for management (no show_in_offerwall restriction)
+            # Admin mode: show only offerwall-exclusive + all publisher-approved offers
+            # NOT all 20K offers in the database — only what's actually live on the offerwall
+            # Same logic as regular mode but without per-publisher restriction
             query_filter = {
                 '$and': [
                     {'$or': [
@@ -2068,7 +2092,13 @@ def get_offers():
                         {'is_active': {'$exists': False}},
                         {'status': 'running'}
                     ]},
-                    {'status': {'$in': ['active', 'running']}}
+                    {'status': {'$in': ['active', 'running']}},
+                    # Only offerwall-relevant offers: exclusive OR has at least one approved request
+                    {'$or': [
+                        {'offerwall_exclusive': True},
+                        # Offers that have been approved for any publisher (exist in affiliate_requests)
+                        {'offer_id': {'$in': list(_get_all_approved_offer_ids(db_instance))}}
+                    ]}
                 ]
             }
         else:
