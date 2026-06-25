@@ -62,8 +62,8 @@ const SORT_OPTIONS = [
   { id: 'points_low', name: 'Lowest' }, { id: 'newest', name: 'Newest' }, { id: 'rating', name: 'Top Rated' },
 ];
 const DEVICE_OPTIONS = [
-  { id: 'all', name: '🌐 All Devices' }, { id: 'android', name: '📱 Android' },
-  { id: 'ios', name: '🍎 iOS' }, { id: 'desktop', name: '🖥️ Desktop' },
+  { id: 'all', name: 'All Devices' }, { id: 'android', name: 'Android' },
+  { id: 'ios', name: 'iOS' }, { id: 'desktop', name: 'Desktop' },
 ];
 const PAYOUT_TYPE_OPTIONS = [
   { id: 'all', name: 'All Types' }, { id: 'cpa', name: 'CPA' }, { id: 'cpi', name: 'CPI' },
@@ -413,6 +413,9 @@ export const OfferwallProfessional: React.FC<Props> = ({
   const [activityLoading, setActivityLoading] = useState(false);
   const [userCountry, setUserCountry] = useState<string>(country || '');
   const [showPreloader, setShowPreloader] = useState(true);
+  // Featured offers + Telegram button
+  const [featuredOfferIds, setFeaturedOfferIds] = useState<string[]>([]);
+  const [showTelegramBtn, setShowTelegramBtn] = useState(true);
 
   // Survey Funnel State
   const [funnel, setFunnel] = useState<any>(null);
@@ -523,6 +526,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
       const r = await fetch(`${baseUrl}/api/offerwall/offers?placement_id=${placementId}&user_id=${userId}&limit=${fetchLimit}${userCountry ? `&country=${encodeURIComponent(userCountry)}` : ''}${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ''}&_t=${cacheBust}`);
       if (!r.ok) throw new Error('Failed'); const d = await r.json(); if (d.error) throw new Error(d.error);
       setCurrency(d.currency_name || 'LEaDS');
+      if (d.featured_offer_ids) setFeaturedOfferIds(d.featured_offer_ids);
       let funnels: any[] = [];
       try { const fr = await fetch(`${baseUrl}/api/survey-funnel/active?placement=offerwall`); if (fr.ok) funnels = (await fr.json()).funnels || []; } catch {}
       setAllOffers([...funnels, ...(d.offers || [])]);
@@ -701,7 +705,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
 
   // ==================== RENDER ====================
   return (
-    <div className="ow min-h-screen flex flex-col">
+    <div className="ow min-h-[400px] flex flex-col">
       {/* Preloader overlay */}
       {showPreloader && (
         <OfferwallPreloader dataReady={!loading} onComplete={() => setShowPreloader(false)} />
@@ -709,9 +713,9 @@ export const OfferwallProfessional: React.FC<Props> = ({
 
       {/* ===== PROFESSIONAL HEADER (no banner image) ===== */}
       <header className="ow-header sticky top-0 z-50">
-        <div className="max-w-[1300px] mx-auto px-4 md:px-6">
+        <div className="max-w-[1300px] mx-auto px-3 sm:px-4 md:px-6">
           {/* Top row */}
-          <div className="flex items-center justify-between h-16">
+          <div className="flex items-center justify-between h-14 sm:h-16 min-w-0">
             {/* Logo */}
             <div className="flex items-center gap-2.5">
               <img src="/logo.png" alt="Moustache Leads" className="h-9 w-auto" onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
@@ -770,8 +774,11 @@ export const OfferwallProfessional: React.FC<Props> = ({
 
       {/* ===== CONTROLS ===== */}
       <div className="bg-gray-50 border-b border-gray-100">
-        <div className="max-w-[1300px] mx-auto px-4 md:px-6 py-2.5 flex flex-wrap items-center gap-2">
-          <select value={device} onChange={e => setDevice(e.target.value)} className="ow-select">{DEVICE_OPTIONS.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select>
+        <div className="max-w-[1300px] mx-auto px-3 sm:px-4 md:px-6 py-2 sm:py-2.5 flex flex-wrap items-center gap-1.5 sm:gap-2">
+          <div className="relative flex items-center">
+            <Globe className="absolute left-2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+            <select value={device} onChange={e => setDevice(e.target.value)} className="ow-select ow-select-icon">{DEVICE_OPTIONS.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select>
+          </div>
           <select value={payoutType} onChange={e => setPayoutType(e.target.value)} className="ow-select">{PAYOUT_TYPE_OPTIONS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
           <select value={sort} onChange={e => setSort(e.target.value)} className="ow-select">{SORT_OPTIONS.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
           <div className="ml-auto flex items-center bg-white border border-gray-200 rounded-lg overflow-hidden">
@@ -782,9 +789,43 @@ export const OfferwallProfessional: React.FC<Props> = ({
       </div>
 
       {/* ===== MAIN ===== */}
-      <main className="flex-1 max-w-[1300px] mx-auto w-full px-6 md:px-8 py-5">
+      <main className="flex-1 max-w-[1300px] mx-auto w-full px-3 sm:px-5 md:px-8 py-4 sm:py-5">
         {/* Announcements */}
         {announcements.length > 0 && <div className="mb-4">{announcements.map(a => <div key={a.id} className="bg-purple-50 border border-purple-100 rounded-xl px-4 py-2.5 mb-2 text-[#340075] text-sm flex items-center gap-2"><Sparkles className="h-4 w-4 flex-shrink-0" />{a.text}</div>)}</div>}
+
+        {/* ===== FEATURED OFFERS HORIZONTAL TRAY ===== */}
+        {featuredOfferIds.length > 0 && isQualified && !search && (() => {
+          const featuredOffers = allOffers.filter(o => featuredOfferIds.includes(o.id) || featuredOfferIds.includes((o as any).offer_id));
+          if (featuredOffers.length === 0) return null;
+          return (
+            <div className="mb-5">
+              <div className="flex items-center gap-2 mb-2.5">
+                <Sparkles className="h-4 w-4 text-orange-500" />
+                <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Featured Offers</span>
+              </div>
+              <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                {featuredOffers.map(offer => {
+                  const pts = Math.round(offer.reward_amount || 0);
+                  return (
+                    <div key={`feat-${offer.id}`} onClick={() => handleClick(offer)}
+                      className="flex-shrink-0 w-[150px] sm:w-[160px] bg-white border border-purple-100 rounded-xl overflow-hidden cursor-pointer hover:shadow-lg hover:border-purple-300 transition-all group">
+                      <div className="w-full h-[110px] bg-gray-50 flex items-center justify-center overflow-hidden border-b border-gray-100">
+                        <img src={getOfferImage({ image_url: offer.image_url, vertical: offer.category })} alt="" className="w-full h-full object-contain p-2.5" onError={e => { (e.target as HTMLImageElement).src = '/category-images/other.png'; }} />
+                      </div>
+                      <div className="px-2.5 py-2.5 flex flex-col">
+                        <p className="text-[11px] font-bold text-gray-900 line-clamp-2 leading-tight group-hover:text-[#340075] transition-colors">{truncTitle(offer.title, 3)}</p>
+                        {offer.refined_description?.event_flow && (
+                          <p className="text-[9px] text-purple-600 truncate mt-1">{offer.refined_description.event_flow}</p>
+                        )}
+                        <span className="text-[12px] font-bold text-[#340075] mt-2">+{pts.toLocaleString()} {currency}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Qualification - grid */}
         {!isQualified && qualSurvey && !search && viewMode === 'grid' && (
@@ -906,7 +947,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
 
         {/* ===== GRID VIEW ===== */}
         {filteredOffers.length > 0 && viewMode === 'grid' && (
-          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 px-2">
+          <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 md:gap-5 px-1 sm:px-2">
             {/* Sub-walls */}
             {!search && subWalls.map(w => (
               <div key={`sw-${w._id}`} onClick={() => window.open(`https://walls.moustacheleads.com/wall/${w.slug}`, '_blank')} className="ow-card group cursor-pointer">
@@ -1049,6 +1090,25 @@ export const OfferwallProfessional: React.FC<Props> = ({
           }} />
       )}
 
+      {/* ===== TELEGRAM FLOATING BUTTON ===== */}
+      {showTelegramBtn && (
+        <div className="fixed bottom-5 right-5 z-[9999] flex items-center gap-1.5">
+          <a href="https://t.me/MOUSTACHELeads_bot" target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-2 bg-[#0088cc] hover:bg-[#006da3] text-white px-4 py-2.5 rounded-full shadow-lg hover:shadow-xl transition-all text-sm font-semibold"
+            style={{ textDecoration: 'none' }}>
+            <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 flex-shrink-0">
+              <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+            </svg>
+            <span className="hidden sm:inline">MoustacheLeads</span>
+          </a>
+          <button onClick={() => setShowTelegramBtn(false)}
+            className="w-6 h-6 bg-gray-200 hover:bg-gray-300 rounded-full flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors shadow-sm"
+            title="Hide">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* ===== STYLES ===== */}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&display=swap');
@@ -1061,6 +1121,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
         .ow-btn:active { transform: scale(0.97); }
         .ow-select { appearance: none; background: white url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center; border: 1px solid #e5e7eb; border-radius: 8px; padding: 7px 28px 7px 11px; font-size: 13px; font-weight: 500; color: #374151; cursor: pointer; }
         .ow-select:focus { outline: none; border-color: #340075; }
+        .ow-select-icon { padding-left: 26px; }
         .ow-cat-btn { padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer; transition: all 0.15s; border: 1.5px solid transparent; background: transparent; color: #6b7280; flex-shrink: 0; }
         .ow-cat-btn:hover { background: #f3f0ff; color: #340075; }
         .ow-cat-btn:active { transform: translateY(1px) scale(0.97); }
@@ -1072,6 +1133,27 @@ export const OfferwallProfessional: React.FC<Props> = ({
         .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* ===== RESPONSIVE IFRAME FIXES ===== */
+        /* Ensure content is scrollable and properly sized inside iframes */
+        .ow {
+          width: 100%;
+          box-sizing: border-box;
+          overflow-x: hidden;
+          -webkit-overflow-scrolling: touch;
+        }
+        @media (max-width: 480px) {
+          .ow-select { font-size: 11px; padding: 6px 22px 6px 8px; border-radius: 6px; }
+          .ow-select-icon { padding-left: 22px; }
+          .ow-cat-btn { padding: 5px 10px; font-size: 11px; }
+          .ow-btn { font-size: 11px; padding: 7px 10px; border-radius: 8px; }
+          .ow-card { border-radius: 12px; }
+        }
+        @media (max-width: 360px) {
+          .ow-select { font-size: 10px; padding: 5px 18px 5px 6px; }
+          .ow-select-icon { padding-left: 18px; }
+          .ow-cat-btn { padding: 4px 8px; font-size: 10px; }
+        }
       `}</style>
     </div>
   );

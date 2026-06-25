@@ -29,7 +29,7 @@ import {
   Star, Eye, EyeOff, Sparkles, Plus, Trash2, Save,
   BarChart3, Pin, Layout, Monitor, X, ChevronLeft, ChevronRight,
   Activity, CheckCircle, Clock, AlertCircle, Search, RefreshCw,
-  Flame, TrendingUp, TrendingDown, Hash, Wand2, Globe, Loader2, Pencil
+  Flame, TrendingUp, TrendingDown, Hash, Wand2, Globe, Loader2, Pencil, Mail
 } from "lucide-react";
 
 // ===================== BOOST COUNTDOWN COMPONENT =====================
@@ -84,7 +84,20 @@ const AdminOfferwallManager = () => {
   const [boostDuration, setBoostDuration] = useState(24);
   const [boostMinutes, setBoostMinutes] = useState(0);
   const [showBoostedOnly, setShowBoostedOnly] = useState(false);
+  const [showFeaturedOnly, setShowFeaturedOnly] = useState(false);
   const [boostedOffers, setBoostedOffers] = useState<any[]>([]);
+  // Boost Email Notification state
+  const [boostEmailEnabled, setBoostEmailEnabled] = useState(false);
+  const [boostEmailRecipients, setBoostEmailRecipients] = useState<string[]>([]);
+  const [boostEmailInput, setBoostEmailInput] = useState('');
+  const [boostEmailSubject, setBoostEmailSubject] = useState('Price Boost Applied — Offerwall Update');
+  const [boostEmailMessage, setBoostEmailMessage] = useState('');
+  const [boostEmailBody, setBoostEmailBody] = useState('');
+  const [boostEmailPreview, setBoostEmailPreview] = useState(false);
+  const [boostEmailSending, setBoostEmailSending] = useState(false);
+  const [publisherList, setPublisherList] = useState<Array<{email: string; name: string; company?: string}>>([]);
+  const [publisherSearch, setPublisherSearch] = useState('');
+  const [publisherListLoading, setPublisherListLoading] = useState(false);
   // Position state
   const [positionInputs, setPositionInputs] = useState<Record<string, string>>({});
   // AI Description Refiner state
@@ -134,6 +147,30 @@ const AdminOfferwallManager = () => {
     } catch { setBoostedOffers([]); }
   };
   useEffect(() => { loadBoostedOffers(); }, []);
+
+  // Fetch publishers for email recipients
+  const loadPublishers = async (search: string = '') => {
+    setPublisherListLoading(true);
+    try {
+      const { getAuthToken } = await import('@/utils/cookies');
+      const token = getAuthToken();
+      const params = new URLSearchParams();
+      if (search) params.append('search', search);
+      params.append('status', 'active');
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/insights/partners?${params.toString()}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPublisherList((data.partners || []).map((p: any) => ({
+          email: p.email,
+          name: p.name || p.company_name || p.username || '',
+          company: p.company_name || ''
+        })));
+      }
+    } catch { setPublisherList([]); }
+    finally { setPublisherListLoading(false); }
+  };
 
   // Fetch settings
   const { data: settings, isLoading: settingsLoading } = useQuery<OfferwallSettings>({
@@ -238,11 +275,28 @@ const AdminOfferwallManager = () => {
     });
   };
 
-  const handleToggleFeatured = (offerId: string) => {
-    const isFeatured = settings?.featured_offers?.includes(offerId);
-    const newFeatured = isFeatured
-      ? (settings?.featured_offers || []).filter(id => id !== offerId)
-      : [...(settings?.featured_offers || []), offerId];
+  const handleToggleFeatured = (offerIdOrIds: string) => {
+    const currentFeatured = settings?.featured_offers || [];
+    let newFeatured: string[];
+
+    if (offerIdOrIds.startsWith('add:')) {
+      // Force add all
+      const ids = offerIdOrIds.replace('add:', '').split(',');
+      newFeatured = [...new Set([...currentFeatured, ...ids])];
+    } else if (offerIdOrIds.startsWith('remove:')) {
+      // Force remove all
+      const ids = offerIdOrIds.replace('remove:', '').split(',');
+      newFeatured = currentFeatured.filter(id => !ids.includes(id));
+    } else {
+      // Single toggle or bulk toggle
+      const ids = offerIdOrIds.includes(',') ? offerIdOrIds.split(',') : [offerIdOrIds];
+      const allAlreadyFeatured = ids.every(id => currentFeatured.includes(id));
+      if (allAlreadyFeatured) {
+        newFeatured = currentFeatured.filter(id => !ids.includes(id));
+      } else {
+        newFeatured = [...new Set([...currentFeatured, ...ids])];
+      }
+    }
     updateSettingsMutation.mutate({ featured_offers: newFeatured });
   };
 
@@ -349,6 +403,38 @@ const AdminOfferwallManager = () => {
         Array.from(selectedOffers), boostPercentage, boostDirection, boostDuration, boostMinutes
       );
       toast({ title: "Boost Applied", description: `${result.success_count} offers boosted (${boostDirection === 'increase' ? '+' : '-'}${boostPercentage}% for ${boostDuration}h ${boostMinutes}m)` });
+      
+      // Send email notification if enabled
+      if (boostEmailEnabled && boostEmailRecipients.length > 0) {
+        setBoostEmailSending(true);
+        try {
+          const { getAuthToken } = await import('@/utils/cookies');
+          const token = getAuthToken();
+          await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/offerwall-management/boost-notification`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({
+              recipients: boostEmailRecipients,
+              subject: boostEmailSubject,
+              message: boostEmailBody || `Hi,\n\nA price boost has been applied to ${selectedOffers.size} offer(s) on the offerwall:\n\n• Direction: ${boostDirection === 'increase' ? 'Increase ↑' : 'Decrease ↓'}\n• Percentage: ${boostPercentage}%\n• Duration: ${boostDuration}h${boostMinutes > 0 ? ` ${boostMinutes}m` : ''}\n\n${boostEmailMessage ? boostEmailMessage + '\n\n' : ''}— MoustacheLeads Admin`,
+              boost_details: {
+                offer_ids: Array.from(selectedOffers),
+                percentage: boostPercentage,
+                direction: boostDirection,
+                duration_hours: boostDuration,
+                duration_minutes: boostMinutes,
+                offer_count: result.success_count
+              }
+            })
+          });
+          toast({ title: "Email Sent", description: `Notification sent to ${boostEmailRecipients.length} recipient(s)` });
+        } catch {
+          toast({ title: "Email Failed", description: "Boost applied but email notification failed", variant: "destructive" });
+        } finally {
+          setBoostEmailSending(false);
+        }
+      }
+      
       setShowBoostDialog(false);
       setSelectedOffers(new Set());
       queryClient.invalidateQueries({ queryKey: ['offerwall-management-offers'] });
@@ -663,11 +749,20 @@ const AdminOfferwallManager = () => {
                 <Button
                   variant={showBoostedOnly ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setShowBoostedOnly(!showBoostedOnly)}
+                  onClick={() => { setShowBoostedOnly(!showBoostedOnly); setShowFeaturedOnly(false); }}
                   className={showBoostedOnly ? "bg-orange-600 hover:bg-orange-700" : ""}
                 >
                   <Flame className="h-4 w-4 mr-1" />
                   Show Boosted ({boostedOffers.length})
+                </Button>
+                <Button
+                  variant={showFeaturedOnly ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => { setShowFeaturedOnly(!showFeaturedOnly); setShowBoostedOnly(false); }}
+                  className={showFeaturedOnly ? "bg-yellow-500 hover:bg-yellow-600 text-white" : ""}
+                >
+                  <Star className="h-4 w-4 mr-1" />
+                  Show Featured ({(settings?.featured_offers || []).length})
                 </Button>
                 <Button
                   variant={refinedFilter === 'yes' ? "default" : "outline"}
@@ -712,7 +807,7 @@ const AdminOfferwallManager = () => {
                 <p className="text-muted-foreground">Loading offers...</p>
               ) : (
                 <OfferwallOfferEditor
-                  offers={showBoostedOnly ? boostedOffers : offers}
+                  offers={showBoostedOnly ? boostedOffers : showFeaturedOnly ? offers.filter((o: any) => (settings?.featured_offers || []).includes(o.offer_id)) : offers}
                   settings={settings}
                   starterOfferIds={starterOfferIds}
                   boostedOffers={boostedOffers}
@@ -1120,7 +1215,7 @@ const AdminOfferwallManager = () => {
 
       {/* ===== PRICE BOOST DIALOG ===== */}
       <Dialog open={showBoostDialog} onOpenChange={setShowBoostDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-3xl w-[95vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Flame className="h-5 w-5 text-orange-500" />
@@ -1230,11 +1325,181 @@ const AdminOfferwallManager = () => {
                 The boost will expire automatically and price will revert to default 80%.
               </p>
             </div>
+
+            {/* Email Notification Toggle */}
+            <div className="border rounded-lg p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-blue-600" />
+                  <Label className="text-sm font-medium">Send Email Notification</Label>
+                </div>
+                <Switch checked={boostEmailEnabled} onCheckedChange={(val) => {
+                  setBoostEmailEnabled(val);
+                  if (val && publisherList.length === 0) loadPublishers();
+                }} />
+              </div>
+
+              {boostEmailEnabled && (
+                <div className="space-y-3 pt-2 border-t">
+                  {/* Publisher search + list */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold">Add Recipients from Publishers</Label>
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                      <Input
+                        value={publisherSearch}
+                        onChange={e => {
+                          setPublisherSearch(e.target.value);
+                          loadPublishers(e.target.value);
+                        }}
+                        placeholder="Search publishers by name or email..."
+                        className="h-8 text-xs pl-8"
+                      />
+                    </div>
+                    {/* Publisher dropdown list */}
+                    <div className="border rounded-md max-h-36 overflow-y-auto bg-white">
+                      {publisherListLoading ? (
+                        <div className="flex items-center justify-center py-3">
+                          <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+                          <span className="text-xs text-gray-400 ml-2">Loading publishers...</span>
+                        </div>
+                      ) : publisherList.length === 0 ? (
+                        <div className="text-center py-3 text-xs text-gray-400">No publishers found</div>
+                      ) : (
+                        publisherList.map(pub => {
+                          const isAdded = boostEmailRecipients.includes(pub.email);
+                          return (
+                            <div
+                              key={pub.email}
+                              className={`flex items-center justify-between px-3 py-1.5 hover:bg-blue-50 cursor-pointer border-b last:border-b-0 ${isAdded ? 'bg-blue-50/50' : ''}`}
+                              onClick={() => {
+                                if (!isAdded) {
+                                  setBoostEmailRecipients([...boostEmailRecipients, pub.email]);
+                                }
+                              }}
+                            >
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium text-gray-800 truncate">{pub.name || pub.email}</p>
+                                <p className="text-[10px] text-gray-400 truncate">{pub.email}</p>
+                              </div>
+                              {isAdded ? (
+                                <CheckCircle className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
+                              ) : (
+                                <Plus className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Manual email input */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Or add email manually</Label>
+                    <div className="flex gap-1.5">
+                      <Input
+                        value={boostEmailInput}
+                        onChange={e => setBoostEmailInput(e.target.value)}
+                        placeholder="Enter email address..."
+                        className="h-8 text-xs"
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            const email = boostEmailInput.trim();
+                            if (email && email.includes('@') && !boostEmailRecipients.includes(email)) {
+                              setBoostEmailRecipients([...boostEmailRecipients, email]);
+                              setBoostEmailInput('');
+                            }
+                          }
+                        }}
+                      />
+                      <Button size="sm" variant="outline" className="h-8 px-2" onClick={() => {
+                        const email = boostEmailInput.trim();
+                        if (email && email.includes('@') && !boostEmailRecipients.includes(email)) {
+                          setBoostEmailRecipients([...boostEmailRecipients, email]);
+                          setBoostEmailInput('');
+                        }
+                      }}>
+                        <Plus className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Selected recipients */}
+                  {boostEmailRecipients.length > 0 && (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Selected Recipients ({boostEmailRecipients.length})</Label>
+                      <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                        {boostEmailRecipients.map(email => (
+                          <span key={email} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 border border-blue-200 rounded-full text-xs text-blue-700">
+                            {email}
+                            <button onClick={() => setBoostEmailRecipients(boostEmailRecipients.filter(e => e !== email))} className="text-blue-400 hover:text-red-500">
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Subject */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Subject</Label>
+                    <Input
+                      value={boostEmailSubject}
+                      onChange={e => setBoostEmailSubject(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+
+                  {/* Editable Email Body */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Email Body (fully editable)</Label>
+                    <textarea
+                      value={boostEmailBody || `Hi,\n\nA price boost has been applied to ${selectedOffers.size} offer(s) on the offerwall:\n\n• Direction: ${boostDirection === 'increase' ? 'Increase ↑' : 'Decrease ↓'}\n• Percentage: ${boostPercentage}%\n• Duration: ${boostDuration}h${boostMinutes > 0 ? ` ${boostMinutes}m` : ''}\n\n${boostEmailMessage ? boostEmailMessage + '\n\n' : ''}— MoustacheLeads Admin`}
+                      onChange={e => setBoostEmailBody(e.target.value)}
+                      className="w-full h-40 px-3 py-2 border border-gray-200 rounded-md text-xs resize-y focus:outline-none focus:ring-2 focus:ring-blue-400 font-mono"
+                    />
+                    <p className="text-[10px] text-gray-400">Edit the email content above. This is exactly what recipients will see.</p>
+                  </div>
+
+                  {/* Preview Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setBoostEmailPreview(!boostEmailPreview)}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+                  >
+                    <Eye className="h-3 w-3" />
+                    {boostEmailPreview ? 'Hide Preview' : 'Show Formatted Preview'}
+                  </button>
+
+                  {boostEmailPreview && (
+                    <div className="border rounded-lg p-4 bg-white text-xs space-y-2 max-h-56 overflow-y-auto shadow-inner">
+                      <div className="flex items-center justify-between border-b pb-2">
+                        <span className="font-semibold text-gray-800">📧 Email Preview</span>
+                        <span className="text-[10px] text-gray-400">{boostEmailRecipients.length} recipient(s)</span>
+                      </div>
+                      <div className="border-b pb-2">
+                        <span className="text-gray-500">To:</span> {boostEmailRecipients.join(', ') || 'No recipients added'}
+                      </div>
+                      <div className="border-b pb-2">
+                        <span className="text-gray-500">Subject:</span> {boostEmailSubject}
+                      </div>
+                      <div className="text-gray-700 whitespace-pre-wrap pt-2">
+                        {boostEmailBody || `Hi,\n\nA price boost has been applied to ${selectedOffers.size} offer(s) on the offerwall:\n\n• Direction: ${boostDirection === 'increase' ? 'Increase ↑' : 'Decrease ↓'}\n• Percentage: ${boostPercentage}%\n• Duration: ${boostDuration}h${boostMinutes > 0 ? ` ${boostMinutes}m` : ''}\n\n${boostEmailMessage ? boostEmailMessage + '\n\n' : ''}— MoustacheLeads Admin`}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setShowBoostDialog(false)}>Cancel</Button>
-              <Button onClick={handleApplyBoost} className="bg-orange-600 hover:bg-orange-700">
+              <Button onClick={handleApplyBoost} disabled={boostEmailSending} className="bg-orange-600 hover:bg-orange-700">
                 <Flame className="h-4 w-4 mr-2" />
-                Apply Boost
+                {boostEmailSending ? 'Sending...' : 'Apply Boost'}
               </Button>
             </div>
           </div>

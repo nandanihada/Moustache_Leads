@@ -12,6 +12,7 @@ from datetime import datetime
 from bson import ObjectId
 import logging
 import uuid
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -1080,6 +1081,235 @@ def remove_price_boost():
         return jsonify({'error': 'Failed to remove price boost'}), 500
 
 
+# ===================== BOOST EMAIL NOTIFICATION =====================
+
+@admin_offerwall_management_bp.route('/offerwall-management/boost-notification', methods=['POST'])
+@token_required
+def send_boost_notification():
+    """Send email notification about price boost to specified recipients."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        recipients = data.get('recipients', [])
+        subject = data.get('subject', 'Price Boost Applied — Offerwall Update')
+        message = data.get('message', '')
+        boost_details = data.get('boost_details', {})
+
+        if not recipients:
+            return jsonify({'error': 'No recipients provided'}), 400
+
+        # Build the email HTML
+        direction = boost_details.get('direction', 'increase')
+        percentage = boost_details.get('percentage', 0)
+        duration_hours = boost_details.get('duration_hours', 0)
+        duration_minutes = boost_details.get('duration_minutes', 0)
+        offer_count = boost_details.get('offer_count', 0)
+        offer_ids = boost_details.get('offer_ids', [])
+
+        # Fetch full offer data for the email table
+        offers_col = get_collection('offers')
+        offer_data = []
+        if offers_col is not None and offer_ids:
+            for oid in offer_ids[:20]:  # Limit to 20 for email readability
+                offer = offers_col.find_one({'offer_id': oid}, {
+                    'name': 1, 'offer_id': 1, 'payout': 1, 'image_url': 1,
+                    'category': 1, 'countries': 1, 'device_targeting': 1,
+                    'publisher_payout_override': 1, 'price_boost': 1
+                })
+                if offer:
+                    # Calculate boosted payout (publisher gets 80% * boost)
+                    raw_payout = float(offer.get('payout', 0) or 0)
+                    original_pub_payout = round(raw_payout * 0.8, 2)
+                    pub_payout = original_pub_payout
+                    boost_info = offer.get('price_boost', {})
+                    if boost_info and boost_info.get('percentage'):
+                        bp = float(boost_info['percentage'])
+                        bd = boost_info.get('direction', 'increase')
+                        if bd == 'increase':
+                            pub_payout = round(original_pub_payout * (1 + bp / 100), 2)
+                        else:
+                            pub_payout = round(original_pub_payout * (1 - bp / 100), 2)
+                    
+                    offer_data.append({
+                        'name': offer.get('name', oid),
+                        'offer_id': offer.get('offer_id', oid),
+                        'payout': pub_payout,
+                        'original_payout': original_pub_payout,
+                        'is_boosted': pub_payout != original_pub_payout,
+                        'image_url': offer.get('image_url', ''),
+                        'category': offer.get('category', ''),
+                    })
+                else:
+                    offer_data.append({'name': oid, 'offer_id': oid, 'payout': 0, 'original_payout': 0, 'is_boosted': False, 'image_url': '', 'category': ''})
+
+        duration_str = ''
+        if duration_hours >= 24:
+            days = duration_hours // 24
+            remaining_h = duration_hours % 24
+            duration_str = f"{days}d"
+            if remaining_h > 0:
+                duration_str += f" {remaining_h}h"
+        elif duration_hours > 0:
+            duration_str = f"{duration_hours}h"
+        if duration_minutes > 0:
+            duration_str += f" {duration_minutes}m"
+
+        direction_label = 'Increased ↑' if direction == 'increase' else 'Decreased ↓'
+        arrow_color = '#16a34a' if direction == 'increase' else '#dc2626'
+
+        # Build offers table rows (like the offerwall table view)
+        SIGNIN_URL = 'https://moustacheleads.com/publisher/signin'
+        FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://moustacheleads.com')
+        
+        offers_table_html = ''
+        if offer_data:
+            rows = ''
+            for o in offer_data:
+                img_url = o['image_url'] or ''
+                if img_url and img_url.startswith('/'):
+                    img_url = FRONTEND_URL.rstrip('/') + img_url
+                
+                img_cell = f'<img src="{img_url}" alt="" style="width:44px;height:44px;border-radius:8px;object-fit:cover;display:block;" />' if img_url else '<div style="width:44px;height:44px;border-radius:8px;background:#f3f4f6;"></div>'
+                
+                payout_display = ''
+                if o['payout'] > 0:
+                    if o['is_boosted']:
+                        # Show original price crossed out + new boosted price
+                        payout_display = f'<span style="font-size:11px;color:#9ca3af;text-decoration:line-through;">${o["original_payout"]:.2f}</span><br><span style="font-size:14px;font-weight:700;color:#059669;">${o["payout"]:.2f}</span>'
+                    else:
+                        payout_display = f'<span style="font-size:14px;font-weight:700;color:#059669;">${o["payout"]:.2f}</span>'
+                else:
+                    payout_display = '<span style="color:#9ca3af;">—</span>'
+                
+                rows += f'''<tr style="border-bottom:1px solid #f3f4f6;">
+                    <td style="padding:12px 8px;vertical-align:middle;">{img_cell}</td>
+                    <td style="padding:12px 8px;vertical-align:middle;">
+                        <p style="margin:0;font-size:13px;font-weight:600;color:#111827;">{o["name"]}</p>
+                        <p style="margin:2px 0 0;font-size:11px;color:#9ca3af;">{o["offer_id"]}</p>
+                    </td>
+                    <td style="padding:12px 8px;vertical-align:middle;text-align:center;">
+                        {payout_display}
+                    </td>
+                    <td style="padding:12px 8px;vertical-align:middle;text-align:right;">
+                        <a href="{SIGNIN_URL}" style="display:inline-block;background:#340075;color:#ffffff;font-size:11px;font-weight:700;padding:8px 16px;border-radius:6px;text-decoration:none;">Open</a>
+                    </td>
+                </tr>'''
+            
+            if len(offer_ids) > 20:
+                rows += f'<tr><td colspan="4" style="padding:10px 8px;font-size:12px;color:#9ca3af;text-align:center;font-style:italic;">...and {len(offer_ids) - 20} more offers</td></tr>'
+            
+            offers_table_html = f'''
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+                <tr style="background:#f9fafb;border-bottom:1px solid #e5e7eb;">
+                    <th style="padding:10px 8px;font-size:10px;color:#6b7280;text-transform:uppercase;font-weight:600;text-align:left;letter-spacing:0.5px;width:52px;"></th>
+                    <th style="padding:10px 8px;font-size:10px;color:#6b7280;text-transform:uppercase;font-weight:600;text-align:left;letter-spacing:0.5px;">Offer</th>
+                    <th style="padding:10px 8px;font-size:10px;color:#6b7280;text-transform:uppercase;font-weight:600;text-align:center;letter-spacing:0.5px;">Reward</th>
+                    <th style="padding:10px 8px;font-size:10px;color:#6b7280;text-transform:uppercase;font-weight:600;text-align:right;letter-spacing:0.5px;">Action</th>
+                </tr>
+                {rows}
+            </table>'''
+
+        # Build the email body content
+        body_content = ''
+        if message:
+            # Admin provided custom body content — use it directly
+            escaped_message = message.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            escaped_message = escaped_message.replace('\n', '<br>')
+            body_content = escaped_message
+        else:
+            # Auto-generate a clean body
+            body_content = f'A price boost of <strong>{percentage}%</strong> ({direction_label}) has been applied to <strong>{offer_count} offer(s)</strong> for <strong>{duration_str or "unlimited time"}</strong>.'
+
+        html_content = f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f0f0f0;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f0f0f0;padding:40px 20px;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-radius:8px;overflow:hidden;">
+    <!-- Header -->
+    <tr>
+        <td style="background:#1a1a2e;padding:24px 32px;">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                    <td><span style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:-0.3px;">MoustacheLeads</span></td>
+                    <td align="right"><span style="background:#f97316;color:white;font-size:10px;font-weight:700;padding:4px 10px;border-radius:4px;text-transform:uppercase;">Price Boost</span></td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+    <!-- Body -->
+    <tr>
+        <td style="padding:28px 32px;">
+            <p style="margin:0 0 16px;font-size:14px;color:#374151;line-height:1.6;">{body_content}</p>
+            <!-- Stats Row -->
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:16px 0;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;">
+                <tr>
+                    <td style="padding:12px 14px;text-align:center;border-right:1px solid #e5e7eb;width:33%;">
+                        <p style="margin:0;font-size:9px;color:#6b7280;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;">Boost</p>
+                        <p style="margin:3px 0 0;font-size:16px;font-weight:700;color:{arrow_color};">{'+' if direction == 'increase' else '-'}{percentage}%</p>
+                    </td>
+                    <td style="padding:12px 14px;text-align:center;border-right:1px solid #e5e7eb;width:33%;">
+                        <p style="margin:0;font-size:9px;color:#6b7280;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;">Duration</p>
+                        <p style="margin:3px 0 0;font-size:16px;font-weight:700;color:#111827;">{duration_str or 'Permanent'}</p>
+                    </td>
+                    <td style="padding:12px 14px;text-align:center;width:33%;">
+                        <p style="margin:0;font-size:9px;color:#6b7280;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;">Offers</p>
+                        <p style="margin:3px 0 0;font-size:16px;font-weight:700;color:#111827;">{offer_count}</p>
+                    </td>
+                </tr>
+            </table>
+            <!-- Offers Table -->
+            {offers_table_html}
+        </td>
+    </tr>
+    <!-- Footer -->
+    <tr>
+        <td style="padding:20px 32px;background:#f9fafb;border-top:1px solid #e5e7eb;">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                    <td><p style="margin:0;font-size:11px;color:#9ca3af;">MoustacheLeads Admin</p></td>
+                    <td align="right"><a href="{SIGNIN_URL}" style="font-size:11px;color:#6366f1;text-decoration:none;font-weight:500;">Sign in to view offers →</a></td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+</td></tr></table>
+</body></html>"""
+
+        # Send to all recipients
+        from services.email_service import EmailService
+        email_service = EmailService()
+        sent = 0
+        failed = 0
+        for recipient in recipients:
+            try:
+                success = email_service._send_email(recipient, subject, html_content)
+                if success:
+                    sent += 1
+                else:
+                    failed += 1
+            except Exception as e:
+                logger.error(f"Failed to send boost notification to {recipient}: {e}")
+                failed += 1
+
+        return jsonify({
+            'message': f'Notification sent to {sent} recipient(s)',
+            'sent': sent,
+            'failed': failed
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error sending boost notification: {e}")
+        return jsonify({'error': 'Failed to send notification'}), 500
+
+
 # ===================== FALLBACK URL ENDPOINTS =====================
 
 @admin_offerwall_management_bp.route('/offerwall-management/fallback/set', methods=['POST'])
@@ -1365,9 +1595,9 @@ RULES:
 - "refined_name" — suggest a cleaner, shorter name for this offer based on the original name. Remove country codes, US state codes, tracking IDs, network references, dollar amounts, and jargon like "FTD" (First Time Deposit), "Baseline", "SOI" (Single Opt-In), "DOI" (Double Opt-In). Keep the brand/app name and core action. Max 80 chars. If the name is already clean, keep it as-is.
 - "event_flow" is a SHORT subtitle showing the conversion flow, e.g. "Register → Deposit → Get Bonus" or "Install → Open App → Complete Tutorial". Max 60 chars. NEVER include dollar amounts or monetary values in event_flow.
 - "steps" should list the CONVERSION EVENTS (what actions trigger payout), not generic instructions. E.g. "Registration", "First Deposit", "App Activation" — not "Sign up for the app". Do NOT include dollar amounts in steps.
-- CRITICAL: NEVER include any monetary amounts, dollar values ($), payout numbers, or currency amounts in ANY field EXCEPT deposit_requirement. The amounts in the raw description are internal advertiser data and must NOT be shown to end users.
+- CRITICAL: NEVER include any monetary amounts, dollar values ($), payout numbers, or currency amounts in event_flow, steps, or summary fields. The amounts in the raw description are internal advertiser data and must NOT be shown to end users directly.
 - EXCEPTION FOR DEPOSITS: If the description mentions a required deposit or minimum spend (e.g. "Deposit a minimum of $10", "Make a first deposit of $25", "FTD" means First Time Deposit), extract that EXACT deposit amount into "deposit_requirement" field. This is the user's action cost, NOT a payout.
-- In payout_levels, set the "payout" field to empty string "" for every level. Only include the event name.
+- In payout_levels, EXTRACT the actual dollar payout amount for each conversion event. Format as a number string like "1.00" or "5.50" (just the number, no $ sign). If you can't determine the amount for a level, use "" empty string. These amounts will be converted server-side to the user's currency.
 - IMPORTANT - COUNTRY AND STATE PARSING FROM NAME:
   - The offer NAME often contains geo info like "(Excluding CT, LA, MI, NV, NJ, NY, WA)" or "(US only)" or "- US, CA, UK"
   - US STATE CODES (2 letters): CT, MI, NV, NY, MT, NJ, LA, WV, TN, WA, CA (California), FL, TX, IL, PA, OH, GA, NC, VA, MD, MA, AZ, CO, MN, WI, MO, IN, SC, AL, KY, OR, OK, IA, MS, AR, KS, UT, NE, NM, WV, ID, HI, NH, ME, RI, MT, DE, SD, ND, AK, VT, WY, DC — these are US STATES, not countries!
@@ -1400,7 +1630,7 @@ Return ONLY valid JSON (no markdown, no explanation):
   "cities": [],
   "approval_period": "Monthly, by DAY 15 of next month",
   "deposit_requirement": "$20 minimum first deposit required",
-  "payout_levels": [{{"event": "Event Name", "payout": ""}}],
+  "payout_levels": [{{"event": "Event Name", "payout": "1.00"}}],
   "restrictions": ["restriction 1", "restriction 2"],
   "difficulty": "Easy|Medium|Hard",
   "estimated_time": "X min"
@@ -1488,14 +1718,22 @@ Return ONLY valid JSON (no markdown, no explanation):
         if isinstance(refined["cities"], list):
             refined["cities"] = [str(c).strip() for c in refined["cities"] if str(c).strip()]
 
-        # Validate payout_levels — strip amounts, keep event name only
+        # Validate payout_levels — keep event name and extract payout amount
         raw_levels = result.get("payout_levels", [])
         if isinstance(raw_levels, list):
             for level in raw_levels:
                 if isinstance(level, dict) and "event" in level:
                     event_name = re.sub(money_pattern, '', str(level["event"])).strip()
+                    # Parse payout: could be "1.00", "$1.00", "1", or ""
+                    raw_payout = str(level.get("payout", "")).strip().replace("$", "").replace(",", "")
+                    payout_val = ""
+                    try:
+                        if raw_payout:
+                            payout_val = str(round(float(raw_payout), 2))
+                    except (ValueError, TypeError):
+                        payout_val = ""
                     if event_name:
-                        refined["payout_levels"].append({"event": event_name, "payout": ""})
+                        refined["payout_levels"].append({"event": event_name, "payout": payout_val})
 
         # Include existing countries for comparison
         refined["existing_countries"] = existing_countries
@@ -1720,6 +1958,12 @@ def hide_offer_by_id():
 # ===================== PER-FIELD AI REFINE =====================
 
 FIELD_PROMPTS = {
+    'refined_name': """Create a SHORT, clean display name for this offer.
+Remove country codes, network identifiers, brackets, and technical junk from the name.
+Keep the brand/product name recognizable. Max 30 characters.
+Examples: "Public.com - Start Investing 10$ First Trade" → "Public Invest", "BetOBet Casino [AU] FTD" → "BetOBet Casino"
+Return JSON: {{"refined_name": "...clean name..."}}""",
+
     'event_flow': """Extract a SHORT conversion flow subtitle from this offer. 
 Max 60 chars. Format: "Action → Action → Result" or similar arrow-connected flow.
 NEVER include dollar amounts or monetary values. Write "Deposit" not "Deposit $25".
@@ -1837,7 +2081,9 @@ def refine_single_field():
         value = result.get(field)
 
         # Field-specific validation
-        if field == 'event_flow' and value:
+        if field == 'refined_name' and value:
+            value = str(value).strip()[:30] or None
+        elif field == 'event_flow' and value:
             value = str(value).strip()[:60] or None
         elif field == 'difficulty':
             value = value if value in ('Easy', 'Medium', 'Hard') else 'Medium'

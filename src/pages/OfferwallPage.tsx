@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { OfferwallProfessional } from '../components/OfferwallProfessional';
 
 export const OfferwallPage: React.FC = () => {
@@ -9,6 +9,8 @@ export const OfferwallPage: React.FC = () => {
     country: '',
     apiKey: '',
   });
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isInIframe, setIsInIframe] = useState(false);
 
   useEffect(() => {
     // Get URL parameters
@@ -20,7 +22,96 @@ export const OfferwallPage: React.FC = () => {
       country: searchParams.get('country') || '',
       apiKey: searchParams.get('api_key') || '',
     });
+
+    // Detect if we're inside an iframe
+    try {
+      const inIframe = window.self !== window.top;
+      setIsInIframe(inIframe);
+    } catch {
+      // Cross-origin iframe — we're definitely in one
+      setIsInIframe(true);
+    }
   }, []);
+
+  // ==================== IFRAME AUTO-RESIZE ====================
+  // Communicates content height to the parent window so the iframe
+  // can grow to fit content without internal scrollbars
+  const sendHeight = useCallback(() => {
+    if (!isInIframe) return;
+    try {
+      const height = document.documentElement.scrollHeight;
+      window.parent.postMessage(
+        { type: 'moustache-offerwall-resize', height },
+        '*'
+      );
+    } catch {
+      // Cross-origin — parent can't receive, that's ok
+    }
+  }, [isInIframe]);
+
+  useEffect(() => {
+    if (!isInIframe) return;
+
+    // Send height on load, after renders, and on resize
+    const observer = new ResizeObserver(() => sendHeight());
+    observer.observe(document.documentElement);
+
+    // Also poll briefly after load for dynamic content
+    const intervals = [100, 300, 500, 1000, 2000, 5000];
+    const timers = intervals.map(ms => setTimeout(sendHeight, ms));
+
+    // Send on scroll (for infinite scroll scenarios)
+    const handleMutation = () => sendHeight();
+    const mutObs = new MutationObserver(handleMutation);
+    mutObs.observe(document.body, { childList: true, subtree: true });
+
+    return () => {
+      observer.disconnect();
+      mutObs.disconnect();
+      timers.forEach(clearTimeout);
+    };
+  }, [isInIframe, sendHeight]);
+
+  // ==================== IFRAME-FRIENDLY STYLES ====================
+  // Override global CSS that causes scrolling issues inside iframes
+  useEffect(() => {
+    if (!isInIframe) return;
+
+    // Fix html/body for iframe context
+    const style = document.createElement('style');
+    style.id = 'offerwall-iframe-fixes';
+    style.textContent = `
+      html, body, #root {
+        height: auto !important;
+        min-height: auto !important;
+        overflow: visible !important;
+        overflow-x: hidden !important;
+      }
+      body {
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+      }
+      /* Remove sticky positioning inside iframes — it fights with parent scroll */
+      .ow-header {
+        position: relative !important;
+      }
+      /* Ensure the offerwall fills available width */
+      #root {
+        width: 100% !important;
+        max-width: 100% !important;
+      }
+      /* Fix main overflow for iframe */
+      main {
+        overflow: visible !important;
+      }
+    `;
+    document.head.appendChild(style);
+
+    return () => {
+      const el = document.getElementById('offerwall-iframe-fixes');
+      if (el) el.remove();
+    };
+  }, [isInIframe]);
 
   if (!params.placementId || !params.userId) {
     return (
@@ -40,13 +131,32 @@ export const OfferwallPage: React.FC = () => {
   }
 
   return (
-    <OfferwallProfessional
-      placementId={params.placementId}
-      userId={params.userId}
-      subId={params.subId}
-      country={params.country}
-      apiKey={params.apiKey}
-    />
+    <div ref={containerRef} style={{ width: '100%', minHeight: isInIframe ? 'auto' : '100vh' }}>
+      <OfferwallProfessional
+        placementId={params.placementId}
+        userId={params.userId}
+        subId={params.subId}
+        country={params.country}
+        apiKey={params.apiKey}
+      />
+
+      {/* Embed script helper — publishers can include this on their page for auto-resize */}
+      {isInIframe && (
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              // Auto-resize is handled via postMessage from within the iframe.
+              // Parent page should add this script for seamless height sync:
+              // window.addEventListener('message', function(e) {
+              //   if (e.data && e.data.type === 'moustache-offerwall-resize') {
+              //     document.getElementById('your-iframe-id').style.height = e.data.height + 'px';
+              //   }
+              // });
+            `,
+          }}
+        />
+      )}
+    </div>
   );
 };
 

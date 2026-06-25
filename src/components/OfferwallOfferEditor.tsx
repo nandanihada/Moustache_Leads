@@ -1428,6 +1428,57 @@ export function OfferwallOfferEditor({
               Boost
             </Button>
           )}
+          {onRemoveBoost && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 border-red-300 text-red-700 hover:bg-red-50"
+              onClick={() => {
+                const selectedIds = Array.from(selectedOffers);
+                const boostedSelectedIds = selectedIds.filter(id => boostedOffers.some(b => b.offer_id === id));
+                if (boostedSelectedIds.length === 0) {
+                  toast({ title: "No boosted offers selected", description: "Select boosted offers to revert.", variant: "destructive" });
+                  return;
+                }
+                onRemoveBoost(boostedSelectedIds);
+              }}
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Revert Boost
+            </Button>
+          )}
+          {onToggleFeatured && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 border-yellow-400 text-yellow-700 hover:bg-yellow-50"
+              onClick={() => {
+                const selectedIds = Array.from(selectedOffers);
+                // Send with "add:" prefix to force-add
+                onToggleFeatured('add:' + selectedIds.join(','));
+                toast({ title: "Featured Updated", description: `Added ${selectedIds.length} offer(s) to featured` });
+              }}
+            >
+              <Star className="h-3.5 w-3.5" />
+              Mark Featured
+            </Button>
+          )}
+          {onToggleFeatured && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 border-red-300 text-red-600 hover:bg-red-50"
+              onClick={() => {
+                const selectedIds = Array.from(selectedOffers);
+                // Send with "remove:" prefix to force-remove
+                onToggleFeatured('remove:' + selectedIds.join(','));
+                toast({ title: "Removed from Featured", description: `Removed ${selectedIds.length} offer(s) from featured` });
+              }}
+            >
+              <X className="h-3.5 w-3.5" />
+              Remove Featured
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"

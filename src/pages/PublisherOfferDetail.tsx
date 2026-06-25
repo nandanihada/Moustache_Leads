@@ -329,10 +329,16 @@ export default function PublisherOfferDetail() {
                 {offer.name}
               </h1>
 
-              {/* Short description */}
-              <p className="text-white/70 max-w-2xl text-[15px] leading-relaxed">
-                {offer.description ? offer.description.substring(0, 150) + (offer.description.length > 150 ? '...' : '') : 'High-converting offer with proven performance metrics.'}
-              </p>
+              {/* Short description — show refined summary if available, hide raw description */}
+              {(offer as any).refined_description?.summary ? (
+                <p className="text-white/70 max-w-2xl text-[15px] leading-relaxed">
+                  {(offer as any).refined_description.summary}
+                </p>
+              ) : (offer as any).refined_description?.event_flow ? (
+                <p className="text-white/70 max-w-2xl text-[15px] leading-relaxed">
+                  {(offer as any).refined_description.event_flow}
+                </p>
+              ) : null}
             </div>
             </div>
 

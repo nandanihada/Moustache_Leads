@@ -504,7 +504,7 @@ const Offerwall: React.FC<OfferwallProps> = ({
 
   // ======================== MAIN OFFERWALL ========================
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-indigo-50">
+    <div className="min-h-[400px] bg-gradient-to-br from-purple-50 via-white to-indigo-50">
       {/* ===== HEADER / NAVBAR ===== */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-purple-100 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">

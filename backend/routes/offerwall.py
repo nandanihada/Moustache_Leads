@@ -2520,7 +2520,7 @@ def get_offers():
                     'payout_type': offer.get('payout_type', 'cpa'),
                     'click_count': offer_click_counts.get(offer.get('offer_id'), 0),
                     'pick_count': offer_pick_counts.get(offer.get('offer_id'), 0),
-                    'refined_description': offer.get('refined_description'),
+                    'refined_description': None,  # Set below after payout conversion
                     'is_boosted': _is_boosted,
                     'boost_percentage': _boost_percentage,
                     'boost_direction': _boost_direction,
@@ -2593,6 +2593,32 @@ def get_offers():
                     transformed_offer['estimated_approval_time'] = 'Approved' if is_approved else 'Pending'
                     transformed_offer['requires_approval'] = True
                 
+                # Convert refined_description payout_levels to user's currency
+                raw_refined = offer.get('refined_description')
+                if raw_refined and isinstance(raw_refined, dict):
+                    refined_copy = dict(raw_refined)
+                    payout_lvls = refined_copy.get('payout_levels', [])
+                    if payout_lvls and isinstance(payout_lvls, list):
+                        converted_levels = []
+                        for lvl in payout_lvls:
+                            if isinstance(lvl, dict):
+                                event_name = lvl.get('event', '')
+                                raw_payout_str = str(lvl.get('payout', '')).strip().replace('$', '').replace(',', '')
+                                converted_display = ''
+                                if raw_payout_str:
+                                    try:
+                                        raw_val = float(raw_payout_str)
+                                        # Apply 80% publisher share then exchange rate
+                                        user_val = round(raw_val * 0.8 * placement_exchange_rate)
+                                        converted_display = f"{user_val} {placement_currency_name}"
+                                    except (ValueError, TypeError):
+                                        converted_display = ''
+                                converted_levels.append({'event': event_name, 'payout': converted_display})
+                        refined_copy['payout_levels'] = converted_levels
+                    transformed_offer['refined_description'] = refined_copy
+                else:
+                    transformed_offer['refined_description'] = raw_refined
+
                 transformed_offers.append(transformed_offer)
                 
             except Exception as offer_err:
@@ -2608,6 +2634,17 @@ def get_offers():
         if skipped_offers:
             logger.warning(f"⚠️ Skipped {len(skipped_offers)} offers due to bad data")
         
+        # Get featured offer IDs from settings
+        featured_offer_ids = []
+        try:
+            settings_col = db_instance.get_collection('offerwall_settings')
+            if settings_col is not None:
+                settings_doc = settings_col.find_one({}, {'featured_offers': 1})
+                if settings_doc:
+                    featured_offer_ids = settings_doc.get('featured_offers', [])
+        except Exception:
+            pass
+
         response_data = {
             'offers': transformed_offers,
             'total_count': total_count,
@@ -2618,6 +2655,7 @@ def get_offers():
             'user_id': user_id,
             'exchange_rate': placement_exchange_rate,
             'currency_name': placement_currency_name,
+            'featured_offer_ids': featured_offer_ids,
             'generated_at': datetime.utcnow().isoformat(),
             'skipped_count': len(skipped_offers),
             'skipped_offers': skipped_offers[:20]  # Cap at 20 to avoid bloating response
