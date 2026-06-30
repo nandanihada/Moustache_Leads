@@ -10,7 +10,7 @@ import { Progress } from '@/components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { apiImportService, PreviewOffer, ImportSummary, FullPreviewOffer } from '@/services/apiImportService';
+import { apiImportService, PreviewOffer, ImportSummary, FullPreviewOffer, StaleOffer } from '@/services/apiImportService';
 import { adminOfferApi } from '@/services/adminOfferApi';
 import { Loader2, Eye, EyeOff, CheckCircle2, XCircle, AlertCircle, Download, Filter, Image, FileText, Globe, DollarSign, Link2, Copy, Search, Pencil, X, Check, ChevronDown, ChevronUp, Sparkles, Wand2, ImagePlus, Link } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
@@ -34,6 +34,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
   const [networkId, setNetworkId] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [apiUrl, setApiUrl] = useState('');
+  const [networkName, setNetworkName] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [fetchMode, setFetchMode] = useState<'my_offers' | 'all_offers'>('my_offers');
   
@@ -100,6 +101,12 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
   const [importErrors, setImportErrors] = useState<Array<{ offer_name: string; error: string }>>([]);
   
+  // Stale offers state
+  const [staleOffers, setStaleOffers] = useState<StaleOffer[]>([]);
+  const [staleAction, setStaleAction] = useState<'pending' | 'kept' | 'deleted' | 'status_changed'>('pending');
+  const [deletingStale, setDeletingStale] = useState(false);
+  const [staleStatusTarget, setStaleStatusTarget] = useState<string>('');
+  
   // Loading states
   const [testing, setTesting] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -108,6 +115,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
   const getEffectiveNetworkId = () => {
     if (networkType === 'everflow') return apiUrl || 'https://api.eflow.team';
     if (networkType === 'mobplus') return apiUrl || 'http://mob.mobplus.net';
+    if (networkType === 'adscendmedia') return networkId;
     return networkId;
   };
 
@@ -129,7 +137,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
   const handleTestConnection = async () => {
     const effectiveId = getEffectiveNetworkId();
     if (!effectiveId || !apiKey) {
-      toast({ title: 'Error', description: networkType === 'everflow' ? 'Please enter API URL and API Key' : 'Please enter Network ID and API Key', variant: 'destructive' });
+      toast({ title: 'Error', description: networkType === 'everflow' || networkType === 'mobplus' ? 'Please enter API URL and API Key' : 'Please enter Network ID/Publisher ID and API Key', variant: 'destructive' });
       return;
     }
     setTesting(true);
@@ -190,6 +198,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
         network_id: getEffectiveNetworkId(),
         api_key: apiKey,
         network_type: networkType,
+        network_name: networkName.trim() || getEffectiveNetworkId(),
         fetch_mode: fetchMode,
         options: {
           skip_duplicates: skipDuplicates,
@@ -216,6 +225,8 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
       if (response.summary) {
         setImportSummary(response.summary);
         setImportErrors(response.errors || []);
+        setStaleOffers(response.stale_offers || []);
+        setStaleAction('pending');
         setCurrentStep('complete');
         const imported = response.summary.imported || 0;
         const errors = response.summary.errors || 0;
@@ -223,7 +234,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
         else if (imported > 0) toast({ title: 'Import Complete', description: `Successfully imported ${imported} offers` });
         else toast({ title: 'Import Failed', description: `No offers were imported. ${errors} errors occurred.`, variant: 'destructive' });
         onImportComplete();
-      } else if (response.success) { setCurrentStep('complete'); setImportSummary({ total_fetched: 0, imported: 0, skipped: 0, errors: 0 }); onImportComplete(); }
+      } else if (response.success) { setCurrentStep('complete'); setImportSummary({ total_fetched: 0, imported: 0, skipped: 0, errors: 0 }); setStaleOffers([]); onImportComplete(); }
     } catch (error) {
       clearInterval(progressInterval);
       toast({ title: 'Import Failed', description: error instanceof Error ? error.message : 'Failed to import offers', variant: 'destructive' });
@@ -233,10 +244,12 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
   
   const handleClose = () => {
     setCurrentStep('credentials'); setNetworkId(''); setApiKey(''); setApiUrl('');
+    setNetworkName('');
     setFetchMode('my_offers');
     setFullPreviewOffers([]); setAuditSummary(null); setAuditFilter('all');
     setSelectedOfferIds(new Set()); setEditedOffers({}); setEditingOfferId(null);
     setImportSummary(null); setImportErrors([]); setImportStep(''); setTotalAvailable(0);
+    setStaleOffers([]); setStaleAction('pending'); setDeletingStale(false); setStaleStatusTarget('');
     onOpenChange(false);
   };
 
@@ -520,6 +533,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
                   <SelectItem value="hasoffers">HasOffers / Tune</SelectItem>
                   <SelectItem value="everflow">Everflow</SelectItem>
                   <SelectItem value="mobplus">MobPlus</SelectItem>
+                  <SelectItem value="adscendmedia">Adscend Media</SelectItem>
                   <SelectItem value="cj" disabled>Commission Junction (Coming Soon)</SelectItem>
                   <SelectItem value="shareasale" disabled>ShareASale (Coming Soon)</SelectItem>
                 </SelectContent>
@@ -530,6 +544,14 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
               <div className="space-y-2">
                 <Label>Network ID *</Label>
                 <Input placeholder="e.g., cpamerchant" value={networkId} onChange={(e) => setNetworkId(e.target.value)} />
+              </div>
+            )}
+            
+            {networkType === 'adscendmedia' && (
+              <div className="space-y-2">
+                <Label>Publisher ID *</Label>
+                <Input placeholder="e.g., 32836" value={networkId} onChange={(e) => setNetworkId(e.target.value)} />
+                <p className="text-xs text-muted-foreground">Your numeric Publisher ID from the AdscendMedia dashboard (Offers API section)</p>
               </div>
             )}
             
@@ -552,11 +574,17 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
             <div className="space-y-2">
               <Label>API Key *</Label>
               <div className="relative">
-                <Input type={showApiKey ? 'text' : 'password'} placeholder={networkType === 'everflow' ? 'Enter your x-eflow-api-key' : networkType === 'mobplus' ? 'Enter your MobPlus Authorization token' : 'Enter your API key'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="pr-10" />
+                <Input type={showApiKey ? 'text' : 'password'} placeholder={networkType === 'everflow' ? 'Enter your x-eflow-api-key' : networkType === 'mobplus' ? 'Enter your MobPlus Authorization token' : networkType === 'adscendmedia' ? 'Enter your AdscendMedia API Key' : 'Enter your API key'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="pr-10" />
                 <Button type="button" variant="ghost" size="sm" className="absolute right-0 top-0 h-full px-3" onClick={() => setShowApiKey(!showApiKey)}>
                   {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
               </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Network Name *</Label>
+              <Input placeholder="e.g. adtogame, leadads, cpamerchant" value={networkName} onChange={(e) => setNetworkName(e.target.value)} />
+              <p className="text-xs text-muted-foreground">This name is stored on imported offers and used for sync detection. Use the same name each time for this network.</p>
             </div>
             
             {(networkType === 'hasoffers' || networkType === 'everflow') && (
@@ -577,7 +605,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
               </div>
             )}
             
-            <Button onClick={handleTestConnection} disabled={testing || (networkType === 'hasoffers' ? !networkId : !apiUrl) || !apiKey}>
+            <Button onClick={handleTestConnection} disabled={testing || (networkType === 'hasoffers' || networkType === 'adscendmedia' ? !networkId : !apiUrl) || !apiKey}>
               {testing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Test Connection
             </Button>
             
@@ -590,7 +618,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
             
             <div className="flex justify-end gap-2 pt-4">
               <Button variant="outline" onClick={handleClose}>Cancel</Button>
-              <Button onClick={handleFetchFullPreview} disabled={loading || (networkType === 'hasoffers' ? !networkId : !apiUrl) || !apiKey}>
+              <Button onClick={handleFetchFullPreview} disabled={loading || (networkType === 'hasoffers' || networkType === 'adscendmedia' ? !networkId : !apiUrl) || !apiKey}>
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Next: Fetch & Preview Offers
               </Button>
             </div>
@@ -929,6 +957,140 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
                 ))}
               </div>
             )}
+            
+            {/* Stale Offers Section */}
+            {staleOffers.length > 0 && (
+              <div className="border border-orange-200 rounded-md bg-orange-50 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-orange-600" />
+                  <h4 className="font-semibold text-orange-900">
+                    {staleOffers.length} Offer{staleOffers.length > 1 ? 's' : ''} Not Found in API
+                  </h4>
+                </div>
+                <p className="text-sm text-orange-800">
+                  These offers exist in your system but were not returned by the network API. They may have been removed, paused, or expired on the network side.
+                </p>
+                
+                {staleAction === 'pending' && (
+                  <>
+                    <div className="max-h-48 overflow-y-auto border border-orange-200 rounded bg-white">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-xs">Name</TableHead>
+                            <TableHead className="text-xs">Payout</TableHead>
+                            <TableHead className="text-xs">Countries</TableHead>
+                            <TableHead className="text-xs">Vertical</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {staleOffers.map((offer, i) => (
+                            <TableRow key={i} className="text-xs">
+                              <TableCell className="font-medium max-w-[200px] truncate">{offer.name}</TableCell>
+                              <TableCell>${offer.payout?.toFixed(2)}</TableCell>
+                              <TableCell>{(offer.countries || []).slice(0, 3).join(', ')}{offer.countries?.length > 3 ? '...' : ''}</TableCell>
+                              <TableCell><Badge variant="outline" className="text-xs">{offer.vertical || '-'}</Badge></TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    <div className="flex flex-wrap gap-2 pt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setStaleAction('kept')}
+                        className="border-green-300 text-green-700 hover:bg-green-50"
+                      >
+                        <Check className="h-4 w-4 mr-1" /> Keep All ({staleOffers.length})
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={deletingStale}
+                        onClick={async () => {
+                          setDeletingStale(true);
+                          try {
+                            const offerIds = staleOffers.map(o => o.offer_id || o.campaign_id);
+                            const result = await apiImportService.deleteStaleOffers(getEffectiveNetworkId(), offerIds);
+                            if (result.success) {
+                              setStaleAction('deleted');
+                              toast({ title: 'Stale Offers Deleted', description: `Deleted ${result.deleted} offers that are no longer in the network.` });
+                              onImportComplete();
+                            }
+                          } catch (err) {
+                            toast({ title: 'Delete Failed', description: err instanceof Error ? err.message : 'Failed to delete stale offers', variant: 'destructive' });
+                          } finally {
+                            setDeletingStale(false);
+                          }
+                        }}
+                      >
+                        {deletingStale && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+                        Delete All ({staleOffers.length})
+                      </Button>
+                      <div className="flex items-center gap-1 ml-auto">
+                        <Select value="" onValueChange={async (status) => {
+                          setDeletingStale(true);
+                          try {
+                            const offerIds = staleOffers.map(o => o.offer_id || o.campaign_id);
+                            const result = await apiImportService.updateStaleOffersStatus(getEffectiveNetworkId(), offerIds, status);
+                            if (result.success) {
+                              setStaleStatusTarget(status);
+                              setStaleAction('status_changed');
+                              toast({ title: 'Status Updated', description: `Marked ${result.updated} offers as "${status}".` });
+                              onImportComplete();
+                            }
+                          } catch (err) {
+                            toast({ title: 'Update Failed', description: err instanceof Error ? err.message : 'Failed to update status', variant: 'destructive' });
+                          } finally {
+                            setDeletingStale(false);
+                          }
+                        }}>
+                          <SelectTrigger className="h-8 w-[170px] text-xs">
+                            <SelectValue placeholder="Mark All As..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="inactive">⚫ Inactive</SelectItem>
+                            <SelectItem value="paused">⏸️ Paused</SelectItem>
+                            <SelectItem value="expired">💀 Expired</SelectItem>
+                            <SelectItem value="hidden">🙈 Hidden</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </>
+                )}
+                
+                {staleAction === 'kept' && (
+                  <div className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded">
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    <span className="text-sm text-green-800">Kept {staleOffers.length} offers — no changes made.</span>
+                  </div>
+                )}
+                
+                {staleAction === 'deleted' && (
+                  <div className="flex items-center gap-2 p-2 bg-red-50 border border-red-200 rounded">
+                    <CheckCircle2 className="h-4 w-4 text-red-600" />
+                    <span className="text-sm text-red-800">Deleted {staleOffers.length} stale offers from your system.</span>
+                  </div>
+                )}
+                
+                {staleAction === 'status_changed' && (
+                  <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded">
+                    <CheckCircle2 className="h-4 w-4 text-blue-600" />
+                    <span className="text-sm text-blue-800">Marked {staleOffers.length} offers as "{staleStatusTarget}".</span>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {staleOffers.length === 0 && (
+              <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-md">
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+                <span className="text-sm text-green-800">Sync Check: All existing offers for this network are still active in the API. No stale offers found.</span>
+              </div>
+            )}
+            
             <div className="flex justify-end gap-2 pt-4">
               <Button variant="outline" onClick={handleClose}>Close</Button>
               <Button onClick={handleClose}>View Imported Offers</Button>

@@ -388,6 +388,52 @@ def receive_postback(unique_key):
         result = received_postbacks_collection.insert_one(received_log)
         logger.info(f"✅ Postback logged: {result.inserted_id}")
 
+        # 📡 OFFER STATUS SIGNAL CAPTURE: Log offer_id + sub_id1 (TYP) for status tracking
+        try:
+            offer_id_param = _get_param('offer_id') or _get_param('oid') or _get_param('OID') or _get_param('camp')
+            status_param = _get_param('sub_id1') or _get_param('typ') or _get_param('TYP') or _get_param('type')
+            
+            if offer_id_param and status_param:
+                signals_col = get_collection('offer_status_signals')
+                if signals_col is not None:
+                    # Try to match offer in DB
+                    offers_col = get_collection('offers')
+                    matched_offer_id = None
+                    matched_offer_name = None
+                    current_status = None
+                    
+                    if offers_col is not None:
+                        matched = offers_col.find_one(
+                            {'campaign_id': str(offer_id_param)},
+                            {'offer_id': 1, 'name': 1, 'status': 1}
+                        )
+                        if matched:
+                            matched_offer_id = matched.get('offer_id', str(matched.get('_id', '')))
+                            matched_offer_name = matched.get('name', '')
+                            current_status = matched.get('status', '')
+                    
+                    signals_col.insert_one({
+                        'network': partner_name,
+                        'partner_id': partner_id,
+                        'offer_id_received': str(offer_id_param),
+                        'status_received': str(status_param),
+                        'raw_params': params,
+                        'matched_offer_id': matched_offer_id,
+                        'matched_offer_name': matched_offer_name,
+                        'current_status': current_status,
+                        'suggested_status': None,
+                        'applied': False,
+                        'applied_at': None,
+                        'ignored': False,
+                        'received_at': datetime.utcnow(),
+                        'ip': ip_address,
+                        'source': 'postback',
+                        'postback_log_id': str(result.inserted_id),
+                    })
+                    logger.info(f"📡 Offer status signal captured: offer={offer_id_param}, status={status_param}, network={partner_name}")
+        except Exception as signal_err:
+            logger.warning(f"Offer status signal capture error (non-critical): {signal_err}")
+
         # 🔀 SURVEY ROUTER: Check if this postback matches an active survey router session
         try:
             _update_survey_router_session(unique_key, params, post_data, _get_param)

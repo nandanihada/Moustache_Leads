@@ -33,7 +33,8 @@ import {
   StickyNote,
   Link2,
   CheckCircle,
-  FileText
+  FileText,
+  Radio
 } from "lucide-react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -164,6 +165,7 @@ const adminMenuStructure = [
       { title: "Postback", url: "/admin/postback", icon: Inbox, tab: "postback" },
       { title: "Test Postback", url: "/admin/test-postback", icon: Zap, tab: "test-postback" },
       { title: "Postback Pipeline", url: "/admin/postback-pipeline", icon: Zap, tab: "postback" },
+      { title: "Offer Status Signals", url: "/admin/offer-status-signals", icon: Radio, tab: "offer-status-signals" },
       { title: "API Stats", url: "/admin/api-stats", icon: Activity, tab: "api-stats" },
     ]
   },

@@ -116,6 +116,18 @@ export interface ImportSummary {
   imported: number;
   skipped: number;
   errors: number;
+  stale_count?: number;
+}
+
+export interface StaleOffer {
+  offer_id: string;
+  campaign_id: string;
+  name: string;
+  payout: number;
+  countries: string[];
+  vertical: string;
+  status: string;
+  image_url: string;
 }
 
 export interface ImportResponse {
@@ -124,6 +136,7 @@ export interface ImportResponse {
   imported_offers?: string[];
   skipped_offers?: Array<{ name: string; reason: string }>;
   errors?: Array<{ offer_name: string; error: string }>;
+  stale_offers?: StaleOffer[];
   error?: string;
 }
 
@@ -233,6 +246,54 @@ class ApiImportService {
       return data;
     } catch (error) {
       console.error('Full preview error:', error);
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        throw new Error('Cannot connect to server. Please check if the backend is running and CORS is configured.');
+      }
+      throw error;
+    }
+  }
+
+  async deleteStaleOffers(networkId: string, offerIds: string[]): Promise<{ success: boolean; deleted: number; message: string }> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/offers/api-import/delete-stale`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ network_id: networkId, offer_ids: offerIds }),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({ error: 'Network error' }));
+        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Delete stale offers error:', error);
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        throw new Error('Cannot connect to server. Please check if the backend is running and CORS is configured.');
+      }
+      throw error;
+    }
+  }
+
+  async updateStaleOffersStatus(networkId: string, offerIds: string[], status: string): Promise<{ success: boolean; updated: number; status: string; message: string }> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/offers/api-import/update-stale-status`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ network_id: networkId, offer_ids: offerIds, status }),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({ error: 'Network error' }));
+        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Update stale offers status error:', error);
       if (error instanceof TypeError && error.message === 'Failed to fetch') {
         throw new Error('Cannot connect to server. Please check if the backend is running and CORS is configured.');
       }

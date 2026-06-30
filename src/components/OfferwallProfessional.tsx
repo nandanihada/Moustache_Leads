@@ -883,8 +883,8 @@ export const OfferwallProfessional: React.FC<Props> = ({
                 const displayPicks = offer.pick_count || 0;
                 const deviceLabel = getDeviceLabel(offer);
                 return (
-                  <div key={offer.id} className="bg-white rounded-xl border border-gray-100 hover:border-purple-200 hover:shadow-md px-4 py-3 cursor-pointer transition-all group grid grid-cols-1 md:grid-cols-[1fr_140px_80px_120px] items-center gap-3 md:gap-0">
-                    <div className="flex items-center gap-3" onClick={() => handleClick(offer)}>
+                  <div key={offer.id} className="bg-white rounded-xl border border-gray-100 hover:border-purple-200 hover:shadow-md px-4 py-3 cursor-pointer transition-all group grid grid-cols-[1fr_auto] md:grid-cols-[1fr_140px_80px_120px] items-center gap-2 md:gap-0">
+                    <div className="flex items-center gap-3 min-w-0 overflow-hidden" onClick={() => handleClick(offer)}>
                       <div className="w-20 h-20 rounded-xl bg-white border border-gray-100 flex-shrink-0 flex items-center justify-center overflow-hidden">
                         <img src={getOfferImage({ image_url: offer.image_url, vertical: offer.category })} alt={offer.title} className="w-full h-full object-contain p-2" onError={e => { (e.target as HTMLImageElement).src = '/category-images/other.png'; }} />
                       </div>
@@ -913,10 +913,11 @@ export const OfferwallProfessional: React.FC<Props> = ({
                               <Users className="h-3 w-3" />{displayPicks.toLocaleString()}
                             </span>
                           )}
+                          <span className="md:hidden inline-flex items-center text-[10px] font-bold text-[#340075] bg-purple-50 px-1.5 py-0.5 rounded-full">+{pts.toLocaleString()} {currency}</span>
                         </div>
                       </div>
                     </div>
-                    <div className="md:text-center" onClick={() => handleClick(offer)}>
+                    <div className="hidden md:block md:text-center" onClick={() => handleClick(offer)}>
                       {offer.is_boosted && offer.boost_percentage ? (
                         <div className="flex flex-col items-center">
                           <span className="text-red-400 text-xs line-through decoration-red-500 decoration-2 font-medium">{Math.round(pts / (1 + (offer.boost_direction === 'increase' ? 1 : -1) * (offer.boost_percentage || 0) / 100)).toLocaleString()} {currency}</span>
@@ -926,10 +927,10 @@ export const OfferwallProfessional: React.FC<Props> = ({
                         <span className="font-bold text-[#340075] text-sm">+{pts.toLocaleString()} {currency}</span>
                       )}
                     </div>
-                    <div className="md:text-center">
+                    <div className="hidden md:block md:text-center">
                       <button onClick={e => { e.stopPropagation(); setQrOffer(offer); }} className="p-2 rounded-lg hover:bg-purple-50 text-gray-400 hover:text-[#340075] transition-colors" title="QR Code"><QrCode className="h-4 w-4" /></button>
                     </div>
-                    <div className="md:text-right"><button onClick={() => handleClick(offer)} className="text-xs font-semibold text-white bg-[#340075] hover:bg-[#4c1d95] px-4 py-2 rounded-lg transition-all hover:shadow-md">Start Offer</button></div>
+                    <div className="text-right flex-shrink-0"><button onClick={() => handleClick(offer)} className="text-xs font-semibold text-white bg-[#340075] hover:bg-[#4c1d95] px-3 py-1.5 md:px-4 md:py-2 rounded-lg transition-all hover:shadow-md whitespace-nowrap">Start Offer</button></div>
                   </div>
                 );
               })}
@@ -1093,7 +1094,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
       {/* ===== TELEGRAM FLOATING BUTTON ===== */}
       {showTelegramBtn && (
         <div className="fixed bottom-5 right-5 z-[9999] flex items-center gap-1.5">
-          <a href="https://t.me/MOUSTACHELeads_bot" target="_blank" rel="noopener noreferrer"
+          <a href="https://t.me/mlaffil" target="_blank" rel="noopener noreferrer"
             className="flex items-center gap-2 bg-[#0088cc] hover:bg-[#006da3] text-white px-4 py-2.5 rounded-full shadow-lg hover:shadow-xl transition-all text-sm font-semibold"
             style={{ textDecoration: 'none' }}>
             <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 flex-shrink-0">

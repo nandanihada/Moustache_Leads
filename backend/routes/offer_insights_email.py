@@ -1454,3 +1454,81 @@ def delete_offer_view_logs():
     except Exception as e:
         logger.error(f"Error deleting offer view logs: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+
+
+# ===================== PERMANENT EMAIL EXCLUSIONS =====================
+
+@offer_insights_bp.route('/insights/email-exclusions', methods=['GET'])
+@token_required
+@admin_required
+def get_email_exclusions():
+    """Get list of permanently excluded emails."""
+    try:
+        from database import db_instance
+        col = db_instance.get_collection('email_exclusions')
+        if col is None:
+            return jsonify({'excluded_emails': []}), 200
+        docs = list(col.find({}, {'_id': 0, 'email': 1, 'name': 1, 'excluded_at': 1, 'reason': 1}))
+        return jsonify({'excluded_emails': docs}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@offer_insights_bp.route('/insights/email-exclusions', methods=['POST'])
+@token_required
+@admin_required
+def add_email_exclusions():
+    """Add emails to permanent exclusion list."""
+    try:
+        from database import db_instance
+        from datetime import datetime
+        data = request.get_json()
+        emails = data.get('emails', [])
+        reason = data.get('reason', 'Admin excluded')
+        if not emails:
+            return jsonify({'error': 'No emails provided'}), 400
+        
+        col = db_instance.get_collection('email_exclusions')
+        if col is None:
+            return jsonify({'error': 'Database error'}), 500
+        
+        added = 0
+        for email in emails:
+            email = email.strip().lower()
+            if not email or '@' not in email:
+                continue
+            # Upsert — don't duplicate
+            col.update_one(
+                {'email': email},
+                {'$set': {'email': email, 'reason': reason, 'excluded_at': datetime.utcnow()},
+                 '$setOnInsert': {'name': data.get('names', {}).get(email, '')}},
+                upsert=True
+            )
+            added += 1
+        
+        return jsonify({'message': f'{added} email(s) added to permanent exclusion', 'added': added}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@offer_insights_bp.route('/insights/email-exclusions', methods=['DELETE'])
+@token_required
+@admin_required
+def remove_email_exclusions():
+    """Remove emails from permanent exclusion list."""
+    try:
+        from database import db_instance
+        data = request.get_json()
+        emails = data.get('emails', [])
+        if not emails:
+            return jsonify({'error': 'No emails provided'}), 400
+        
+        col = db_instance.get_collection('email_exclusions')
+        if col is None:
+            return jsonify({'error': 'Database error'}), 500
+        
+        result = col.delete_many({'email': {'$in': [e.strip().lower() for e in emails]}})
+        return jsonify({'message': f'{result.deleted_count} email(s) removed from exclusion', 'removed': result.deleted_count}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

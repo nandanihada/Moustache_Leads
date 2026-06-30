@@ -42,6 +42,8 @@ class NetworkAPIService:
                 return self._test_everflow_connection(network_id, api_key, fetch_mode)
             elif network_type == 'mobplus':
                 return self._test_mobplus_connection(network_id, api_key)
+            elif network_type == 'adscendmedia':
+                return self._test_adscendmedia_connection(network_id, api_key)
             elif network_type == 'cj':
                 return self._test_cj_connection(network_id, api_key)
             elif network_type == 'shareasale':
@@ -76,6 +78,8 @@ class NetworkAPIService:
                 return self._fetch_everflow_offers(network_id, api_key, filters, limit, fetch_mode)
             elif network_type == 'mobplus':
                 return self._fetch_mobplus_offers(network_id, api_key, filters, limit)
+            elif network_type == 'adscendmedia':
+                return self._fetch_adscendmedia_offers(network_id, api_key, filters, limit)
             elif network_type == 'cj':
                 return self._fetch_cj_offers(network_id, api_key, filters, limit)
             elif network_type == 'shareasale':
@@ -600,6 +604,146 @@ class NetworkAPIService:
             return [], f"Error: {str(e)}"
     
     # ==================== Commission Junction Implementation ====================
+    
+    # ==================== Adscend Media Implementation ====================
+    
+    def _test_adscendmedia_connection(self, publisher_id: str, api_key: str) -> Tuple[bool, Optional[int], Optional[str]]:
+        """
+        Test Adscend Media API connection using Basic Auth.
+        
+        Args:
+            publisher_id: The publisher's ID (numeric) from AdscendMedia dashboard
+            api_key: The API key for the publisher account
+            
+        Returns:
+            Tuple of (success, offer_count, error_message)
+        """
+        try:
+            url = f"https://api.adscendmedia.com/v1/publisher/{publisher_id}/offers.json"
+            
+            logger.info(f"Testing AdscendMedia connection for publisher {publisher_id}")
+            
+            response = self.session.get(
+                url,
+                auth=(publisher_id, api_key),
+                timeout=self.timeout
+            )
+            
+            if response.status_code == 403:
+                return False, None, "Authentication failed: API key doesn't match the Publisher ID"
+            elif response.status_code == 401:
+                return False, None, f"Invalid credentials. The username should be your publisher ID, while the password should be your API key. (HTTP 401: {response.text[:200]})"
+            elif response.status_code == 400:
+                return False, None, "Bad request: Publisher ID is required"
+            elif response.status_code == 204:
+                # No offers available
+                return True, 0, None
+            elif response.status_code != 200:
+                return False, None, f"API returned status {response.status_code}: {response.text[:200]}"
+            
+            data = response.json()
+            offers = data.get('offers', [])
+            offer_count = len(offers)
+            
+            logger.info(f"✅ AdscendMedia connection successful: {offer_count} offers available")
+            return True, offer_count, None
+            
+        except requests.exceptions.Timeout:
+            return False, None, "Connection timed out. Please check your network."
+        except requests.exceptions.ConnectionError:
+            return False, None, "Could not connect to AdscendMedia API. Please check your network."
+        except ValueError as e:
+            return False, None, f"Invalid JSON response: {str(e)}"
+        except Exception as e:
+            logger.error(f"AdscendMedia connection test error: {str(e)}", exc_info=True)
+            return False, None, f"Connection test failed: {str(e)}"
+    
+    def _fetch_adscendmedia_offers(self, publisher_id: str, api_key: str,
+                                    filters: Optional[Dict] = None,
+                                    limit: Optional[int] = None) -> Tuple[List[Dict], Optional[str]]:
+        """
+        Fetch offers from Adscend Media Offers API v1.
+        
+        Uses Basic Auth with publisher_id as username and api_key as password.
+        Endpoint: GET https://api.adscendmedia.com/v1/publisher/{pubId}/offers.json
+        
+        Args:
+            publisher_id: Publisher ID from AdscendMedia
+            api_key: API Key from AdscendMedia
+            filters: Optional filters (country, category, platform, etc.)
+            limit: Optional limit on number of offers returned
+            
+        Returns:
+            Tuple of (offers_list, error_message)
+        """
+        try:
+            url = f"https://api.adscendmedia.com/v1/publisher/{publisher_id}/offers.json"
+            
+            # Build query parameters from filters
+            params = {}
+            if filters:
+                # Country filter
+                countries = filters.get('countries', [])
+                if countries:
+                    for country in countries:
+                        params.setdefault('country[]', []).append(country) if isinstance(countries, list) else None
+                
+                # Category filter
+                categories = filters.get('categories', [])
+                if categories:
+                    for cat in categories:
+                        params.setdefault('category_id[]', []).append(str(cat))
+                
+                # Platform filter
+                platform = filters.get('platform')
+                if platform:
+                    params['platform'] = platform
+                
+                # Minimum payout filter
+                min_payout = filters.get('min_payout')
+                if min_payout:
+                    params['min_payout'] = str(min_payout)
+            
+            # Limit
+            if limit:
+                params['limit'] = str(limit)
+            
+            logger.info(f"Fetching AdscendMedia offers for publisher {publisher_id} with params: {params}")
+            
+            response = self.session.get(
+                url,
+                auth=(publisher_id, api_key),
+                params=params,
+                timeout=60  # Longer timeout for full fetch
+            )
+            
+            if response.status_code == 403:
+                return [], "Authentication failed: API key doesn't match the Publisher ID"
+            elif response.status_code == 400:
+                return [], "Bad request: Publisher ID is required"
+            elif response.status_code == 204:
+                return [], None  # No offers available, not an error
+            elif response.status_code != 200:
+                return [], f"API returned status {response.status_code}: {response.text[:200]}"
+            
+            data = response.json()
+            offers = data.get('offers', [])
+            
+            logger.info(f"✅ Fetched {len(offers)} offers from AdscendMedia")
+            
+            return offers, None
+            
+        except requests.exceptions.Timeout:
+            return [], "Request timed out fetching offers from AdscendMedia"
+        except requests.exceptions.ConnectionError:
+            return [], "Could not connect to AdscendMedia API"
+        except ValueError as e:
+            return [], f"Invalid JSON response from AdscendMedia: {str(e)}"
+        except Exception as e:
+            logger.error(f"AdscendMedia fetch error: {str(e)}", exc_info=True)
+            return [], f"Failed to fetch offers: {str(e)}"
+    
+    # ==================== CJ Implementation ====================
     
     def _test_cj_connection(self, network_id: str, api_key: str) -> Tuple[bool, Optional[int], Optional[str]]:
         """Test CJ API connection"""

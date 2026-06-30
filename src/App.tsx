@@ -46,6 +46,7 @@ const ConversionReport = lazy(() => import("./pages/ConversionReport"));
 const AdminPromoCodeManagement = lazy(() => import("./pages/AdminPromoCodeManagement"));
 const AdminTestPostback = lazy(() => import("./pages/AdminTestPostback"));
 const AdminPostbackPipeline = lazy(() => import("./pages/AdminPostbackPipeline"));
+const AdminOfferStatusSignals = lazy(() => import("./pages/AdminOfferStatusSignals"));
 import PublisherPromoCodeManagement from "./pages/PublisherPromoCodeManagement";
 const AdminBonusManagement = lazy(() => import("./pages/AdminBonusManagement"));
 const TestPage = lazy(() => import("./pages/TestPage"));
@@ -249,6 +250,7 @@ const App = () => (
                 <Route path="postback" element={<PostbackReceiver />} />
                 <Route path="test-postback" element={<AdminTestPostback />} />
                 <Route path="postback-pipeline" element={<AdminPostbackPipeline />} />
+                <Route path="offer-status-signals" element={<AdminOfferStatusSignals />} />
                 <Route path="subadmin-management" element={<AdminSubadminManagement />} />
                 <Route path="gift-cards" element={<AdminGiftCardManagement />} />
                 <Route path="advertisers" element={<AdminAdvertiserManagement />} />

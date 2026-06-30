@@ -43,7 +43,8 @@ def _get_offer_cached(offer_id):
          'currency': 1, 'network': 1, 'category': 1, 'vertical': 1,
          'campaign_id': 1, 'offer_source': 1, 'fallback_redirect_enabled': 1, 
          'fallback_redirect_url': 1, 'fallback_redirect_timer': 1, 'fallback_redirect_message': 1,
-         'countries': 1, 'allowed_countries': 1, 'geo': 1}
+         'countries': 1, 'allowed_countries': 1, 'geo': 1,
+         'device_targeting': 1, 'os_targeting': 1}
     )
     
     if offer:
@@ -189,6 +190,180 @@ h1{font-size:22px;margin-bottom:16px;font-weight:700}
 </body>
 </html>"""
 
+# === DEVICE DETECTION HELPER ===
+def _is_mobile_device(user_agent):
+    """
+    Detect if the user agent is from a mobile device.
+    Returns True if mobile (phone/tablet), False if desktop.
+    """
+    ua = (user_agent or '').lower()
+    mobile_keywords = [
+        'android', 'iphone', 'ipad', 'ipod', 'mobile', 'phone',
+        'tablet', 'silk', 'kindle', 'opera mini', 'opera mobi',
+        'windows phone', 'blackberry', 'bb10', 'webos', 'palm'
+    ]
+    return any(keyword in ua for keyword in mobile_keywords)
+
+
+# HTML template for QR code interstitial (mobile offer viewed on desktop)
+QR_CODE_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scan to Continue on Mobile</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: #f5f5f5;
+    color: #1a1a1a;
+}
+.container {
+    text-align: center;
+    padding: 40px 32px;
+    max-width: 400px;
+    width: 90%;
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.phone-icon {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 16px;
+    background: #f0f0f0;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+}
+h1 {
+    font-size: 20px;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #1a1a1a;
+}
+.subtitle {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 24px;
+    line-height: 1.5;
+}
+.qr-wrapper {
+    display: inline-block;
+    padding: 16px;
+    background: #fff;
+    border: 2px solid #e5e5e5;
+    border-radius: 12px;
+    margin-bottom: 20px;
+}
+#qr-code {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+#qr-code img, #qr-code canvas {
+    display: block;
+    margin: 0 auto;
+}
+.steps {
+    text-align: left;
+    padding: 16px;
+    background: #f9f9f9;
+    border-radius: 10px;
+    margin-top: 20px;
+}
+.step {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 10px;
+    font-size: 13px;
+    color: #444;
+    line-height: 1.4;
+}
+.step:last-child { margin-bottom: 0; }
+.step-num {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    background: #1a1a1a;
+    color: #fff;
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.platform-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    background: #f0f0f0;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #333;
+    margin-bottom: 20px;
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="phone-icon">📱</div>
+    <h1>This offer is for mobile</h1>
+    <p class="subtitle">Scan the QR code with your phone camera to open this offer.</p>
+    <div class="qr-wrapper">
+        <div id="qr-code"></div>
+    </div>
+    {% if platform_label %}
+    <div class="platform-badge">
+        <span>{{ platform_label }}</span>
+    </div>
+    {% endif %}
+    <div class="steps">
+        <div class="step"><span class="step-num">1</span><span>Open your phone camera</span></div>
+        <div class="step"><span class="step-num">2</span><span>Point it at the QR code above</span></div>
+        <div class="step"><span class="step-num">3</span><span>Tap the link that appears to continue</span></div>
+    </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script>
+    var trackingUrl = "{{ tracking_url }}";
+    try {
+        new QRCode(document.getElementById("qr-code"), {
+            text: trackingUrl,
+            width: 200,
+            height: 200,
+            colorDark: "#000000",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.M
+        });
+    } catch(e) {
+        // Fallback: use Google Charts QR API
+        var img = document.createElement('img');
+        img.src = "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=" + encodeURIComponent(trackingUrl);
+        img.width = 200;
+        img.height = 200;
+        img.alt = "QR Code";
+        document.getElementById("qr-code").appendChild(img);
+    }
+</script>
+</body>
+</html>"""
+
+
 @simple_tracking_bp.route('/track/<offer_id>', methods=['GET'])
 def track_offer_click(offer_id):
     """
@@ -284,6 +459,38 @@ def track_offer_click(offer_id):
                         ), 403
             except Exception as geo_err:
                 logger.warning(f"⚠️ Geo check failed (allowing through): {geo_err}")
+        
+        # === DEVICE MISMATCH CHECK: Show QR for mobile offers on desktop ===
+        device_targeting = offer.get('device_targeting', 'all')
+        if device_targeting == 'mobile' and not _is_mobile_device(user_agent):
+            # Offer is mobile-only but user is on desktop — show QR code page
+            # NO click is counted here; click will be counted when user scans QR on mobile
+            current_url = request.url  # Full URL including query params
+            logger.info(f"📱 Device mismatch: mobile offer {offer_id} accessed from desktop, showing QR")
+            
+            # Determine platform label from os_targeting
+            os_targeting = offer.get('os_targeting', [])
+            platform_label = ''
+            platform_icon = ''
+            if os_targeting:
+                os_lower = [o.lower() for o in os_targeting]
+                if 'android' in os_lower and 'ios' not in os_lower:
+                    platform_label = 'Android only'
+                    platform_icon = '🤖'
+                elif 'ios' in os_lower and 'android' not in os_lower:
+                    platform_label = 'iOS only'
+                    platform_icon = '🍎'
+                elif 'android' in os_lower and 'ios' in os_lower:
+                    platform_label = 'Android & iOS'
+                    platform_icon = '📱'
+            
+            return render_template_string(
+                QR_CODE_TEMPLATE,
+                offer_name=offer.get('name', 'Mobile Offer'),
+                tracking_url=current_url,
+                platform_label=platform_label,
+                platform_icon=platform_icon
+            )
         
         # Generate unique click ID
         click_id = generate_click_id()

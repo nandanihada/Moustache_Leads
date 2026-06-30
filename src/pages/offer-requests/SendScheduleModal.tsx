@@ -56,6 +56,7 @@ export default function SendScheduleModal({ open, onClose, offerIds, defaultMode
   const [pubSearch, setPubSearch] = useState('');
   const [loadingPubs, setLoadingPubs] = useState(false);
   const [pubSectionOpen, setPubSectionOpen] = useState(false);
+  const [permanentExclusions, setPermanentExclusions] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!open) return;
@@ -65,6 +66,12 @@ export default function SendScheduleModal({ open, onClose, offerIds, defaultMode
     }).then(r => r.json()).then(d => {
       setPublishers((d.partners || []).map((p: any) => ({ user_id: p._id || p.id, username: p.username, email: p.email })));
     }).catch(() => {}).finally(() => setLoadingPubs(false));
+    // Load permanent exclusions
+    fetch(`${API_BASE_URL}/api/admin/insights/email-exclusions`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(r => r.json()).then(d => {
+      setPermanentExclusions(new Set((d.excluded_emails || []).map((e: any) => e.email)));
+    }).catch(() => {});
   }, [open, token]);
 
   useEffect(() => {
@@ -124,7 +131,11 @@ export default function SendScheduleModal({ open, onClose, offerIds, defaultMode
         setEmailInput('');
       }
       
-      const recipientIds = Array.from(selectedPublishers);
+      const recipientIds = Array.from(selectedPublishers).filter(id => {
+        // Filter out permanently excluded publishers
+        const pub = publishers.find(p => p.user_id === id);
+        return !pub || !permanentExclusions.has(pub.email);
+      });
       const hasRecipients = recipientIds.length > 0 || finalCustomEmails.length > 0;
       
       // CRITICAL: Never auto-broadcast. Admin must explicitly select recipients.

@@ -25,6 +25,8 @@ export interface Partner {
   // NEW: Offer URL auto-param injection
   offer_url_params?: OfferUrlParam[];
   network_domain?: string;
+  // Offer Watch webhook params
+  offer_watch_params?: OfferUrlParam[];
 }
 
 export interface CreatePartnerData {
@@ -37,6 +39,7 @@ export interface CreatePartnerData {
   // NEW
   offer_url_params?: OfferUrlParam[];
   network_domain?: string;
+  offer_watch_params?: OfferUrlParam[];
 }
 
 export interface TestPostbackResponse {

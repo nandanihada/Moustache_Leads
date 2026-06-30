@@ -122,6 +122,8 @@ top_offers_bp = safe_import_blueprint('routes.top_offers', 'top_offers_bp')
 admin_reversals_bp = safe_import_blueprint('routes.admin_reversals', 'admin_reversals_bp')
 admin_invoices_bp = safe_import_blueprint('routes.admin_invoices', 'admin_invoices_bp')
 admin_automation_bp = safe_import_blueprint('routes.admin_automation', 'admin_automation_bp')
+offer_status_webhook_bp = safe_import_blueprint('routes.offer_status_webhook', 'offer_status_webhook_bp')
+offer_status_signals_bp = safe_import_blueprint('routes.offer_status_signals', 'offer_status_signals_bp')
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
@@ -233,6 +235,8 @@ blueprints = [
     (admin_reversals_bp, ''),
     (admin_invoices_bp, ''),
     (admin_automation_bp, ''),
+    (offer_status_webhook_bp, ''),
+    (offer_status_signals_bp, '/api/admin'),
 ]
 
 def create_app():

@@ -29,40 +29,18 @@ class Database:
             # Try multiple connection approaches
             import time
             connection_attempts = [
-                # Attempt 1: Atlas connection with certifi CA + custom timeouts
+                # Attempt 1: Atlas connection with certifi CA + generous timeouts
                 lambda: MongoClient(
                     Config.MONGODB_URI,
                     tlsCAFile=certifi.where(),
                     serverSelectionTimeoutMS=30000,
                     connectTimeoutMS=30000,
-                    socketTimeoutMS=90000,
-                    maxPoolSize=50,
-                    minPoolSize=5,
-                    maxIdleTimeMS=45000,
-                    retryWrites=True,
-                    retryReads=True
-                ),
-                # Attempt 2: Atlas connection with SSL bypass for problematic networks
-                lambda: MongoClient(
-                    Config.MONGODB_URI,
-                    tlsAllowInvalidCertificates=True,
-                    serverSelectionTimeoutMS=30000,
-                    connectTimeoutMS=30000,
-                    socketTimeoutMS=90000,
-                    maxPoolSize=50,
-                    minPoolSize=5,
-                    maxIdleTimeMS=45000,
-                    retryWrites=True,
-                    retryReads=True
-                ),
-                # Attempt 3: Standard connection with pooling
-                lambda: MongoClient(
-                    Config.MONGODB_URI,
-                    serverSelectionTimeoutMS=30000,
-                    socketTimeoutMS=90000,
-                    maxPoolSize=50,
-                    minPoolSize=5,
-                    maxIdleTimeMS=45000,
+                    socketTimeoutMS=120000,
+                    maxPoolSize=10,
+                    minPoolSize=0,
+                    maxIdleTimeMS=30000,
+                    waitQueueTimeoutMS=15000,
+                    heartbeatFrequencyMS=30000,
                     retryWrites=True,
                     retryReads=True
                 ),

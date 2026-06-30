@@ -2106,6 +2106,7 @@ def get_offers():
             # 1. Offerwall-exclusive offers (visible to everyone)
             # 2. Offers the publisher has been approved/granted for
             # Regular offers that the publisher hasn't requested are NOT shown
+            # IMPORTANT: Only show active/running offers — never paused/inactive/pending
             query_filter = {
                 '$and': [
                     {'$or': [
@@ -2113,6 +2114,7 @@ def get_offers():
                         {'deleted': False},
                         {'deleted': None}
                     ]},
+                    {'status': {'$in': ['active', 'running']}},
                     # Only offerwall-exclusive offers in the base query
                     # Publisher-specific offers will be fetched separately using their approved IDs
                     {'offerwall_exclusive': True}
@@ -2157,11 +2159,12 @@ def get_offers():
             'price_boost': 1, 'offerwall_position': 1
         }
         
-        # === STARTER OFFERS: Fetch unconditionally (bypass ALL filters) ===
+        # === STARTER OFFERS: Fetch unconditionally (bypass ALL filters EXCEPT status) ===
         starter_offers_list = []
         if starter_offer_ids:
             starter_query = {
                 'offer_id': {'$in': starter_offer_ids},
+                'status': {'$in': ['active', 'running']},
                 '$or': [
                     {'deleted': {'$exists': False}},
                     {'deleted': False},
@@ -2169,7 +2172,7 @@ def get_offers():
                 ]
             }
             starter_offers_list = list(offers_collection.find(starter_query, projection))
-            logger.info(f"✅ Fetched {len(starter_offers_list)} starter offers (bypass all filters)")
+            logger.info(f"✅ Fetched {len(starter_offers_list)} starter offers (bypass all filters except status)")
         
         # === REGULAR OFFERS: Fetch with normal filters ===
         total_count = offers_collection.count_documents(query_filter)

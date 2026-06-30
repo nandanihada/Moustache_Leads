@@ -131,6 +131,8 @@ class NetworkFieldMapper:
                 return self._map_everflow_offer(offer_data, network_id)
             elif network_type == 'mobplus':
                 return self._map_mobplus_offer(offer_data, network_id)
+            elif network_type == 'adscendmedia':
+                return self._map_adscendmedia_offer(offer_data, network_id)
             elif network_type == 'cj':
                 return self._map_cj_offer(offer_data, network_id)
             elif network_type == 'shareasale':
@@ -1288,6 +1290,258 @@ class NetworkFieldMapper:
         # Fallback: detect from name/description
         from models.offer import detect_vertical_from_text
         return detect_vertical_from_text(name, description)
+    
+    # ==================== Adscend Media Mapping ====================
+    
+    # AdscendMedia category_id to vertical mapping
+    ADSCENDMEDIA_CATEGORY_MAP = {
+        17: 'SWEEPSTAKES',       # Free
+        18: 'INSTALLS',          # Mobile Apps
+        19: 'ENTERTAINMENT',     # Videos
+        20: 'SURVEY',            # Surveys
+        21: 'SHOPPING',          # Shopping
+        22: 'FREE_TRIAL',        # Free Trials
+        23: 'INSTALLS',          # Downloads
+        24: 'EDUCATION',         # Sign-Ups
+        25: 'INSTALLS',          # Mobile Subscriptions
+        26: 'SWEEPSTAKES',       # Co-Registrations
+        29: 'GAMBLING',          # Casino
+        30: 'GAMES_INSTALL',     # Gaming
+        31: 'FINANCE',           # Finance
+    }
+    
+    # AdscendMedia target_system to device mapping
+    ADSCENDMEDIA_DEVICE_MAP = {
+        0: 'all',        # Any All
+        10: 'desktop',   # Windows: All
+        11: 'desktop',   # Windows: IE
+        12: 'desktop',   # Windows: Firefox
+        13: 'desktop',   # Windows: Chrome
+        18: 'desktop',   # Windows: FF or Chrome
+        19: 'desktop',   # Windows: All But Chrome
+        20: 'desktop',   # Mac: All
+        30: 'mobile',    # Any Mobile: All
+        31: 'desktop',   # Any Desktop: All
+        40: 'android',   # Android: All
+        50: 'ios',       # iOS: All
+        51: 'ios',       # iOS: iPhone
+        52: 'ios',       # iOS: iPad
+        56: 'android',   # Android: 5.0 and above
+    }
+    
+    # AdscendMedia conversion_point to flow mapping
+    ADSCENDMEDIA_FLOW_MAP = {
+        1: 'SOI',          # Email submit
+        2: 'SOI',          # First page
+        3: 'SOI',          # Second page
+        4: 'CC_SUBMIT',    # Credit card submit
+        5: 'PIN_SUBMIT',   # SMS/PIN confirm
+        6: 'DOWNLOAD',     # Download
+        7: 'CPI',          # Install
+        8: 'DOI',          # Double opt-in
+        9: 'SOI',          # Third page
+        10: 'SOI',         # Fourth page
+        11: 'SOI',         # After co-registration path
+        12: 'CPC',         # Click
+        13: 'CPA',         # Other
+        14: 'CPI',         # Install and launch
+    }
+    
+    def _map_adscendmedia_offer(self, offer_data: Dict, network_id: str = None) -> Dict[str, Any]:
+        """
+        Map Adscend Media offer data to database format.
+        
+        AdscendMedia API response fields:
+        - offer_id, name, description, payout, click_url, preview_url
+        - countries (array of 2-letter codes), category_id (array), target_system
+        - conversion_point, conversion_notes, allowed_traffic, creatives, events, etc.
+        """
+        try:
+            offer_id = str(offer_data.get('offer_id', ''))
+            name = offer_data.get('name', '') or offer_data.get('adwall_name', '')
+            description = offer_data.get('description', '')
+            
+            # Payout
+            payout = float(offer_data.get('payout', 0) or 0)
+            payout_custom = float(offer_data.get('payout_custom', 0) or 0)
+            # Use custom payout if available and non-zero
+            if payout_custom > 0:
+                payout = payout_custom
+            
+            # Target URL (click_url is the tracking link)
+            target_url = offer_data.get('click_url', '')
+            preview_url = offer_data.get('preview_url', '')
+            
+            # Countries - already 2-letter codes from API
+            countries = offer_data.get('countries', [])
+            if not isinstance(countries, list):
+                countries = []
+            # Ensure uppercase
+            countries = [c.upper() for c in countries if isinstance(c, str) and len(c) == 2]
+            
+            # Category → Vertical mapping
+            category_ids = offer_data.get('category_id', [])
+            if not isinstance(category_ids, list):
+                category_ids = [category_ids] if category_ids else []
+            
+            vertical = 'INSTALLS'  # Default
+            for cat_id in category_ids:
+                try:
+                    mapped = self.ADSCENDMEDIA_CATEGORY_MAP.get(int(cat_id))
+                    if mapped:
+                        vertical = mapped
+                        break
+                except (ValueError, TypeError):
+                    continue
+            
+            # Device targeting from target_system
+            target_system = offer_data.get('target_system', 0)
+            try:
+                target_system = int(target_system)
+            except (ValueError, TypeError):
+                target_system = 0
+            devices = self.ADSCENDMEDIA_DEVICE_MAP.get(target_system, 'all')
+            
+            # Flow from conversion_point
+            conversion_point = offer_data.get('conversion_point', 13)
+            try:
+                conversion_point = int(conversion_point)
+            except (ValueError, TypeError):
+                conversion_point = 13
+            flow = self.ADSCENDMEDIA_FLOW_MAP.get(conversion_point, 'CPA')
+            
+            # Image from creatives
+            image_url = ''
+            creatives = offer_data.get('creatives', [])
+            if isinstance(creatives, list) and creatives:
+                # Pick the first active creative with a URL
+                for creative in creatives:
+                    if isinstance(creative, dict) and creative.get('active') == 1:
+                        image_url = creative.get('url', '')
+                        if image_url:
+                            break
+                # Fallback: first creative with URL regardless of active status
+                if not image_url:
+                    for creative in creatives:
+                        if isinstance(creative, dict) and creative.get('url'):
+                            image_url = creative.get('url', '')
+                            break
+            
+            # Incentive type from allowed_traffic
+            allowed_traffic = offer_data.get('allowed_traffic', '')
+            if allowed_traffic == 'incent' or allowed_traffic in [1, 2, 3, '1', '2', '3']:
+                incentive_type = 'incent'
+            elif allowed_traffic == 0 or allowed_traffic == '0' or allowed_traffic == 'non-incent':
+                incentive_type = 'non-incent'
+            else:
+                incentive_type = 'incent'  # Default for AdscendMedia (offerwall-focused)
+            
+            # Conversion notes / requirements
+            conversion_notes = offer_data.get('conversion_notes', '')
+            
+            # Caps
+            daily_cap = offer_data.get('daily_lead_cap')
+            if daily_cap is None:
+                daily_cap = 0
+            else:
+                try:
+                    daily_cap = int(daily_cap)
+                except (ValueError, TypeError):
+                    daily_cap = 0
+            
+            # EPC and conversion rate
+            epc = offer_data.get('epc_network')
+            conversion_rate = offer_data.get('conversion_rate_network')
+            
+            # Dates
+            end_date = offer_data.get('end_date') or offer_data.get('auto_end')
+            added_date = offer_data.get('added', '')
+            
+            # Events (multi-event offers)
+            events = offer_data.get('events', [])
+            events_data = []
+            if isinstance(events, list) and events:
+                for event in events:
+                    if isinstance(event, dict):
+                        events_data.append({
+                            'event_id': event.get('event_id'),
+                            'event_name': event.get('event_name', ''),
+                            'event_description': event.get('event_description', ''),
+                            'event_revenue': float(event.get('event_revenue', 0) or 0),
+                            'estimated_time_to_complete': event.get('estimated_time_to_complete', 0),
+                            'time_to_complete': event.get('time_to_complete', 0),
+                        })
+            
+            # Featured
+            featured = offer_data.get('featured', 0) == 1
+            
+            # Build mapped offer
+            mapped_offer = {
+                'campaign_id': offer_id,
+                'network_offer_id': offer_id,
+                'name': format_offer_name(name) if name else f"AdscendMedia Offer {offer_id}",
+                'description': clean_html_description(description) if description else '',
+                'target_url': target_url,
+                'preview_url': preview_url,
+                'image_url': image_url,
+                'payout': payout,
+                'currency': 'USD',
+                'countries': countries if countries else ['US'],
+                'vertical': vertical,
+                'category': vertical,
+                'devices': devices,
+                'flow': flow,
+                'network': 'adscendmedia',
+                'network_type': 'adscendmedia',
+                'network_publisher_id': network_id or '',
+                'status': 'active',
+                'incentive_type': incentive_type,
+                'requirements': conversion_notes,
+                'daily_cap': daily_cap,
+                'show_in_offerwall': True,
+                'created_at': datetime.utcnow(),
+                'updated_at': datetime.utcnow(),
+                'source': 'api_import',
+                'import_source': 'adscendmedia',
+                'featured': featured,
+            }
+            
+            # Add EPC/CR if available
+            if epc is not None:
+                try:
+                    mapped_offer['epc'] = float(epc)
+                except (ValueError, TypeError):
+                    pass
+            if conversion_rate is not None:
+                try:
+                    mapped_offer['conversion_rate'] = float(conversion_rate)
+                except (ValueError, TypeError):
+                    pass
+            
+            # Add events if multi-event offer
+            if events_data:
+                mapped_offer['events'] = events_data
+                mapped_offer['is_multi_event'] = True
+            
+            # Store raw end_date for reference
+            if end_date and end_date != '0000-00-00 00:00:00':
+                mapped_offer['end_date'] = end_date
+            
+            # Store cost_to_user metadata
+            cost_to_user = offer_data.get('cost_to_user', -1)
+            if cost_to_user is not None and cost_to_user != -1:
+                mapped_offer['cost_to_user'] = cost_to_user
+            
+            # Credit delay info
+            credit_delay = offer_data.get('credit_delay', '0')
+            if credit_delay and str(credit_delay) != '0':
+                mapped_offer['credit_delay'] = str(credit_delay)
+            
+            return mapped_offer
+            
+        except Exception as e:
+            logger.error(f"Error mapping AdscendMedia offer: {str(e)}", exc_info=True)
+            return {}
     
     def _map_cj_offer(self, offer_data: Dict, network_id: str = None) -> Dict[str, Any]:
         """Map CJ offer to database format"""

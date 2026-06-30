@@ -189,6 +189,16 @@ const Partners: React.FC = () => {
   ]);
   const [networkDomain, setNetworkDomain] = useState<string>('');
 
+  // Offer Watch Parameters (for offer status webhook URL)
+  const OFFER_WATCH_FIELDS = [
+    { value: 'type', label: 'type (status type)' },
+    { value: 'oid', label: 'oid (offer ID)' },
+    { value: 'onm', label: 'onm (offer name)' },
+    { value: 'npay', label: 'npay (new payout)' },
+    { value: 'opay', label: 'opay (old payout)' },
+  ];
+  const [offerWatchParams, setOfferWatchParams] = useState<OfferUrlParamRow[]>([]);
+
   // User edit form data
   const [userFormData, setUserFormData] = useState({
     postback_url: '',
@@ -252,6 +262,7 @@ const Partners: React.FC = () => {
         method: 'GET' as 'GET' | 'POST',
         parameter_mapping: paramMapping,
         offer_url_params: validOfferUrlParams,
+        offer_watch_params: offerWatchParams.filter(p => p.our_field && p.their_param),
         network_domain: networkDomain.trim()
       };
 
@@ -280,6 +291,7 @@ const Partners: React.FC = () => {
         ...formData,
         parameter_mapping: paramMapping,
         offer_url_params: validOfferUrlParams,
+        offer_watch_params: offerWatchParams.filter(p => p.our_field && p.their_param),
         network_domain: networkDomain.trim()
       };
 
@@ -371,6 +383,13 @@ const Partners: React.FC = () => {
 
     // Load network domain
     setNetworkDomain(partner.network_domain || '');
+
+    // Load offer watch params
+    if (partner.offer_watch_params && partner.offer_watch_params.length > 0) {
+      setOfferWatchParams(partner.offer_watch_params.map((p: any) => ({ our_field: p.our_field, their_param: p.their_param })));
+    } else {
+      setOfferWatchParams([]);
+    }
     
     setIsEditModalOpen(true);
   };
@@ -391,6 +410,7 @@ const Partners: React.FC = () => {
     setSelectedTemplate('LeadAds');
     setParameterMappings([]);
     setOfferUrlParams([]);
+    setOfferWatchParams([]);
     setNetworkDomain('');
   };
 
@@ -584,18 +604,46 @@ const Partners: React.FC = () => {
                             )}
                           </TableCell>
                           <TableCell>
-                            <div className="flex items-center gap-2">
-                              <code className="text-xs bg-gray-100 px-2 py-1 rounded max-w-md truncate" title={partner.postback_receiver_url || partner.postback_url}>
-                                {partner.postback_receiver_url || partner.postback_url || 'Not generated'}
-                              </code>
-                              {(partner.postback_receiver_url || partner.postback_url) && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => copyToClipboard(partner.postback_receiver_url || partner.postback_url)}
-                                >
-                                  <Copy className="h-4 w-4" />
-                                </Button>
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] text-muted-foreground font-medium">Conversion:</span>
+                                <code className="text-xs bg-gray-100 px-2 py-1 rounded max-w-[280px] truncate" title={partner.postback_receiver_url || partner.postback_url}>
+                                  {partner.postback_receiver_url || partner.postback_url || 'Not generated'}
+                                </code>
+                                {(partner.postback_receiver_url || partner.postback_url) && (
+                                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => copyToClipboard(partner.postback_receiver_url || partner.postback_url)}>
+                                    <Copy className="h-3 w-3" />
+                                  </Button>
+                                )}
+                              </div>
+                              {partner.unique_postback_key && (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] text-orange-600 font-medium">Offer Watch:</span>
+                                  <code className="text-xs bg-orange-50 px-2 py-1 rounded max-w-[280px] truncate" title={(() => {
+                                    const base = `https://postback.moustacheleads.com/offer-status/${partner.unique_postback_key}`;
+                                    const watchParams = partner.offer_watch_params || [];
+                                    if (watchParams.length === 0) return base;
+                                    const qs = watchParams.map((p: any) => `${p.our_field}=${p.their_param}`).join('&');
+                                    return `${base}?${qs}`;
+                                  })()}>
+                                    {(() => {
+                                      const base = `https://postback.moustacheleads.com/offer-status/${partner.unique_postback_key}`;
+                                      const watchParams = partner.offer_watch_params || [];
+                                      if (watchParams.length === 0) return `${base} (no params configured)`;
+                                      const qs = watchParams.map((p: any) => `${p.our_field}=${p.their_param}`).join('&');
+                                      return `${base}?${qs}`;
+                                    })()}
+                                  </code>
+                                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => {
+                                    const base = `https://postback.moustacheleads.com/offer-status/${partner.unique_postback_key}`;
+                                    const watchParams = partner.offer_watch_params || [];
+                                    if (watchParams.length === 0) { copyToClipboard(base); return; }
+                                    const qs = watchParams.map((p: any) => `${p.our_field}=${p.their_param}`).join('&');
+                                    copyToClipboard(`${base}?${qs}`);
+                                  }}>
+                                    <Copy className="h-3 w-3" />
+                                  </Button>
+                                </div>
                               )}
                             </div>
                           </TableCell>
@@ -1033,6 +1081,49 @@ const Partners: React.FC = () => {
                 ))}
               </div>
             </div>
+
+            {/* Offer Watch Parameters */}
+            <div className="border-t pt-4">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="font-semibold text-sm text-orange-700">Offer Watch Parameters</p>
+                  <p className="text-xs text-gray-500">Map their macros for offer status/payout change notifications</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setOfferWatchParams(prev => [...prev, { our_field: 'type', their_param: '' }])}
+                >
+                  <Plus className="h-3 w-3 mr-1" /> Add
+                </Button>
+              </div>
+              {offerWatchParams.length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-2">No offer watch params. Add if this network sends status updates.</p>
+              )}
+              <div className="space-y-2">
+                {offerWatchParams.map((row, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <select
+                      value={row.our_field}
+                      onChange={(e) => setOfferWatchParams(prev => { const u = [...prev]; u[idx] = { ...u[idx], our_field: e.target.value }; return u; })}
+                      className="border border-orange-200 rounded px-2 py-1.5 text-sm w-40 bg-orange-50"
+                    >
+                      {OFFER_WATCH_FIELDS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    <Input
+                      value={row.their_param}
+                      onChange={(e) => setOfferWatchParams(prev => { const u = [...prev]; u[idx] = { ...u[idx], their_param: e.target.value }; return u; })}
+                      placeholder="Their macro e.g. [TYP]"
+                      className="font-mono text-sm flex-1 border-orange-200"
+                    />
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setOfferWatchParams(prev => prev.filter((_, i) => i !== idx))} className="text-red-500 hover:text-red-700 px-2">
+                      <Trash2 size={14} />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
           <DialogFooter>
@@ -1138,6 +1229,49 @@ const Partners: React.FC = () => {
                       }}
                       className="text-red-500 hover:text-red-700 px-2"
                     >
+                      <Trash2 size={14} />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Offer Watch Parameters (Edit) */}
+            <div className="border-t pt-4">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="font-semibold text-sm text-orange-700">Offer Watch Parameters</p>
+                  <p className="text-xs text-gray-500">Map their macros for offer status/payout notifications</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setOfferWatchParams(prev => [...prev, { our_field: 'type', their_param: '' }])}
+                >
+                  <Plus className="h-3 w-3 mr-1" /> Add
+                </Button>
+              </div>
+              {offerWatchParams.length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-2">No offer watch params configured.</p>
+              )}
+              <div className="space-y-2">
+                {offerWatchParams.map((row, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <select
+                      value={row.our_field}
+                      onChange={(e) => setOfferWatchParams(prev => { const u = [...prev]; u[idx] = { ...u[idx], our_field: e.target.value }; return u; })}
+                      className="border border-orange-200 rounded px-2 py-1.5 text-sm w-40 bg-orange-50"
+                    >
+                      {OFFER_WATCH_FIELDS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    <Input
+                      value={row.their_param}
+                      onChange={(e) => setOfferWatchParams(prev => { const u = [...prev]; u[idx] = { ...u[idx], their_param: e.target.value }; return u; })}
+                      placeholder="Their macro e.g. [TYP]"
+                      className="font-mono text-sm flex-1 border-orange-200"
+                    />
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setOfferWatchParams(prev => prev.filter((_, i) => i !== idx))} className="text-red-500 hover:text-red-700 px-2">
                       <Trash2 size={14} />
                     </Button>
                   </div>

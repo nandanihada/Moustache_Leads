@@ -89,12 +89,15 @@ const AdminOfferwallManager = () => {
   // Boost Email Notification state
   const [boostEmailEnabled, setBoostEmailEnabled] = useState(false);
   const [boostEmailRecipients, setBoostEmailRecipients] = useState<string[]>([]);
+  const [boostEmailExcluded, setBoostEmailExcluded] = useState<string[]>([]);
+  const [boostEmailMode, setBoostEmailMode] = useState<'include' | 'exclude' | 'permanent'>('include');
   const [boostEmailInput, setBoostEmailInput] = useState('');
   const [boostEmailSubject, setBoostEmailSubject] = useState('Price Boost Applied — Offerwall Update');
   const [boostEmailMessage, setBoostEmailMessage] = useState('');
   const [boostEmailBody, setBoostEmailBody] = useState('');
   const [boostEmailPreview, setBoostEmailPreview] = useState(false);
   const [boostEmailSending, setBoostEmailSending] = useState(false);
+  const [permanentExclusions, setPermanentExclusions] = useState<string[]>([]);
   const [publisherList, setPublisherList] = useState<Array<{email: string; name: string; company?: string}>>([]);
   const [publisherSearch, setPublisherSearch] = useState('');
   const [publisherListLoading, setPublisherListLoading] = useState(false);
@@ -170,6 +173,37 @@ const AdminOfferwallManager = () => {
       }
     } catch { setPublisherList([]); }
     finally { setPublisherListLoading(false); }
+  };
+
+  // Load permanent email exclusions
+  const loadPermanentExclusions = async () => {
+    try {
+      const { getAuthToken } = await import('@/utils/cookies');
+      const token = getAuthToken();
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/insights/email-exclusions`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPermanentExclusions((data.excluded_emails || []).map((e: any) => e.email));
+      }
+    } catch {}
+  };
+
+  const addToPermanentExclusion = async (emails: string[]) => {
+    try {
+      const { getAuthToken } = await import('@/utils/cookies');
+      const token = getAuthToken();
+      await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/insights/email-exclusions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ emails, reason: 'Excluded from boost email' })
+      });
+      setPermanentExclusions(prev => [...new Set([...prev, ...emails])]);
+      toast({ title: "Permanently Excluded", description: `${emails.length} email(s) added to permanent exclusion list` });
+    } catch {
+      toast({ title: "Error", description: "Failed to save exclusion", variant: "destructive" });
+    }
   };
 
   // Fetch settings
@@ -405,16 +439,38 @@ const AdminOfferwallManager = () => {
       toast({ title: "Boost Applied", description: `${result.success_count} offers boosted (${boostDirection === 'increase' ? '+' : '-'}${boostPercentage}% for ${boostDuration}h ${boostMinutes}m)` });
       
       // Send email notification if enabled
-      if (boostEmailEnabled && boostEmailRecipients.length > 0) {
+      if (boostEmailEnabled && (boostEmailRecipients.length > 0 || boostEmailMode === 'exclude')) {
         setBoostEmailSending(true);
         try {
           const { getAuthToken } = await import('@/utils/cookies');
           const token = getAuthToken();
+          
+          // Determine final recipients based on mode
+          let finalRecipients = boostEmailRecipients;
+          if (boostEmailMode === 'exclude') {
+            // Send to ALL publishers minus excluded ones minus permanent exclusions
+            finalRecipients = publisherList
+              .map(p => p.email)
+              .filter(e => !boostEmailExcluded.includes(e) && !permanentExclusions.includes(e));
+          } else if (boostEmailMode === 'include') {
+            // Filter out permanently excluded from include list
+            finalRecipients = boostEmailRecipients.filter(e => !permanentExclusions.includes(e));
+          }
+          
+          if (finalRecipients.length === 0) {
+            toast({ title: "No recipients", description: "All selected publishers are excluded", variant: "destructive" });
+            setBoostEmailSending(false);
+            setShowBoostDialog(false);
+            setSelectedOffers(new Set());
+            queryClient.invalidateQueries({ queryKey: ['offerwall-management-offers'] });
+            loadBoostedOffers();
+            return;
+          }
           await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/offerwall-management/boost-notification`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({
-              recipients: boostEmailRecipients,
+              recipients: finalRecipients,
               subject: boostEmailSubject,
               message: boostEmailBody || `Hi,\n\nA price boost has been applied to ${selectedOffers.size} offer(s) on the offerwall:\n\n• Direction: ${boostDirection === 'increase' ? 'Increase ↑' : 'Decrease ↓'}\n• Percentage: ${boostPercentage}%\n• Duration: ${boostDuration}h${boostMinutes > 0 ? ` ${boostMinutes}m` : ''}\n\n${boostEmailMessage ? boostEmailMessage + '\n\n' : ''}— MoustacheLeads Admin`,
               boost_details: {
@@ -427,7 +483,7 @@ const AdminOfferwallManager = () => {
               }
             })
           });
-          toast({ title: "Email Sent", description: `Notification sent to ${boostEmailRecipients.length} recipient(s)` });
+          toast({ title: "Email Sent", description: `Notification sent to ${finalRecipients.length} recipient(s)` });
         } catch {
           toast({ title: "Email Failed", description: "Boost applied but email notification failed", variant: "destructive" });
         } finally {
@@ -1341,9 +1397,34 @@ const AdminOfferwallManager = () => {
 
               {boostEmailEnabled && (
                 <div className="space-y-3 pt-2 border-t">
+                  {/* Mode tabs: Include / Exclude / Permanent Exclude */}
+                  <div className="flex gap-1 p-0.5 bg-gray-100 rounded-lg">
+                    <button type="button" onClick={() => setBoostEmailMode('include')}
+                      className={`flex-1 text-xs font-semibold py-1.5 rounded-md transition-colors ${boostEmailMode === 'include' ? 'bg-green-600 text-white shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}>
+                      ✓ Include
+                    </button>
+                    <button type="button" onClick={() => setBoostEmailMode('exclude')}
+                      className={`flex-1 text-xs font-semibold py-1.5 rounded-md transition-colors ${boostEmailMode === 'exclude' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}>
+                      ✗ Exclude
+                    </button>
+                    <button type="button" onClick={() => { setBoostEmailMode('permanent'); loadPermanentExclusions(); }}
+                      className={`flex-1 text-xs font-semibold py-1.5 rounded-md transition-colors ${boostEmailMode === 'permanent' ? 'bg-gray-800 text-white shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}>
+                      🚫 Permanent
+                    </button>
+                  </div>
+
+                  {/* Mode description */}
+                  <p className="text-[10px] text-gray-400 italic">
+                    {boostEmailMode === 'include' && 'Select specific publishers to receive the email'}
+                    {boostEmailMode === 'exclude' && 'Send to ALL publishers EXCEPT the ones you select below'}
+                    {boostEmailMode === 'permanent' && 'These publishers will NEVER receive any boost/offer emails'}
+                  </p>
+
                   {/* Publisher search + list */}
                   <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold">Add Recipients from Publishers</Label>
+                    <Label className="text-xs font-semibold">
+                      {boostEmailMode === 'include' ? 'Select Publishers to Include' : boostEmailMode === 'exclude' ? 'Select Publishers to Exclude' : 'Permanently Excluded Publishers'}
+                    </Label>
                     <div className="relative">
                       <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
                       <Input
@@ -1356,36 +1437,70 @@ const AdminOfferwallManager = () => {
                         className="h-8 text-xs pl-8"
                       />
                     </div>
-                    {/* Publisher dropdown list */}
+
+                    {/* Select All / Deselect All */}
+                    {boostEmailMode !== 'permanent' && (
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => {
+                          const emails = publisherList.map(p => p.email);
+                          if (boostEmailMode === 'include') setBoostEmailRecipients(prev => [...new Set([...prev, ...emails])]);
+                          else setBoostEmailExcluded(prev => [...new Set([...prev, ...emails])]);
+                        }} className="text-[10px] font-medium text-blue-600 hover:text-blue-800">Select All</button>
+                        <button type="button" onClick={() => {
+                          if (boostEmailMode === 'include') setBoostEmailRecipients([]);
+                          else setBoostEmailExcluded([]);
+                        }} className="text-[10px] font-medium text-gray-500 hover:text-gray-700">Deselect All</button>
+                      </div>
+                    )}
+
+                    {/* Publisher list with checkboxes */}
                     <div className="border rounded-md max-h-36 overflow-y-auto bg-white">
                       {publisherListLoading ? (
                         <div className="flex items-center justify-center py-3">
                           <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
-                          <span className="text-xs text-gray-400 ml-2">Loading publishers...</span>
+                          <span className="text-xs text-gray-400 ml-2">Loading...</span>
                         </div>
                       ) : publisherList.length === 0 ? (
                         <div className="text-center py-3 text-xs text-gray-400">No publishers found</div>
                       ) : (
                         publisherList.map(pub => {
-                          const isAdded = boostEmailRecipients.includes(pub.email);
+                          const isIncluded = boostEmailRecipients.includes(pub.email);
+                          const isExcluded = boostEmailExcluded.includes(pub.email);
+                          const isPermanent = permanentExclusions.includes(pub.email);
+                          const isChecked = boostEmailMode === 'include' ? isIncluded : boostEmailMode === 'exclude' ? isExcluded : isPermanent;
+
                           return (
                             <div
                               key={pub.email}
-                              className={`flex items-center justify-between px-3 py-1.5 hover:bg-blue-50 cursor-pointer border-b last:border-b-0 ${isAdded ? 'bg-blue-50/50' : ''}`}
+                              className={`flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer border-b last:border-b-0 ${isPermanent && boostEmailMode !== 'permanent' ? 'opacity-40' : ''}`}
                               onClick={() => {
-                                if (!isAdded) {
-                                  setBoostEmailRecipients([...boostEmailRecipients, pub.email]);
+                                if (boostEmailMode === 'include') {
+                                  if (isPermanent) return; // Can't include permanently excluded
+                                  setBoostEmailRecipients(prev => isIncluded ? prev.filter(e => e !== pub.email) : [...prev, pub.email]);
+                                } else if (boostEmailMode === 'exclude') {
+                                  setBoostEmailExcluded(prev => isExcluded ? prev.filter(e => e !== pub.email) : [...prev, pub.email]);
+                                } else {
+                                  // Permanent mode — toggle
+                                  if (isPermanent) {
+                                    // Remove from permanent (handled via API on save)
+                                    setPermanentExclusions(prev => prev.filter(e => e !== pub.email));
+                                  } else {
+                                    addToPermanentExclusion([pub.email]);
+                                  }
                                 }
                               }}
                             >
-                              <div className="min-w-0">
+                              <div className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
+                                isChecked ? (boostEmailMode === 'permanent' ? 'bg-gray-800 border-gray-800' : boostEmailMode === 'exclude' ? 'bg-red-600 border-red-600' : 'bg-green-600 border-green-600') : 'border-gray-300'
+                              }`}>
+                                {isChecked && <span className="text-white text-[9px] font-bold">✓</span>}
+                              </div>
+                              <div className="min-w-0 flex-1">
                                 <p className="text-xs font-medium text-gray-800 truncate">{pub.name || pub.email}</p>
                                 <p className="text-[10px] text-gray-400 truncate">{pub.email}</p>
                               </div>
-                              {isAdded ? (
-                                <CheckCircle className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
-                              ) : (
-                                <Plus className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                              {isPermanent && boostEmailMode !== 'permanent' && (
+                                <span className="text-[9px] text-red-500 font-medium flex-shrink-0">🚫 Excluded</span>
                               )}
                             </div>
                           );
@@ -1395,51 +1510,63 @@ const AdminOfferwallManager = () => {
                   </div>
 
                   {/* Manual email input */}
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Or add email manually</Label>
-                    <div className="flex gap-1.5">
-                      <Input
-                        value={boostEmailInput}
-                        onChange={e => setBoostEmailInput(e.target.value)}
-                        placeholder="Enter email address..."
-                        className="h-8 text-xs"
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            const email = boostEmailInput.trim();
-                            if (email && email.includes('@') && !boostEmailRecipients.includes(email)) {
-                              setBoostEmailRecipients([...boostEmailRecipients, email]);
-                              setBoostEmailInput('');
-                            }
-                          }
-                        }}
-                      />
-                      <Button size="sm" variant="outline" className="h-8 px-2" onClick={() => {
-                        const email = boostEmailInput.trim();
-                        if (email && email.includes('@') && !boostEmailRecipients.includes(email)) {
-                          setBoostEmailRecipients([...boostEmailRecipients, email]);
-                          setBoostEmailInput('');
-                        }
-                      }}>
-                        <Plus className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Selected recipients */}
-                  {boostEmailRecipients.length > 0 && (
+                  {boostEmailMode === 'include' && (
                     <div className="space-y-1.5">
-                      <Label className="text-xs">Selected Recipients ({boostEmailRecipients.length})</Label>
-                      <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                      <Label className="text-xs">Or add email manually</Label>
+                      <div className="flex gap-1.5">
+                        <Input
+                          value={boostEmailInput}
+                          onChange={e => setBoostEmailInput(e.target.value)}
+                          placeholder="Enter email address..."
+                          className="h-8 text-xs"
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const email = boostEmailInput.trim();
+                              if (email && email.includes('@') && !boostEmailRecipients.includes(email)) {
+                                setBoostEmailRecipients([...boostEmailRecipients, email]);
+                                setBoostEmailInput('');
+                              }
+                            }
+                          }}
+                        />
+                        <Button size="sm" variant="outline" className="h-8 px-2" onClick={() => {
+                          const email = boostEmailInput.trim();
+                          if (email && email.includes('@') && !boostEmailRecipients.includes(email)) {
+                            setBoostEmailRecipients([...boostEmailRecipients, email]);
+                            setBoostEmailInput('');
+                          }
+                        }}>
+                          <Plus className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Selected recipients / excluded summary */}
+                  {boostEmailMode === 'include' && boostEmailRecipients.length > 0 && (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-green-700">✓ {boostEmailRecipients.length} recipient(s) selected</Label>
+                      <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
                         {boostEmailRecipients.map(email => (
-                          <span key={email} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 border border-blue-200 rounded-full text-xs text-blue-700">
+                          <span key={email} className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-50 border border-green-200 rounded-full text-xs text-green-700">
                             {email}
-                            <button onClick={() => setBoostEmailRecipients(boostEmailRecipients.filter(e => e !== email))} className="text-blue-400 hover:text-red-500">
+                            <button onClick={() => setBoostEmailRecipients(boostEmailRecipients.filter(e => e !== email))} className="text-green-400 hover:text-red-500">
                               <X className="h-3 w-3" />
                             </button>
                           </span>
                         ))}
                       </div>
+                    </div>
+                  )}
+                  {boostEmailMode === 'exclude' && boostEmailExcluded.length > 0 && (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-red-600">✗ {boostEmailExcluded.length} publisher(s) excluded — mail goes to everyone else</Label>
+                    </div>
+                  )}
+                  {boostEmailMode === 'permanent' && (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-gray-500">🚫 {permanentExclusions.length} permanently excluded — these never receive boost/offer emails</Label>
                     </div>
                   )}
 

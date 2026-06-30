@@ -46,6 +46,7 @@ def create_partner():
         # Get offer URL params: list of {our_field, their_param} dicts
         # e.g. [{"our_field": "user_id", "their_param": "sub1"}, ...]
         offer_url_params = data.get('offer_url_params', [])
+        offer_watch_params = data.get('offer_watch_params', [])
         
         # Network domain for auto-detection on offer import
         network_domain = data.get('network_domain', '').strip().lower()
@@ -75,6 +76,7 @@ def create_partner():
             'postback_receiver_url': postback_receiver_url,
             'parameter_mapping': parameter_mapping,
             'offer_url_params': offer_url_params,   # NEW: params to append to offer URLs
+            'offer_watch_params': offer_watch_params,  # Offer status watch webhook params
             'network_domain': network_domain,        # NEW: domain for auto-detection
             'created_by': str(request.current_user['_id']),
             'created_at': datetime.utcnow(),
@@ -178,10 +180,10 @@ def update_partner(partner_id):
         
         # Update allowed fields
         allowed_fields = ['partner_name', 'postback_url', 'method', 'status', 'description',
-                          'parameter_mapping', 'offer_url_params', 'network_domain']
+                          'parameter_mapping', 'offer_url_params', 'offer_watch_params', 'network_domain']
         for field in allowed_fields:
             if field in data:
-                if field in ('parameter_mapping', 'offer_url_params'):
+                if field in ('parameter_mapping', 'offer_url_params', 'offer_watch_params'):
                     update_doc[field] = data[field]
                 elif field == 'network_domain':
                     update_doc[field] = data[field].strip().lower()

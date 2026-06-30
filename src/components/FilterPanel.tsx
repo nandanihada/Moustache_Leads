@@ -264,6 +264,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
               <SelectItem value="inactive">Inactive</SelectItem>
               <SelectItem value="paused">Paused</SelectItem>
               <SelectItem value="hidden">Hidden</SelectItem>
+              <SelectItem value="expired">Expired</SelectItem>
             </SelectContent>
           </Select>
         </div>

@@ -21,7 +21,7 @@ from database import db_instance
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
-CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '')  # Your group/channel chat ID
+CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL_ID', '-1003645610139')  # Telegram channel for offer updates
 
 FLAG_MAP = {
     'US':'🇺🇸','UK':'🇬🇧','GB':'🇬🇧','CA':'🇨🇦','AU':'🇦🇺','DE':'🇩🇪','FR':'🇫🇷','IT':'🇮🇹',
@@ -85,9 +85,9 @@ def format_trending_message(offers):
 
 
 async def send_trending_to_telegram():
-    """Send trending offers to Telegram. Only sends if there are picks in the last 7 hours."""
-    if not BOT_TOKEN or not CHAT_ID:
-        logger.warning("TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set")
+    """Send trending offers to Telegram channel. Only sends if there are picks in the last 7 hours."""
+    if not BOT_TOKEN or not CHANNEL_ID:
+        logger.warning("TELEGRAM_BOT_TOKEN or TELEGRAM_CHANNEL_ID not set")
         return False
     
     try:
@@ -103,14 +103,14 @@ async def send_trending_to_telegram():
             return False
         
         await bot.send_message(
-            chat_id=CHAT_ID,
+            chat_id=CHANNEL_ID,
             text=message,
             parse_mode='Markdown'
         )
-        logger.info(f"Sent trending offers to Telegram ({len(offers)} offers)")
+        logger.info(f"Sent trending offers to Telegram channel ({len(offers)} offers)")
         return True
     except Exception as e:
-        logger.error(f"Failed to send to Telegram: {e}")
+        logger.error(f"Failed to send to Telegram channel: {e}")
         return False
 
 

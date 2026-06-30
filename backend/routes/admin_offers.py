@@ -1357,7 +1357,7 @@ def get_offers():
         # Fetch active pinned offers that match filters
         pinned_query = dict(query)
         pinned_query['is_pinned'] = True
-        pinned_offers = list(offers_col.find(pinned_query))
+        pinned_offers = list(offers_col.find(pinned_query).limit(50))
 
         # --- "Has Levels" filter: direct DB query, no health evaluation needed ---
         if filters.get('health') == 'has_levels':
@@ -1375,11 +1375,10 @@ def get_offers():
             # Re-fetch pinned with level condition
             pinned_query = dict(query)
             pinned_query['is_pinned'] = True
-            pinned_offers = list(offers_col.find(pinned_query))
+            pinned_offers = list(offers_col.find(pinned_query).limit(50))
 
         # --- "In Offerwall" filter: matches the exact offerwall query logic ---
         if filters.get('health') == 'in_offerwall':
-            # Match the same conditions as the offerwall route uses
             offerwall_conditions = [
                 {'$or': [{'show_in_offerwall': True}, {'show_in_offerwall': {'$exists': False}}]},
                 {'$or': [{'is_active': True}, {'is_active': {'$exists': False}}]},
@@ -1395,7 +1394,7 @@ def get_offers():
             
             pinned_query = dict(query)
             pinned_query['is_pinned'] = True
-            pinned_offers = list(offers_col.find(pinned_query))
+            pinned_offers = list(offers_col.find(pinned_query).limit(50))
 
         # --- "Offerwall Exclusive" filter: direct DB query ---
         if filters.get('health') == 'offerwall_exclusive':
@@ -1410,7 +1409,7 @@ def get_offers():
             
             pinned_query = dict(query)
             pinned_query['is_pinned'] = True
-            pinned_offers = list(offers_col.find(pinned_query))
+            pinned_offers = list(offers_col.find(pinned_query).limit(50))
 
         # --- "AI Refined" filter: offers refined via admin dialog ---
         if filters.get('health') == 'ai_refined':
@@ -1425,7 +1424,7 @@ def get_offers():
             
             pinned_query = dict(query)
             pinned_query['is_pinned'] = True
-            pinned_offers = list(offers_col.find(pinned_query))
+            pinned_offers = list(offers_col.find(pinned_query).limit(50))
 
         # --- "Not Refined" filter: offers not refined via admin ---
         if filters.get('health') == 'not_refined':
@@ -1444,14 +1443,14 @@ def get_offers():
             
             pinned_query = dict(query)
             pinned_query['is_pinned'] = True
-            pinned_offers = list(offers_col.find(pinned_query))
+            pinned_offers = list(offers_col.find(pinned_query).limit(50))
 
         # --- Health filter requires fetching all matches, evaluating, then paginating ---
         if filters.get('health'):
-            # Fetch ALL matching offers (no pagination yet)
+            # Fetch matching offers with a reasonable limit to avoid timeout
             all_organic_query = dict(query)
             all_organic_query['is_pinned'] = {'$ne': True}
-            all_organic = list(offers_col.find(all_organic_query).sort('created_at', -1))
+            all_organic = list(offers_col.find(all_organic_query).sort('created_at', -1).limit(500))
             all_offers = pinned_offers + all_organic
 
             # Convert ObjectIds
@@ -2824,7 +2823,7 @@ def get_pinned_positions():
         # Get all active pinned offers
         pinned_offers = list(offers_col.find(
             {'is_pinned': True, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
-        ))
+        ).limit(100))
 
         pinned_by_pos = {}
         for po in pinned_offers:
@@ -2941,7 +2940,7 @@ def pin_single_offer(offer_id):
             'offer_id': {'$ne': offer_id},
             'status': {'$in': ['active', 'running', 'rotating']},
             '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
-        }))
+        }).limit(100))
 
         # Map of position -> offer_id
         pos_map = {}
@@ -4756,6 +4755,7 @@ def import_api_offers():
         network_id = data.get('network_id')
         api_key = data.get('api_key')
         network_type = data.get('network_type', 'hasoffers')
+        network_name = (data.get('network_name', '').strip() or network_id).lower()  # Admin-specified name, always lowercase
         fetch_mode = data.get('fetch_mode', 'my_offers')
         filters = data.get('filters', {})
         options = data.get('options', {})
@@ -4829,6 +4829,9 @@ def import_api_offers():
                     mapping_errors.append({'row': idx + 1, 'error': 'Failed to map offer data'})
                     continue
                 
+                # Override network field with admin-specified network_name
+                mapped_offer['network'] = network_name
+                
                 # Validate
                 is_valid, validation_errors = network_field_mapper.validate_mapped_offer(mapped_offer)
                 if not is_valid:
@@ -4895,6 +4898,70 @@ def import_api_offers():
             'skipped_offers': result['skipped_duplicates'][:10],
             'errors': (mapping_errors + result['errors'])[:10]
         }
+        
+        # Step 3: Detect stale offers (in DB but not in API response)
+        # Find offers in our system from this network that were NOT returned by the API
+        try:
+            offers_collection = db_instance.get_collection('offers')
+            # Get all campaign_ids from the fetched API offers
+            fetched_campaign_ids = set()
+            for offer_data in offers:
+                # Different networks use different ID fields
+                if network_type == 'adscendmedia':
+                    oid = str(offer_data.get('offer_id', ''))
+                elif network_type == 'everflow':
+                    oid = str(offer_data.get('network_offer_id', '') or offer_data.get('offer_id', '') or offer_data.get('id', ''))
+                elif network_type == 'mobplus':
+                    oid = str(offer_data.get('id', '') or offer_data.get('offer_id', ''))
+                else:  # hasoffers
+                    oid = str(offer_data.get('id', '') or offer_data.get('offer_id', ''))
+                if oid:
+                    fetched_campaign_ids.add(oid)
+            
+            # Query DB for offers from this same network that are active/running
+            # Use admin-specified network_name for matching
+            network_match_values = list(set([network_name, network_id]))
+            if network_type == 'adscendmedia':
+                network_match_values.append('adscendmedia')
+            
+            db_query = {
+                'network': {'$in': network_match_values},
+                'status': {'$in': ['active', 'running', 'pending']},
+                'campaign_id': {'$exists': True, '$ne': '', '$not': {'$regex': '^ML-'}},
+            }
+            
+            db_offers = list(offers_collection.find(
+                db_query,
+                {'campaign_id': 1, 'name': 1, 'payout': 1, 'countries': 1, 'vertical': 1, 'offer_id': 1, 'status': 1, 'image_url': 1}
+            ))
+            
+            # Find stale offers (in DB but not in API)
+            stale_offers = []
+            for db_offer in db_offers:
+                db_campaign_id = str(db_offer.get('campaign_id', ''))
+                if db_campaign_id and db_campaign_id not in fetched_campaign_ids:
+                    stale_offers.append({
+                        'offer_id': db_offer.get('offer_id', str(db_offer.get('_id', ''))),
+                        'campaign_id': db_campaign_id,
+                        'name': db_offer.get('name', 'Unknown'),
+                        'payout': db_offer.get('payout', 0),
+                        'countries': db_offer.get('countries', [])[:5],
+                        'vertical': db_offer.get('vertical', ''),
+                        'status': db_offer.get('status', ''),
+                        'image_url': db_offer.get('image_url', ''),
+                    })
+            
+            response_data['stale_offers'] = stale_offers
+            response_data['summary']['stale_count'] = len(stale_offers)
+            if stale_offers:
+                logging.info(f"⚠️ Found {len(stale_offers)} stale offers (in DB but not in API)")
+            else:
+                logging.info(f"✅ Sync check: All DB offers for this network are still in the API (0 stale)")
+                
+        except Exception as stale_err:
+            logging.warning(f"Stale offer detection error (non-critical): {stale_err}")
+            response_data['stale_offers'] = []
+            response_data['summary']['stale_count'] = 0
         
         logging.info(f"✅ API Import complete: {result['stats']['created']} imported in {result['stats']['elapsed_seconds']}s")
         
@@ -5038,6 +5105,165 @@ def import_api_offers():
     except Exception as e:
         logging.error(f"API import failed: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to import offers: {str(e)}'}), 500
+
+
+# ==================== STALE OFFER DELETION ENDPOINT ====================
+
+@admin_offers_bp.route('/offers/api-import/delete-stale', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def delete_stale_offers():
+    """Delete offers that exist in DB but are no longer in the network API"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        network_id = data.get('network_id')
+        offer_ids = data.get('offer_ids', [])  # List of offer_id strings to delete
+        
+        if not network_id:
+            return jsonify({'error': 'network_id is required'}), 400
+        
+        if not offer_ids:
+            return jsonify({'error': 'offer_ids list is required'}), 400
+        
+        offers_collection = db_instance.get_collection('offers')
+        
+        # Build network match - include both the network_id and known network type names
+        network_match_values = [network_id]
+        network_type_param = data.get('network_type', '')
+        if network_type_param:
+            network_match_values.append(network_type_param)
+        # Common aliases
+        if 'adscend' in network_id.lower() or network_type_param == 'adscendmedia':
+            network_match_values.append('adscendmedia')
+        
+        # Delete offers matching these offer_ids directly (unique enough)
+        delete_filter = {
+            '$or': [
+                {'offer_id': {'$in': offer_ids}},
+                {'campaign_id': {'$in': offer_ids}},
+            ]
+        }
+        
+        # First count how many will be deleted
+        count = offers_collection.count_documents(delete_filter)
+        
+        if count == 0:
+            return jsonify({'success': True, 'deleted': 0, 'message': 'No matching offers found to delete'}), 200
+        
+        # Perform deletion
+        result = offers_collection.delete_many(delete_filter)
+        deleted_count = result.deleted_count
+        
+        logging.info(f"🗑️ Deleted {deleted_count} stale offers from network '{network_id}'")
+        
+        # Log admin activity
+        try:
+            current_user = request.current_user
+            log_admin_activity(
+                action='delete_stale_offers',
+                category='offer',
+                admin_user=current_user,
+                details={
+                    'network_id': network_id,
+                    'deleted_count': deleted_count,
+                    'offer_ids': offer_ids[:20],
+                },
+                request_obj=request
+            )
+        except Exception as log_err:
+            logging.warning(f"Activity log error (non-critical): {log_err}")
+        
+        return jsonify({
+            'success': True,
+            'deleted': deleted_count,
+            'message': f'Successfully deleted {deleted_count} stale offers'
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Delete stale offers failed: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to delete stale offers: {str(e)}'}), 500
+
+
+# ==================== STALE OFFER STATUS UPDATE ENDPOINT ====================
+
+@admin_offers_bp.route('/offers/api-import/update-stale-status', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def update_stale_offers_status():
+    """Update status of stale offers instead of deleting them"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        network_id = data.get('network_id')
+        offer_ids = data.get('offer_ids', [])
+        new_status = data.get('status', 'inactive')
+        
+        if not network_id:
+            return jsonify({'error': 'network_id is required'}), 400
+        
+        if not offer_ids:
+            return jsonify({'error': 'offer_ids list is required'}), 400
+        
+        # Validate status
+        valid_statuses = ['inactive', 'paused', 'hidden', 'expired']
+        if new_status not in valid_statuses:
+            return jsonify({'error': f'Invalid status. Must be one of: {valid_statuses}'}), 400
+        
+        offers_collection = db_instance.get_collection('offers')
+        
+        # Update status for matching offers — match by offer_id directly
+        # (offer_ids are already unique identifiers, no need to also match network)
+        update_filter = {
+            '$or': [
+                {'offer_id': {'$in': offer_ids}},
+                {'campaign_id': {'$in': offer_ids}},
+            ]
+        }
+        
+        result = offers_collection.update_many(
+            update_filter,
+            {'$set': {'status': new_status, 'updated_at': datetime.utcnow()}}
+        )
+        
+        updated_count = result.modified_count
+        
+        logging.info(f"📝 Updated {updated_count} stale offers to status '{new_status}' for network '{network_id}'")
+        
+        # Log admin activity
+        try:
+            current_user = request.current_user
+            log_admin_activity(
+                action='update_stale_offers_status',
+                category='offer',
+                admin_user=current_user,
+                details={
+                    'network_id': network_id,
+                    'new_status': new_status,
+                    'updated_count': updated_count,
+                    'offer_ids': offer_ids[:20],
+                },
+                request_obj=request
+            )
+        except Exception as log_err:
+            logging.warning(f"Activity log error (non-critical): {log_err}")
+        
+        return jsonify({
+            'success': True,
+            'updated': updated_count,
+            'status': new_status,
+            'message': f'Successfully updated {updated_count} offers to {new_status}'
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Update stale offers status failed: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to update offers status: {str(e)}'}), 500
 
 
 # ==================== DEBUG ENDPOINT ====================
