@@ -31,7 +31,7 @@ FLAG_MAP = {
 }
 
 
-def get_trending_offers(hours=7, limit=7):
+def get_trending_offers(hours=48, limit=7):
     """Get top picked offers in the last N hours, sorted by pick count."""
     picks_col = db_instance.get_collection('offer_picks')
     if picks_col is None:
@@ -94,12 +94,12 @@ async def send_trending_to_telegram():
         from telegram import Bot
         bot = Bot(token=BOT_TOKEN)
         
-        offers = get_trending_offers(hours=7, limit=7)
+        offers = get_trending_offers(hours=48, limit=7)
         message = format_trending_message(offers)
         
         # Don't send if no offers picked in this window
         if message is None:
-            logger.info("No picks in the last 7 hours — skipping Telegram send")
+            logger.info("No picks in the last 2 days — skipping Telegram send")
             return False
         
         await bot.send_message(
@@ -125,9 +125,9 @@ def start_scheduler():
     import time as _time
     
     def _loop():
-        logger.info("📡 Telegram trending bot scheduler started (every 7 hours)")
+        logger.info("📡 Telegram trending bot scheduler started (every 2 days)")
         while True:
-            _time.sleep(7 * 3600)  # Wait 7 hours
+            _time.sleep(2 * 24 * 3600)  # Wait 2 days
             try:
                 run_trending_update()
             except Exception as e:
@@ -142,14 +142,14 @@ if __name__ == '__main__':
     
     import sys
     if '--loop' in sys.argv:
-        # Run in continuous loop mode (every 7 hours)
+        # Run in continuous loop mode (every 2 days)
         import time as _time
-        print("Starting Telegram bot in loop mode (every 7 hours)...")
+        print("Starting Telegram bot in loop mode (every 2 days)...")
         print("Press Ctrl+C to stop.\n")
         while True:
             run_trending_update()
-            print(f"Next run in 7 hours...")
-            _time.sleep(7 * 3600)
+            print(f"Next run in 2 days...")
+            _time.sleep(2 * 24 * 3600)
     else:
         # Single run mode
         print("Sending trending offers to Telegram...")
