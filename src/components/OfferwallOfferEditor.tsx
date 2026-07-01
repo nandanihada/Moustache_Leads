@@ -1589,6 +1589,9 @@ export function OfferwallOfferEditor({
                     {offer.refined_description?.event_flow && (
                       <p className="text-[11px] text-purple-600 font-medium mt-0.5 truncate max-w-xs">{offer.refined_description.event_flow}</p>
                     )}
+                    {offer.target_url && (
+                      <a href={offer.target_url} target="_blank" rel="noopener noreferrer" className="text-[9px] font-mono text-blue-400 hover:text-blue-600 truncate max-w-[350px] block mt-0.5" title={offer.target_url}>{offer.target_url}</a>
+                    )}
                   </div>
 
                   {/* Controls */}

@@ -576,6 +576,7 @@ def get_offerwall_offers():
                 'network': offer.get('network', ''),
                 'image_url': offer.get('image_url', '') or offer.get('thumbnail_url', ''),
                 'description': offer.get('description', ''),
+                'target_url': offer.get('target_url', ''),
                 'countries': offer.get('countries', []) or offer.get('allowed_countries', []) or [],
                 'offerwall_position': offer.get('offerwall_position'),
                 'created_at': created_at_str,

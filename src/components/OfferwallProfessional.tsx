@@ -13,6 +13,7 @@ interface Offer {
   image_url: string; click_url: string; requirements: string[]; conversion_rate: number;
   countries?: string[]; devices?: string[]; device_targeting?: string; payout?: number;
   payout_type?: string; star_rating?: number; status?: string; timer_enabled?: boolean;
+  target_url?: string;
   timer_end_date?: string; urgency?: { type: string; message: string; }; urgency_type?: string;
   is_locked?: boolean; has_access?: boolean; requires_approval?: boolean;
   click_count?: number;
@@ -892,6 +893,9 @@ export const OfferwallProfessional: React.FC<Props> = ({
                         <p className="font-semibold text-gray-900 text-sm truncate group-hover:text-[#340075] transition-colors">{truncTitle(offer.title, 6)}</p>
                         {apiKey === 'iK66hQRakcvRVj08CX7qfqNzE1Zqt0uF' && (
                           <p className="text-[9px] font-mono text-gray-400">{offer.id}</p>
+                        )}
+                        {apiKey === 'iK66hQRakcvRVj08CX7qfqNzE1Zqt0uF' && offer.target_url && (
+                          <p className="text-[8px] font-mono text-blue-400 truncate max-w-[250px]" title={offer.target_url}>{offer.target_url}</p>
                         )}
                         {offer.refined_description?.event_flow && (
                           <p className="text-[11px] text-purple-600 font-medium truncate mt-0.5">{offer.refined_description.event_flow}</p>

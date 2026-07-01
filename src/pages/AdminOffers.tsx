@@ -2623,6 +2623,9 @@ const AdminOffers = () => {
                                 {(offer as any).original_name && (
                                   <span className="text-[10px] text-muted-foreground">was: {(offer as any).original_name}</span>
                                 )}
+                                {(offer as any).target_url && (
+                                  <a href={(offer as any).target_url} target="_blank" rel="noopener noreferrer" className="text-[9px] font-mono text-blue-400 hover:text-blue-600 truncate max-w-[280px] block" title={(offer as any).target_url}>{(offer as any).target_url}</a>
+                                )}
                               </div>
                             </TableCell>
                             <TableCell>
@@ -3240,6 +3243,9 @@ const AdminOffers = () => {
                           <div className={`text-[11px] text-muted-foreground ${compactMode ? 'hidden' : ''}`}>
                             was: {offer.original_name || recentlyRenamed[offer.offer_id]}
                           </div>
+                        )}
+                        {offer.target_url && (
+                          <a href={offer.target_url} target="_blank" rel="noopener noreferrer" className="text-[9px] font-mono text-blue-400 hover:text-blue-600 truncate max-w-[300px] block" title={offer.target_url}>{offer.target_url}</a>
                         )}
                         <div className={`text-sm text-muted-foreground ${compactMode ? 'hidden' : ''}`}>
                           {offer.affiliates === 'all' || !offer.affiliates ? 'All Users' :
@@ -4440,67 +4446,136 @@ const AdminOffers = () => {
 
       {/* Bulk Delete Running Offers Warning Dialog */}
       <Dialog open={bulkDeleteWarningOpen} onOpenChange={setBulkDeleteWarningOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-amber-600">
-              <AlertTriangle className="h-5 w-5" /> Running Offers Detected
+              <AlertTriangle className="h-5 w-5" /> Running Offers Detected — Smart Delete
             </DialogTitle>
             <DialogDescription>
-              {bulkDeleteRunningDetails.length} of your selected offers are currently running with active user interactions in the last 30 days. Deleting them may affect ongoing traffic and tracking. Review the details below.
+              {bulkDeleteRunningDetails.length} running + {bulkDeleteNonRunningIds.length} non-running offer(s) selected. Choose which categories to <strong>keep</strong> (skip from deletion). Unchecked categories will be deleted.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 max-h-[40vh] overflow-y-auto">
-            {bulkDeleteRunningDetails.map(detail => (
-              <div key={detail.offer_id} className="p-3 border rounded-lg bg-amber-50/50 space-y-2">
-                <div className="flex items-center justify-between">
+
+          {/* Category checkboxes for skip control */}
+          {(() => {
+            // Group running offers by sub_status
+            const categories: Record<string, typeof bulkDeleteRunningDetails> = {};
+            bulkDeleteRunningDetails.forEach(d => {
+              (d.sub_statuses || []).forEach(s => {
+                if (!categories[s]) categories[s] = [];
+                categories[s].push(d);
+              });
+            });
+            // Unique categories
+            const allCats = Object.keys(categories);
+            const catLabels: Record<string, string> = {
+              has_clicks: '🖱️ Has Clicks',
+              approved: '✅ Approved (publisher access)',
+              requested: '📩 Requested',
+              picked: '⭐ Picked by users',
+              searched: '🔍 Searched',
+              rejected: '❌ Rejected',
+            };
+
+            return (
+              <div className="space-y-3">
+                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Keep (skip from delete):</div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {allCats.map(cat => (
+                    <label key={cat} className="flex items-center gap-2 p-2 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                        defaultChecked={cat === 'has_clicks' || cat === 'approved'}
+                        data-cat={cat}
+                        id={`skip-cat-${cat}`}
+                      />
+                      <span className="text-sm">{catLabels[cat] || cat}</span>
+                      <span className="ml-auto text-xs text-gray-400 font-mono">{categories[cat].length}</span>
+                    </label>
+                  ))}
+                </div>
+                {bulkDeleteNonRunningIds.length > 0 && (
+                  <div className="p-2.5 bg-blue-50 rounded-lg text-sm flex items-center gap-2">
+                    <span className="font-medium text-blue-800">{bulkDeleteNonRunningIds.length}</span>
+                    <span className="text-blue-700">non-running offer(s) will always be deleted</span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Scrollable list of running offers */}
+          <div className="border rounded-lg overflow-hidden">
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide px-3 py-2 bg-gray-50 border-b">Running Offers ({bulkDeleteRunningDetails.length})</div>
+            <div className="space-y-0 max-h-[35vh] overflow-y-auto divide-y">
+              {bulkDeleteRunningDetails.map(detail => (
+                <div key={detail.offer_id} className="px-3 py-2.5 flex items-center gap-3 hover:bg-gray-50">
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-sm truncate">{detail.name}</div>
-                    <div className="text-xs text-muted-foreground font-mono">{detail.offer_id}</div>
+                    <div className="text-[10px] text-muted-foreground font-mono">{detail.offer_id}</div>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
-                    <div className="text-center">
-                      <div className="text-sm font-semibold text-green-600">{detail.total_clicks.toLocaleString()}</div>
-                      <div className="text-[10px] text-muted-foreground">clicks</div>
+                    <div className="flex gap-1 flex-wrap">
+                      {detail.sub_statuses.map(s => (
+                        <span key={s} className="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">{s}</span>
+                      ))}
                     </div>
-                    <div className="text-center">
-                      <div className={`text-sm font-semibold ${detail.days_remaining <= 5 ? 'text-red-600' : 'text-blue-600'}`}>{detail.days_remaining}d</div>
-                      <div className="text-[10px] text-muted-foreground">remaining</div>
+                    <div className="text-center w-12">
+                      <div className="text-xs font-semibold text-green-600">{detail.total_clicks}</div>
+                      <div className="text-[9px] text-muted-foreground">clicks</div>
+                    </div>
+                    <div className="text-center w-10">
+                      <div className={`text-xs font-semibold ${detail.days_remaining <= 5 ? 'text-red-600' : 'text-blue-600'}`}>{detail.days_remaining}d</div>
                     </div>
                   </div>
                 </div>
-                <div className="pt-1.5 border-t">
-                  <div className="text-[10px] text-amber-700 font-medium mb-1">Running because:</div>
-                  <div className="flex gap-1 flex-wrap">
-                    {detail.sub_statuses.map(s => (
-                      <Badge key={s} variant="outline" className={`text-[9px] px-1.5 py-0 ${getSubStatusBadge(s)}`}>
-                        {s === 'searched' && '🔍 '}
-                        {s === 'picked' && '⭐ '}
-                        {s === 'requested' && '📩 '}
-                        {s === 'approved' && '✅ '}
-                        {s === 'rejected' && '❌ '}
-                        {s === 'has_clicks' && '🖱️ '}
-                        {s}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-          {bulkDeleteNonRunningIds.length > 0 && (
-            <div className="p-3 bg-blue-50 rounded-lg text-sm">
-              <span className="font-medium text-blue-800">{bulkDeleteNonRunningIds.length}</span> non-running offer(s) can be safely deleted.
+              ))}
             </div>
-          )}
-          <DialogFooter className="gap-2 sm:gap-0 flex-wrap">
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-2 flex-wrap pt-2">
             <Button variant="outline" onClick={() => setBulkDeleteWarningOpen(false)}>Cancel</Button>
-            {bulkDeleteNonRunningIds.length > 0 && (
-              <Button variant="outline" className="border-blue-500 text-blue-600 hover:bg-blue-50" onClick={executeBulkDeleteSkipRunning}>
-                Skip Running, Delete {bulkDeleteNonRunningIds.length} Others
-              </Button>
-            )}
+            <Button
+              className="bg-purple-600 hover:bg-purple-700 text-white"
+              onClick={() => {
+                // Get checked categories to KEEP
+                const keepCats: string[] = [];
+                document.querySelectorAll<HTMLInputElement>('[id^="skip-cat-"]').forEach(el => {
+                  if (el.checked && el.dataset.cat) keepCats.push(el.dataset.cat);
+                });
+                // Filter: keep running offers that have ANY of the kept categories
+                const keepIds = new Set<string>();
+                bulkDeleteRunningDetails.forEach(d => {
+                  if ((d.sub_statuses || []).some(s => keepCats.includes(s))) {
+                    keepIds.add(d.offer_id);
+                  }
+                });
+                // Delete = all selected minus kept running offers
+                const allIds = Array.from(selectedRunningOffers.size > 0 ? selectedRunningOffers : selectedOffers);
+                const toDelete = allIds.filter(id => !keepIds.has(id));
+                if (toDelete.length === 0) {
+                  toast({ title: "Nothing to delete", description: "All offers matched your keep criteria" });
+                  setBulkDeleteWarningOpen(false);
+                  return;
+                }
+                setBulkDeleteWarningOpen(false);
+                setBulkDeleting(true);
+                adminOfferApi.bulkDeleteOffers(toDelete).then(result => {
+                  toast({ title: "Smart Delete Complete", description: `Deleted ${result.deleted} offer(s). Kept ${keepIds.size} running offer(s).` });
+                  setSelectedRunningOffers(new Set());
+                  setSelectedOffers(new Set());
+                  if (offersSubView === 'running') fetchRunningOffers(1);
+                  else { setPagination(prev => ({ ...prev, page: 1 })); fetchOffers(1); }
+                }).catch(err => {
+                  toast({ title: "Error", description: err instanceof Error ? err.message : "Failed to delete", variant: "destructive" });
+                }).finally(() => setBulkDeleting(false));
+              }}
+            >
+              Delete (Skip Kept Categories)
+            </Button>
             <Button variant="destructive" onClick={executeBulkDeleteAll}>
-              Delete All {selectedRunningOffers.size > 0 ? selectedRunningOffers.size : selectedOffers.size} (Including Running)
+              Delete All {selectedRunningOffers.size > 0 ? selectedRunningOffers.size : selectedOffers.size}
             </Button>
           </DialogFooter>
         </DialogContent>

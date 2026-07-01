@@ -1574,18 +1574,24 @@ class NetworkFieldMapper:
             Tuple of (is_valid, list_of_errors)
         """
         errors = []
-        required_fields = ['campaign_id', 'name', 'target_url', 'countries', 'payout', 'network']
+        # Payout is NOT required — some offers use revenue-share/percentage-based payouts
+        # where the fixed payout is 0 but they earn via commission percentage
+        required_fields = ['campaign_id', 'name', 'target_url', 'countries', 'network']
         
         for field in required_fields:
             if field not in mapped_offer or not mapped_offer[field]:
                 errors.append(f"Missing required field: {field}")
         
-        # Validate payout is numeric
-        if 'payout' in mapped_offer:
+        # Validate payout is numeric if present (0 is valid for revenue-share offers)
+        if 'payout' in mapped_offer and mapped_offer['payout'] is not None:
             try:
                 float(mapped_offer['payout'])
             except (ValueError, TypeError):
                 errors.append(f"Invalid payout value: {mapped_offer['payout']}")
+        
+        # If payout is missing entirely, default it to 0 (revenue-share offer)
+        if 'payout' not in mapped_offer or mapped_offer.get('payout') is None:
+            mapped_offer['payout'] = 0
         
         # Validate countries is a list
         if 'countries' in mapped_offer and not isinstance(mapped_offer['countries'], list):

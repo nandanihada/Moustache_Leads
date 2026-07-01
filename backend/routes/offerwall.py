@@ -2156,7 +2156,8 @@ def get_offers():
             'affiliates': 1, 'approval_settings': 1, 'offer_id': 1,
             'partner_id': 1, 'payout_model': 1,
             'refined_description': 1,
-            'price_boost': 1, 'offerwall_position': 1
+            'price_boost': 1, 'offerwall_position': 1,
+            'offerwall_exclusive': 1
         }
         
         # === STARTER OFFERS: Fetch unconditionally (bypass ALL filters EXCEPT status) ===
@@ -2250,8 +2251,9 @@ def get_offers():
                     o for o in regular_offers_list 
                     if health_results.get(o.get('offer_id'), {}).get('status') == 'healthy'
                     or o.get('offer_id') in publisher_approved_offer_ids  # Approved offers bypass health check
+                    or o.get('offerwall_exclusive') == True  # Offerwall-exclusive offers bypass health check (admin explicitly marked them)
                 ]
-                logger.info(f"✅ Health filter: {len(regular_offers_list)} offers remaining (includes approved bypasses)")
+                logger.info(f"✅ Health filter: {len(regular_offers_list)} offers remaining (includes approved + exclusive bypasses)")
             except Exception as e:
                 logger.warning(f"Offerwall health check failed, returning all offers: {e}")
         
@@ -2529,6 +2531,7 @@ def get_offers():
                     'boost_direction': _boost_direction,
                     'boost_expires_at': _boost_expires_at,
                     'offerwall_position': offer.get('offerwall_position'),
+                    'target_url': offer.get('target_url', '') if is_admin_mode else None,
                 }
                 
                 # Level payouts for offerwall: apply 80% rule, then convert to points/coins

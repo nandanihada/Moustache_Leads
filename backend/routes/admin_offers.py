@@ -4651,9 +4651,23 @@ def full_preview_api_offers():
                 issues.append('missing_countries')
                 missing_counts['missing_countries'] += 1
             
-            # Check payout
+            # Check payout (0 is valid for revenue-share/percentage offers)
             payout = offer.get('payout', 0)
-            if not payout or float(payout) <= 0:
+            revenue_share = offer.get('revenue_share_percent', 0)
+            payout_model = (offer.get('payout_model', '') or offer.get('offer_type', '') or '').upper()
+            level_payouts = offer.get('level_payouts', {})
+            has_level_payouts = level_payouts.get('enabled', False) if isinstance(level_payouts, dict) else False
+            geo_payouts = offer.get('geo_payouts', [])
+            
+            # Offer has valid payout if: fixed payout > 0, OR revenue share > 0, OR level payouts exist, OR geo payouts exist
+            has_valid_payout = (
+                (payout and float(payout) > 0) or
+                (revenue_share and float(revenue_share) > 0) or
+                has_level_payouts or
+                (geo_payouts and len(geo_payouts) > 0) or
+                payout_model in ['CPS', 'REVSHARE', 'REVENUE_SHARE', 'REV_SHARE']
+            )
+            if not has_valid_payout:
                 issues.append('missing_payout')
                 missing_counts['missing_payout'] += 1
             
