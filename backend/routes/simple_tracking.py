@@ -464,7 +464,8 @@ def track_offer_click(offer_id):
         device_targeting = offer.get('device_targeting', 'all')
         # Never show QR if user came from scanning a QR (prevents infinite loop)
         from_qr = request.args.get('from_qr', '')
-        if device_targeting == 'mobile' and not _is_mobile_device(user_agent) and from_qr != '1':
+        is_mobile_offer = device_targeting in ('mobile', 'android', 'ios')
+        if is_mobile_offer and not _is_mobile_device(user_agent) and from_qr != '1':
             # Offer is mobile-only but user is on desktop — show QR code page
             # NO click is counted here; click will be counted when user scans QR on mobile
             # Add from_qr=1 to the QR URL so if scanned on desktop again, it won't loop
@@ -473,7 +474,7 @@ def track_offer_click(offer_id):
             qr_url = f"{current_url}{separator}from_qr=1"
             logger.info(f"📱 Device mismatch: mobile offer {offer_id} accessed from desktop, showing QR")
             
-            # Determine platform label from os_targeting
+            # Determine platform label from os_targeting or device_targeting
             os_targeting = offer.get('os_targeting', [])
             platform_label = ''
             platform_icon = ''
@@ -481,13 +482,17 @@ def track_offer_click(offer_id):
                 os_lower = [o.lower() for o in os_targeting]
                 if 'android' in os_lower and 'ios' not in os_lower:
                     platform_label = 'Android only'
-                    platform_icon = '🤖'
+                    platform_icon = ''
                 elif 'ios' in os_lower and 'android' not in os_lower:
                     platform_label = 'iOS only'
-                    platform_icon = '🍎'
+                    platform_icon = ''
                 elif 'android' in os_lower and 'ios' in os_lower:
                     platform_label = 'Android & iOS'
-                    platform_icon = '📱'
+                    platform_icon = ''
+            elif device_targeting == 'android':
+                platform_label = 'Android only'
+            elif device_targeting == 'ios':
+                platform_label = 'iOS only'
             
             return render_template_string(
                 QR_CODE_TEMPLATE,
