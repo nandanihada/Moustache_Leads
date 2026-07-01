@@ -533,6 +533,14 @@ class NetworkFieldMapper:
         
         import re
         
+        # Check for worldwide indicators first
+        text_upper = text.upper()
+        worldwide_patterns = [r'\bWW\b', r'\bWORLDWIDE\b', r'\bGLOBAL\b', r'\bALL\s*GEOS?\b', r'\bALL\s*COUNTRIES\b']
+        for pattern in worldwide_patterns:
+            if re.search(pattern, text_upper):
+                countries.append('WW')
+                break
+        
         # Full ISO 3166-1 alpha-2 country codes
         ALL_ISO_CODES = {
             'AD','AE','AF','AG','AI','AL','AM','AO','AQ','AR','AS','AT','AU','AW','AX','AZ',

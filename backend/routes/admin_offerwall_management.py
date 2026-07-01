@@ -1605,6 +1605,7 @@ RULES:
   - When you see country codes like US, UK, CA (Canada), AU, DE — put them in "allowed_countries".
   - If the offer only mentions US states as excluded but the offer is clearly US-targeted, set allowed_countries to ["US"].
 - Extract ALLOWED COUNTRY CODES (ISO 2-letter) from the description or name. Return as "allowed_countries" array.
+- IMPORTANT: "WW", "GLOBAL", "ALL GEOS", "Worldwide", "Global" all mean the offer is available worldwide. When you see any of these, return ["WW"] in allowed_countries.
 - Extract RESTRICTED/EXCLUDED states or regions. Return as "restricted_areas" array of strings (e.g. ["CT", "MI", "NV", "NY"]).
 - Extract specific CITIES if mentioned. Return as "cities" array.
 - Extract APPROVAL PERIOD if mentioned (e.g. "Approvals are provided by the latest on DAY 15 of next month", "Weekly approvals"). Return as "approval_period" string.
@@ -1709,6 +1710,26 @@ Return ONLY valid JSON (no markdown, no explanation):
                 if len(code) == 2 and code.isalpha():
                     valid_countries.append(code)
             refined["allowed_countries"] = valid_countries
+
+        # FALLBACK: If AI didn't extract countries, try regex on offer NAME
+        if not refined["allowed_countries"] and name:
+            import re as _re
+            name_upper = name.upper()
+            # Check for worldwide indicators in name
+            ww_patterns = [r'\bWW\b', r'\bWORLDWIDE\b', r'\bGLOBAL\b', r'\bALL\s*GEOS?\b', r'\bALL\s*COUNTRIES\b']
+            for pat in ww_patterns:
+                if _re.search(pat, name_upper):
+                    refined["allowed_countries"] = ["WW"]
+                    break
+            # If still empty, try to find standard country codes in the name
+            if not refined["allowed_countries"]:
+                # Split name by common delimiters and look for 2-letter codes
+                VALID_CODES = {'US','GB','UK','CA','AU','DE','FR','ES','IT','NL','BE','CH','AT','SE','NO','DK','FI','PL','IE','PT','GR','CZ','HU','RO','BG','HR','JP','CN','KR','IN','SG','HK','TW','TH','MY','ID','PH','VN','NZ','BR','MX','AR','CL','CO','ZA','IL','TR','AE','SA','RU','UA','WW'}
+                FALSE_POSITIVES = {'OK','CC','AI','BE','AT','BY','IN','IS','IT','TO','ME','NO','OR','SO','DO','AN','ON','UP','AM','PM','TV','IO','MY','RS','MS'}
+                parts = _re.split(r'[\s,\-–—/|()]+', name_upper)
+                found = [('GB' if p == 'UK' else p) for p in parts if p in VALID_CODES and p not in FALSE_POSITIVES]
+                if found:
+                    refined["allowed_countries"] = list(set(found))
 
         # Clean restricted_areas
         if isinstance(refined["restricted_areas"], list):
@@ -1994,6 +2015,7 @@ Return JSON: {{"estimated_time": "X min"}}""",
 
     'countries': """Extract COUNTRY CODES (ISO 2-letter uppercase) mentioned in this offer description.
 Look for: country names, GEO mentions, geo-targeting, allowed/excluded countries.
+IMPORTANT: "WW", "GLOBAL", "ALL GEOS", "Worldwide", "Global" all mean worldwide. Return ["WW"] for these.
 Return JSON: {{"countries": ["US", "UK", "CA"]}}""",
 }
 
