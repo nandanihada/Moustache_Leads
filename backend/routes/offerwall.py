@@ -1938,6 +1938,10 @@ def _offer_matches_country(offer, user_country_code):
     allowed = [c.upper().strip() for c in countries if c]
     if not allowed:
         return True  # Empty list = available everywhere
+    # WW/GLOBAL/ALL/WORLDWIDE means available everywhere
+    worldwide_codes = {'WW', 'GLOBAL', 'ALL', 'WORLDWIDE', '**'}
+    if any(c in worldwide_codes for c in allowed):
+        return True
     return user_country_code in allowed
 
 
