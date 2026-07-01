@@ -468,11 +468,20 @@ def track_offer_click(offer_id):
         if is_mobile_offer and not _is_mobile_device(user_agent) and from_qr != '1':
             # Offer is mobile-only but user is on desktop — show QR code page
             # NO click is counted here; click will be counted when user scans QR on mobile
-            # Add from_qr=1 to the QR URL so if scanned on desktop again, it won't loop
+            # Build QR URL using the proper public-facing URL (not internal Render URL)
+            # Add from_qr=1 to prevent infinite QR loop
             current_url = request.url
+            # Fix for reverse proxy: if request came through offers.moustacheleads.com,
+            # ensure QR uses the public URL, not internal render URL
+            if 'onrender.com' in current_url or 'localhost' not in current_url:
+                # Reconstruct from request path + query string for reliability
+                scheme = request.headers.get('X-Forwarded-Proto', request.scheme)
+                host = request.headers.get('X-Forwarded-Host', request.headers.get('Host', request.host))
+                path = request.full_path.rstrip('?')
+                current_url = f"{scheme}://{host}{path}"
             separator = '&' if '?' in current_url else '?'
             qr_url = f"{current_url}{separator}from_qr=1"
-            logger.info(f"📱 Device mismatch: mobile offer {offer_id} accessed from desktop, showing QR")
+            logger.info(f"📱 Device mismatch: mobile offer {offer_id} accessed from desktop, showing QR (url={qr_url[:80]})")
             
             # Determine platform label from os_targeting or device_targeting
             os_targeting = offer.get('os_targeting', [])
