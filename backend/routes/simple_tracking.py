@@ -462,10 +462,15 @@ def track_offer_click(offer_id):
         
         # === DEVICE MISMATCH CHECK: Show QR for mobile offers on desktop ===
         device_targeting = offer.get('device_targeting', 'all')
-        if device_targeting == 'mobile' and not _is_mobile_device(user_agent):
+        # Never show QR if user came from scanning a QR (prevents infinite loop)
+        from_qr = request.args.get('from_qr', '')
+        if device_targeting == 'mobile' and not _is_mobile_device(user_agent) and from_qr != '1':
             # Offer is mobile-only but user is on desktop — show QR code page
             # NO click is counted here; click will be counted when user scans QR on mobile
-            current_url = request.url  # Full URL including query params
+            # Add from_qr=1 to the QR URL so if scanned on desktop again, it won't loop
+            current_url = request.url
+            separator = '&' if '?' in current_url else '?'
+            qr_url = f"{current_url}{separator}from_qr=1"
             logger.info(f"📱 Device mismatch: mobile offer {offer_id} accessed from desktop, showing QR")
             
             # Determine platform label from os_targeting
@@ -487,7 +492,7 @@ def track_offer_click(offer_id):
             return render_template_string(
                 QR_CODE_TEMPLATE,
                 offer_name=offer.get('name', 'Mobile Offer'),
-                tracking_url=current_url,
+                tracking_url=qr_url,
                 platform_label=platform_label,
                 platform_icon=platform_icon
             )
