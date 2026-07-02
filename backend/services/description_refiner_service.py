@@ -54,6 +54,7 @@ RULES:
 - In steps, do NOT mention specific dollar amounts (e.g. write "Make a deposit" instead of "Deposit $20")
 - Extract any restrictions (geo, device, VPN, new users only, etc.)
 - Estimate difficulty and time based on the steps
+- Extract device/platform requirements from the name and description. Look for keywords like "Android", "iOS", "iPhone", "iPad", "Mobile", "Desktop", "Web", "APK", "App Store", "Google Play". Return the detected device as one of: "android", "ios", "mobile", "desktop", "all". If both Android and iOS are mentioned, use "mobile". If no device info found, use "all".
 
 OFFER NAME: {name}
 RAW DESCRIPTION:
@@ -66,7 +67,8 @@ Return ONLY valid JSON (no markdown, no explanation):
   "payout_levels": [{{"event": "Event Name", "payout": ""}}],
   "restrictions": ["restriction 1", "restriction 2"],
   "difficulty": "Easy|Medium|Hard",
-  "estimated_time": "X min"
+  "estimated_time": "X min",
+  "device": "android|ios|mobile|desktop|all"
 }}"""
 
         # Retry logic for rate limiting
@@ -105,7 +107,8 @@ Return ONLY valid JSON (no markdown, no explanation):
             "payout_levels": result.get("payout_levels", []) if isinstance(result.get("payout_levels"), list) else [],
             "restrictions": result.get("restrictions", []) if isinstance(result.get("restrictions"), list) else [],
             "difficulty": result.get("difficulty", "Medium") if result.get("difficulty") in ("Easy", "Medium", "Hard") else "Medium",
-            "estimated_time": str(result.get("estimated_time", "5 min")).strip()
+            "estimated_time": str(result.get("estimated_time", "5 min")).strip(),
+            "device": str(result.get("device", "all")).strip().lower() if str(result.get("device", "all")).strip().lower() in ("android", "ios", "mobile", "desktop", "all") else "all"
         }
         
         # Strip any monetary amounts from all fields (safety net)
@@ -128,6 +131,18 @@ Return ONLY valid JSON (no markdown, no explanation):
                 if event_name:
                     valid_levels.append({"event": event_name, "payout": ""})
         refined["payout_levels"] = valid_levels
+        
+        # Fallback device detection from name if AI returned "all" but name clearly mentions a device
+        if refined["device"] == "all":
+            name_lower = name.lower()
+            if 'android' in name_lower and 'ios' not in name_lower and 'iphone' not in name_lower:
+                refined["device"] = "android"
+            elif ('ios' in name_lower or 'iphone' in name_lower or 'ipad' in name_lower) and 'android' not in name_lower:
+                refined["device"] = "ios"
+            elif 'android' in name_lower and ('ios' in name_lower or 'iphone' in name_lower):
+                refined["device"] = "mobile"
+            elif 'desktop' in name_lower or 'web only' in name_lower:
+                refined["device"] = "desktop"
         
         return refined
         

@@ -63,6 +63,7 @@ interface OfferItem {
     approval_period?: string;
     deposit_requirement?: string;
     countries?: string[];
+    device?: string;
   };
   is_boosted?: boolean;
   has_refined?: boolean;
@@ -111,6 +112,7 @@ const REFINE_FIELDS = [
   { key: 'approval_period', label: 'Approval Period', icon: '⏱️' },
   { key: 'restricted_areas', label: 'Excluded Regions', icon: '🚷' },
   { key: 'cities', label: 'Target Cities', icon: '📍' },
+  { key: 'device', label: 'Device / Platform', icon: '📱' },
   { key: 'difficulty', label: 'Difficulty', icon: '🎯' },
   { key: 'estimated_time', label: 'Est. Time', icon: '⏱️' },
   { key: 'countries', label: 'Countries', icon: '🌍' },
@@ -697,6 +699,27 @@ export function OfferEditorPanel({ offer, onClose, inline = false, onSaved }: Of
                         }`}
                       >
                         {d}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {key === 'device' && (
+                  <div className="flex gap-2">
+                    {(['all', 'android', 'ios', 'mobile', 'desktop'] as const).map(d => (
+                      <button
+                        key={d}
+                        onClick={() => setLocalRefined(prev => ({ ...prev, device: d }))}
+                        className={`px-3 py-1 rounded-full text-xs font-semibold transition-all border ${
+                          (localRefined?.device || 'all') === d
+                            ? d === 'android' ? 'bg-green-100 text-green-700 border-green-300' :
+                              d === 'ios' ? 'bg-blue-100 text-blue-700 border-blue-300' :
+                              d === 'mobile' ? 'bg-purple-100 text-purple-700 border-purple-300' :
+                              d === 'desktop' ? 'bg-orange-100 text-orange-700 border-orange-300' :
+                              'bg-gray-100 text-gray-700 border-gray-300'
+                            : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-400'
+                        }`}
+                      >
+                        {d === 'all' ? '🌐 All' : d === 'android' ? '🤖 Android' : d === 'ios' ? '🍎 iOS' : d === 'mobile' ? '📱 Mobile' : '💻 Desktop'}
                       </button>
                     ))}
                   </div>

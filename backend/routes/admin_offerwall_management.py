@@ -1614,6 +1614,7 @@ RULES:
 - Estimate difficulty and time based on the conversion events
 - FTD = First Time Deposit. This is a common affiliate marketing term.
 - CPA = Cost Per Action/Acquisition
+- DEVICE DETECTION: Look at the offer name and description for device/platform keywords. If "Android" is mentioned → "android". If "iOS"/"iPhone"/"iPad" → "ios". If both → "mobile". If "Desktop"/"Web only" → "desktop". If none or all platforms → "all".
 
 OFFER NAME: {name}
 RAW DESCRIPTION:
@@ -1635,7 +1636,8 @@ Return ONLY valid JSON (no markdown, no explanation):
   "payout_levels": [{{"event": "Event Name", "payout": "1.00"}}],
   "restrictions": ["restriction 1", "restriction 2"],
   "difficulty": "Easy|Medium|Hard",
-  "estimated_time": "X min"
+  "estimated_time": "X min",
+  "device": "android|ios|mobile|desktop|all"
 }}"""
 
         last_error = None
@@ -1680,8 +1682,21 @@ Return ONLY valid JSON (no markdown, no explanation):
             "payout_levels": [],
             "restrictions": result.get("restrictions", []) if isinstance(result.get("restrictions"), list) else [],
             "difficulty": result.get("difficulty", "Medium") if result.get("difficulty") in ("Easy", "Medium", "Hard") else "Medium",
-            "estimated_time": str(result.get("estimated_time", "5 min")).strip()
+            "estimated_time": str(result.get("estimated_time", "5 min")).strip(),
+            "device": str(result.get("device", "all")).strip().lower() if str(result.get("device", "all")).strip().lower() in ("android", "ios", "mobile", "desktop", "all") else "all"
         }
+
+        # Fallback device detection from name if AI returned "all"
+        if refined["device"] == "all" and name:
+            name_lower = name.lower()
+            if 'android' in name_lower and 'ios' not in name_lower and 'iphone' not in name_lower:
+                refined["device"] = "android"
+            elif ('ios' in name_lower or 'iphone' in name_lower or 'ipad' in name_lower) and 'android' not in name_lower:
+                refined["device"] = "ios"
+            elif 'android' in name_lower and ('ios' in name_lower or 'iphone' in name_lower):
+                refined["device"] = "mobile"
+            elif 'desktop' in name_lower or 'web only' in name_lower:
+                refined["device"] = "desktop"
 
         # Strip any monetary amounts from text fields EXCEPT deposit_requirement (safety net)
         import re
@@ -1814,10 +1829,16 @@ def save_refined_description():
                 'cities': refined.get('cities', []),
                 'approval_period': refined.get('approval_period'),
                 'deposit_requirement': refined.get('deposit_requirement'),
+                'device': refined.get('device', 'all'),
             },
             'refined_at': datetime.utcnow(),
             'refined_via_admin': True  # Marker: refined from admin dialog
         }
+
+        # Update device_targeting on the offer itself — ALWAYS update when device is explicitly set
+        detected_device = refined.get('device', 'all')
+        if detected_device and detected_device != 'all':
+            update_fields['device_targeting'] = detected_device
 
         # Optionally update countries from AI extraction
         if update_countries and (refined.get('allowed_countries') or refined.get('countries')):
@@ -2018,6 +2039,15 @@ Return JSON: {{"estimated_time": "X min"}}""",
 Look for: country names, GEO mentions, geo-targeting, allowed/excluded countries.
 IMPORTANT: "WW", "GLOBAL", "ALL GEOS", "Worldwide", "Global" all mean worldwide. Return ["WW"] for these.
 Return JSON: {{"countries": ["US", "UK", "CA"]}}""",
+
+    'device': """Detect the device/platform requirement from this offer's name and description.
+Look for keywords: "Android", "iOS", "iPhone", "iPad", "Mobile", "Desktop", "Web", "APK", "App Store", "Google Play".
+- If only Android is mentioned → "android"
+- If only iOS/iPhone/iPad is mentioned → "ios"  
+- If both Android and iOS are mentioned → "mobile"
+- If Desktop/Web only is mentioned → "desktop"
+- If no device info or all platforms → "all"
+Return JSON: {{"device": "android|ios|mobile|desktop|all"}}""",
 }
 
 
@@ -2118,6 +2148,19 @@ def refine_single_field():
             value = str(value).strip() if value else ''
         elif field == 'estimated_time':
             value = str(value).strip() if value else '5 min'
+        elif field == 'device':
+            value = str(value).strip().lower() if value else 'all'
+            if value not in ('android', 'ios', 'mobile', 'desktop', 'all'):
+                # Fallback: detect from name
+                name_lower = name.lower()
+                if 'android' in name_lower and 'ios' not in name_lower:
+                    value = 'android'
+                elif ('ios' in name_lower or 'iphone' in name_lower) and 'android' not in name_lower:
+                    value = 'ios'
+                elif 'android' in name_lower and ('ios' in name_lower or 'iphone' in name_lower):
+                    value = 'mobile'
+                else:
+                    value = 'all'
 
         return jsonify({
             'success': True,

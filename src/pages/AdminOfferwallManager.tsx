@@ -73,6 +73,7 @@ const AdminOfferwallManager = () => {
   const [selectedOffers, setSelectedOffers] = useState<Set<string>>(new Set());
   const [selectingAllResults, setSelectingAllResults] = useState(false);
   const [preloadedOffers, setPreloadedOffers] = useState<Map<string, any>>(new Map());
+  const [activeTab, setActiveTab] = useState('preview');
   const [offerwallPage, setOfferwallPage] = useState(1);
   const [starterOfferIds, setStarterOfferIds] = useState<string[]>([]);
   const [qualSurveySettings, setQualSurveySettings] = useState<{points: number; display_title: string; display_description: string; display_image_url: string; template: string} | null>(null);
@@ -700,6 +701,9 @@ const AdminOfferwallManager = () => {
 
   return (
     <div className="p-6 space-y-6">
+      <Tabs defaultValue="preview" className="space-y-4" onValueChange={(v) => setActiveTab(v)}>
+      {activeTab !== 'tracking' && (
+      <>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Offerwall Manager</h1>
@@ -754,9 +758,10 @@ const AdminOfferwallManager = () => {
           </CardContent>
         </Card>
       </div>
+      </>
+      )}
 
       {/* Tabs */}
-      <Tabs defaultValue="preview" className="space-y-4">
         <TabsList>
           <TabsTrigger value="preview">Preview</TabsTrigger>
           <TabsTrigger value="offers">Offer Controls</TabsTrigger>
@@ -2020,6 +2025,30 @@ const AdminOfferwallManager = () => {
                     />
                   ) : (
                     <span className="text-sm font-medium">{refinedResult.refined.estimated_time}</span>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">📱 Device</p>
+                  {refineEditMode ? (
+                    <select
+                      value={refinedResult.refined.device || 'all'}
+                      onChange={(e) => handleRefineFieldChange('device', e.target.value)}
+                      className="text-sm border rounded-md px-2 py-1"
+                    >
+                      <option value="all">🌐 All</option>
+                      <option value="android">🤖 Android</option>
+                      <option value="ios">🍎 iOS</option>
+                      <option value="mobile">📱 Mobile</option>
+                      <option value="desktop">💻 Desktop</option>
+                    </select>
+                  ) : (
+                    <span className={`text-sm font-medium px-2 py-0.5 rounded-full ${
+                      refinedResult.refined.device === 'android' ? 'bg-green-100 text-green-700' :
+                      refinedResult.refined.device === 'ios' ? 'bg-blue-100 text-blue-700' :
+                      refinedResult.refined.device === 'mobile' ? 'bg-purple-100 text-purple-700' :
+                      refinedResult.refined.device === 'desktop' ? 'bg-orange-100 text-orange-700' :
+                      'bg-gray-100 text-gray-700'
+                    }`}>{refinedResult.refined.device || 'all'}</span>
                   )}
                 </div>
               </div>
