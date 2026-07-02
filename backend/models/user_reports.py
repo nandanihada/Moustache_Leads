@@ -126,20 +126,41 @@ class UserReports:
                     match_query[sub_key] = filters[sub_key]
             
             # Build group stage
+            # Determine date format based on granularity
+            granularity = filters.get('granularity', 'daily')
+            if granularity == 'hourly':
+                date_format = '%Y-%m-%dT%H:00'
+            elif granularity == 'weekly':
+                date_format = '%Y-W%V'  # ISO week number
+            elif granularity == 'monthly':
+                date_format = '%Y-%m'
+            else:  # daily (default)
+                date_format = '%Y-%m-%d'
+            
             group_id = {}
+            is_offerwall_source = filters.get('source') == 'offerwall'
             for field in group_by:
                 if field == 'date':
                     group_id['date'] = {
-                        '$dateToString': {'format': '%Y-%m-%d', 'date': '$timestamp'}  # Use timestamp field
+                        '$dateToString': {'format': date_format, 'date': '$timestamp'}
                     }
                 elif field == 'offer_id':
                     group_id['offer_id'] = '$offer_id'
                 elif field == 'country':
-                    group_id['country'] = '$country'
+                    # offerwall_clicks_detailed stores country in geo.country (nested)
+                    group_id['country'] = '$geo.country' if is_offerwall_source else '$country'
                 elif field == 'browser':
-                    group_id['browser'] = '$browser'
+                    group_id['browser'] = '$device.browser' if is_offerwall_source else '$browser'
                 elif field == 'device_type':
-                    group_id['device_type'] = '$device_type'
+                    group_id['device_type'] = '$device.type' if is_offerwall_source else '$device_type'
+                elif field == 'publisher_id':
+                    group_id['publisher_id'] = '$publisher_id'
+                elif field == 'user_id':
+                    group_id['user_id'] = '$user_id'
+                elif field == 'network':
+                    group_id['network'] = '$offer.network' if is_offerwall_source else '$network'
+                elif field == 'category':
+                    group_id['category'] = '$offer.category' if is_offerwall_source else '$category'
                 elif field == 'source':
                     group_id['source'] = '$referer'
                 elif field == 'creative':
@@ -157,8 +178,8 @@ class UserReports:
             first_fields = [
                 'country', 'country_code', 'city', 'region',
                 'browser', 'device_type', 'os',
-                'ip_address', 'referer', 'user_id',
-                'click_id', 'offer_name',
+                'ip_address', 'referer', 'user_id', 'publisher_id',
+                'click_id', 'offer_name', 'placement_id',
             ]
             for ff in first_fields:
                 if ff not in group_id:
@@ -198,7 +219,7 @@ class UserReports:
             
             # Also get clicks from simple 'clicks' collection
             simple_click_results = []
-            if self.simple_clicks_collection is not None:
+            if self.simple_clicks_collection is not None and filters.get('source') != 'offerwall':
                 # Simple clicks use different field names, adjust query
                 simple_match_query = {
                     'timestamp': {
@@ -236,7 +257,7 @@ class UserReports:
             
             # Also get clicks from dashboard_clicks collection (Offers page clicks)
             dashboard_click_results = []
-            if self.dashboard_clicks_collection is not None:
+            if self.dashboard_clicks_collection is not None and filters.get('source') != 'offerwall':
                 dashboard_match_query = {
                     'timestamp': {
                         '$gte': start_date,
@@ -495,7 +516,9 @@ class UserReports:
                 if row.get('offer_id'):
                     all_offer_ids.add(row['offer_id'])
                 if row.get('user_id'):
-                    all_user_ids.add(row['user_id'])
+                    all_user_ids.add(str(row['user_id']))
+                if row.get('publisher_id'):
+                    all_user_ids.add(str(row['publisher_id']))
 
             # Batch-load offers
             offers_cache = {}
@@ -567,7 +590,8 @@ class UserReports:
                     row['postback_url'] = ''
 
                 # Enrich with publisher data from cache
-                pub_user_id = row.get('user_id', '')
+                # Try publisher_id first (for offerwall clicks where publisher_id = actual publisher ObjectId)
+                pub_user_id = str(row.get('publisher_id', '') or '') or str(row.get('user_id', '') or '')
                 if pub_user_id:
                     pub_user = users_cache.get(pub_user_id)
                     if pub_user:
@@ -577,7 +601,17 @@ class UserReports:
                         row['publisher_role'] = pub_user.get('role', '')
                         row['postback_url'] = pub_user.get('postback_url', '') or 'Not Configured'
                 if not row.get('publisher_name'):
-                    row['publisher_name'] = ''
+                    # Fallback: try user_id if publisher_id didn't resolve
+                    fallback_id = row.get('user_id', '')
+                    if fallback_id and fallback_id != pub_user_id:
+                        fb_user = users_cache.get(fallback_id)
+                        if fb_user:
+                            row['publisher_name'] = fb_user.get('name', fb_user.get('username', 'Unknown'))
+                            row['publisher_id'] = str(fb_user.get('_id', ''))
+                            row['publisher_email'] = fb_user.get('email', '')
+                            row['publisher_role'] = fb_user.get('role', '')
+                if not row.get('publisher_name'):
+                    row['publisher_name'] = pub_user_id[:20] if pub_user_id else ''
                     row['publisher_email'] = ''
                     row['publisher_role'] = ''
 

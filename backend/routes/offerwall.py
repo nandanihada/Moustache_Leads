@@ -141,7 +141,7 @@ class OfferwallTracker:
         # Update last_click_date on the offer (rolling 30-day inactivity window)
         try:
             offers_col = db_instance.get_collection('offers')
-            if offers_col:
+            if offers_col is not None:
                 offers_col.update_one(
                     {'offer_id': offer_id},
                     {'$set': {'last_click_date': datetime.utcnow()}}
@@ -1952,14 +1952,14 @@ def _get_all_approved_offer_ids(db_instance):
     approved_ids = set()
     try:
         affiliate_requests_col = db_instance.get_collection('affiliate_requests')
-        if affiliate_requests_col:
+        if affiliate_requests_col is not None:
             # Get all distinct approved offer_ids in one query
             approved_ids = set(
                 affiliate_requests_col.distinct('offer_id', {'status': 'approved'})
             )
         # Also get offer_grants
         offer_grants_col = db_instance.get_collection('offer_grants')
-        if offer_grants_col:
+        if offer_grants_col is not None:
             grant_ids = set(offer_grants_col.distinct('offer_id', {'status': 'active'}))
             approved_ids.update(grant_ids)
     except Exception as e:
@@ -1998,7 +1998,7 @@ def get_offers():
         if api_key:
             try:
                 settings_col = db_instance.get_collection('offerwall_settings')
-                if settings_col:
+                if settings_col is not None:
                     settings_doc = settings_col.find_one({}, {'admin_api_key': 1})
                     stored_admin_key = (settings_doc or {}).get('admin_api_key', '')
                     # Fallback: check against the known admin placement key
@@ -2194,7 +2194,7 @@ def get_offers():
         if not placement_publisher_id_for_health and user_id:
             try:
                 users_col = db_instance.get_collection('users')
-                if users_col:
+                if users_col is not None:
                     from bson import ObjectId
                     # Try as ObjectId first
                     pub_user = None
@@ -4070,7 +4070,7 @@ def track_offer_start():
 
         # Record in offerwall_clicks with status pending
         clicks_col = db_instance.get_collection('offerwall_clicks')
-        if clicks_col:
+        if clicks_col is not None:
             # Check if already exists as clicked, update to pending
             existing = clicks_col.find_one({'user_id': user_id, 'offer_id': offer_id, 'placement_id': placement_id})
             if existing:
@@ -4095,7 +4095,7 @@ def track_offer_start():
 
         # Update pick status to clicked
         picks_col = db_instance.get_collection('offer_picks')
-        if picks_col:
+        if picks_col is not None:
             picks_col.update_one(
                 {'offer_id': offer_id, 'user_id': user_id},
                 {'$set': {'status': 'clicked', 'clicked_at': datetime.utcnow()}}

@@ -88,11 +88,18 @@ def admin_performance_report():
         sort_order = request.args.get('sort_order', 'desc')
         sort = {'field': sort_field, 'order': sort_order}
 
-        # Additional filters: region, city, category, network
+        # Additional filters: region, city, category, network, source, granularity
         region_filter = request.args.get('region')
         city_filter = request.args.get('city')
         category_filter = request.args.get('category')
         network_filter = request.args.get('network')
+        source_filter = request.args.get('source')  # 'offerwall' = only offerwall collections
+        granularity = request.args.get('granularity', 'daily')  # hourly, daily, weekly, monthly
+        
+        if source_filter:
+            filters['source'] = source_filter
+        if granularity:
+            filters['granularity'] = granularity
 
         date_range = {'start': start_date, 'end': end_date}
         report = user_reports_model.get_performance_report(
@@ -169,6 +176,227 @@ def admin_conversion_report():
                     end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
             except ValueError:
                 return jsonify({'error': 'Invalid date format. Use ISO format'}), 400
+
+        source_filter = request.args.get('source')  # 'offerwall' = query offerwall_conversions
+
+        # === OFFERWALL SOURCE: query offerwall_conversions directly ===
+        if source_filter == 'offerwall':
+            # Try offerwall_conversions first, fall back to forwarded_postbacks filtered by placement
+            convs_col = db_instance.get_collection('offerwall_conversions')
+            use_forwarded_fallback = False
+            
+            # Check if offerwall_conversions has data
+            if convs_col is not None:
+                test_count = convs_col.count_documents({'timestamp': {'$gte': start_date, '$lte': end_date}})
+                if test_count == 0:
+                    use_forwarded_fallback = True
+            else:
+                use_forwarded_fallback = True
+            
+            # Fallback: use forwarded_postbacks (which definitely has conversion data)
+            # Filter to offerwall conversions by checking placement_id is set
+            if use_forwarded_fallback:
+                convs_col = db_instance.get_collection('forwarded_postbacks')
+                if convs_col is None:
+                    return jsonify({'error': 'Database not available'}), 503
+
+            query = {'timestamp': {'$gte': start_date, '$lte': end_date}}
+            
+            # If using forwarded_postbacks fallback, filter to only offerwall conversions
+            # These have a placement_id set (from offerwall click tracking)
+            if use_forwarded_fallback:
+                query['placement_id'] = {'$exists': True, '$nin': ['', None, 'default']}
+            
+            publisher_id_filter = request.args.get('publisher_id')
+            user_id_filter = request.args.get('user_id')
+            offer_id_filter = request.args.get('offer_id')
+            status_filter = request.args.get('status')
+            country_filter = request.args.get('country')
+            device_filter = request.args.get('device_type')
+            network_filter = request.args.get('network')
+            category_filter = request.args.get('category')
+            search_filter = request.args.get('search')
+            
+            if publisher_id_filter:
+                if use_forwarded_fallback:
+                    query['publisher_id'] = publisher_id_filter
+                else:
+                    query['publisher_id'] = publisher_id_filter
+            if user_id_filter:
+                if use_forwarded_fallback:
+                    query['$or'] = [{'username': user_id_filter}, {'end_user_id': user_id_filter}]
+                else:
+                    query['user_id'] = user_id_filter
+            if offer_id_filter:
+                query['offer_id'] = offer_id_filter
+            if status_filter and status_filter != 'all':
+                if use_forwarded_fallback:
+                    query['forward_status'] = status_filter
+                else:
+                    query['status'] = status_filter
+            if country_filter:
+                query['country'] = country_filter
+            if device_filter:
+                query['device_type'] = device_filter
+            
+            # Network/category filter: find matching offer_ids first
+            if network_filter or category_filter:
+                offers_col_filter = db_instance.get_collection('offers')
+                if offers_col_filter is not None:
+                    offer_query = {}
+                    if network_filter:
+                        offer_query['network'] = {'$regex': f'^{network_filter}$', '$options': 'i'}
+                    if category_filter:
+                        offer_query['$or'] = [
+                            {'category': {'$regex': f'^{category_filter}$', '$options': 'i'}},
+                            {'vertical': {'$regex': f'^{category_filter}$', '$options': 'i'}},
+                        ]
+                    matching_offer_ids = [o['offer_id'] for o in offers_col_filter.find(offer_query, {'offer_id': 1}) if o.get('offer_id')]
+                    if matching_offer_ids:
+                        if 'offer_id' in query:
+                            # Intersect
+                            query['offer_id'] = {'$in': [query['offer_id']] if isinstance(query['offer_id'], str) else query['offer_id']}
+                        else:
+                            query['offer_id'] = {'$in': matching_offer_ids}
+                    else:
+                        query['offer_id'] = {'$in': []}  # No matches
+            
+            # Search filter: match offer_name or publisher_name
+            if search_filter:
+                search_conditions = [
+                    {'offer_name': {'$regex': search_filter, '$options': 'i'}},
+                    {'publisher_name': {'$regex': search_filter, '$options': 'i'}},
+                ]
+                if use_forwarded_fallback:
+                    search_conditions.append({'username': {'$regex': search_filter, '$options': 'i'}})
+                if '$and' not in query:
+                    query['$and'] = []
+                query['$and'].append({'$or': search_conditions})
+
+            page = int(request.args.get('page', 1))
+            per_page = min(int(request.args.get('per_page', 50)), 200)
+            sort_field = request.args.get('sort_field', 'timestamp')
+            sort_order = -1 if request.args.get('sort_order', 'desc') == 'desc' else 1
+
+            total = convs_col.count_documents(query)
+            skip = (page - 1) * per_page
+            conversions_raw = list(convs_col.find(query, allow_disk_use=True).sort(sort_field, sort_order).skip(skip).limit(per_page))
+
+            # Batch-load offer data
+            offer_ids = list(set(c.get('offer_id') for c in conversions_raw if c.get('offer_id')))
+            offers_map = {}
+            if offer_ids:
+                offers_col = db_instance.get_collection('offers')
+                if offers_col is not None:
+                    for o in offers_col.find({'offer_id': {'$in': offer_ids}}, {'offer_id': 1, 'name': 1, 'network': 1, 'category': 1, 'payout': 1, 'revenue': 1, 'currency': 1, 'postback_url': 1}):
+                        offers_map[o['offer_id']] = o
+
+            # Batch-load publisher data
+            pub_ids = list(set(c.get('publisher_id') for c in conversions_raw if c.get('publisher_id')))
+            users_map = {}
+            if pub_ids:
+                users_col = db_instance.get_collection('users')
+                if users_col is not None:
+                    from bson import ObjectId as BsonObjectId
+                    valid_oids = []
+                    for pid in pub_ids:
+                        try:
+                            valid_oids.append(BsonObjectId(pid))
+                        except Exception:
+                            pass
+                    if valid_oids:
+                        for u in users_col.find({'_id': {'$in': valid_oids}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1}):
+                            users_map[str(u['_id'])] = u
+                    # Also try by username for publisher_name field
+                    unmatched = [pid for pid in pub_ids if pid not in users_map]
+                    if unmatched:
+                        for u in users_col.find({'username': {'$in': unmatched}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1}):
+                            users_map[u['username']] = u
+                    # Also try publisher_name field values
+                    pub_names = list(set(c.get('publisher_name') for c in conversions_raw if c.get('publisher_name') and c.get('publisher_name') != 'Unknown'))
+                    if pub_names:
+                        for u in users_col.find({'username': {'$in': pub_names}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1}):
+                            users_map[u['username']] = u
+
+            # Enrich and build response
+            conversions = []
+            for conv in conversions_raw:
+                offer_data = offers_map.get(conv.get('offer_id', ''), {})
+                pub_key = conv.get('publisher_id', '') or conv.get('publisher_name', '')
+                pub_data = users_map.get(pub_key, {})
+                # Also try publisher_name as username
+                if not pub_data and conv.get('publisher_name'):
+                    pub_data = users_map.get(conv.get('publisher_name', ''), {})
+                
+                # Timestamp
+                ts = conv.get('timestamp')
+                if ts and hasattr(ts, 'strftime'):
+                    ist_ts = ts + timedelta(hours=5, minutes=30)
+                    time_str = ist_ts.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    time_str = str(ts) if ts else ''
+
+                # Payout/Revenue handling differs between collections
+                if use_forwarded_fallback:
+                    payout = conv.get('points', 0) or offer_data.get('payout', 0)
+                    revenue = offer_data.get('revenue') or offer_data.get('payout', 0) or payout
+                    status = conv.get('forward_status', 'pending')
+                    # Map forward_status to display status
+                    if status in ('forwarded', 'success'):
+                        status = 'completed'
+                    elif status == 'not_forwarded':
+                        status = 'completed'  # Conversion happened, just no publisher postback
+                else:
+                    payout = conv.get('payout_amount') or conv.get('payout') or offer_data.get('payout', 0)
+                    revenue = conv.get('revenue') or offer_data.get('revenue') or payout
+                    status = conv.get('status', 'pending')
+
+                points = conv.get('points_awarded') or conv.get('points', 0)
+
+                conversions.append({
+                    '_id': str(conv['_id']),
+                    'conversion_id': conv.get('conversion_id', str(conv['_id'])),
+                    'click_id': conv.get('click_id', ''),
+                    'offer_id': conv.get('offer_id', ''),
+                    'offer_name': conv.get('offer_name', '') or offer_data.get('name', ''),
+                    'publisher_id': conv.get('publisher_id', ''),
+                    'publisher_name': pub_data.get('name') or pub_data.get('username') or conv.get('publisher_name', '') or conv.get('publisher_id', ''),
+                    'publisher_email': pub_data.get('email', ''),
+                    'publisher_role': pub_data.get('role', 'partner'),
+                    'user_id': conv.get('end_user_id') or conv.get('user_id') or conv.get('username', ''),
+                    'placement_id': conv.get('placement_id', ''),
+                    'placement_title': conv.get('placement_title', ''),
+                    'status': status,
+                    'time': time_str,
+                    'timestamp': time_str,
+                    'payout': float(payout) if payout else 0,
+                    'points': int(points) if points else 0,
+                    'revenue': float(revenue) if revenue else 0,
+                    'profit': round(float(revenue or 0) - float(payout or 0), 2),
+                    'currency': conv.get('currency') or offer_data.get('currency', 'USD'),
+                    'network': offer_data.get('network', ''),
+                    'category': offer_data.get('category', ''),
+                    'advertiser_name': offer_data.get('network', ''),
+                    'postback_url': offer_data.get('postback_url', ''),
+                    'forward_status': conv.get('forward_status', ''),
+                    'reversed_at': str(conv['reversed_at']) if conv.get('reversed_at') else '',
+                    'conversion_type': conv.get('conversion_type', 'conversion'),
+                    'transaction_id': conv.get('transaction_id', ''),
+                    'country': conv.get('country', ''),
+                    'device_type': conv.get('device_type', ''),
+                    'ip_address': conv.get('ip_address', ''),
+                })
+
+            return jsonify({
+                'success': True,
+                'report': {
+                    'conversions': conversions,
+                    'pagination': {
+                        'page': page, 'per_page': per_page,
+                        'total': total, 'pages': (total + per_page - 1) // per_page
+                    }
+                }
+            }), 200
 
         # if (end_date - start_date).days > 365:
         #     return jsonify({'error': 'Date range cannot exceed 365 days'}), 400
@@ -418,33 +646,108 @@ def admin_clicks_report():
 
         offer_id = request.args.get('offer_id')
         publisher_id = request.args.get('publisher_id')
+        user_id_filter = request.args.get('user_id')  # end user filter for offerwall
         country_filter = request.args.get('country')
         city_filter = request.args.get('city')
         region_filter = request.args.get('region')
         device_filter = request.args.get('device_type')
         category_filter = request.args.get('category')
         network_filter = request.args.get('network')
+        source_filter = request.args.get('source')  # 'offerwall' = use offerwall_clicks_detailed
+        status_filter = request.args.get('status')  # picked, clicked, pending, completed, reversed
 
         page = int(request.args.get('page', 1))
         per_page = min(int(request.args.get('per_page', 50)), 200)
 
-        clicks_collection = db_instance.get_collection('clicks')
+        # Determine which collection to query based on source
+        if source_filter == 'offerwall':
+            # Use offer_picks as the unified source — it has the complete lifecycle:
+            # picked → clicked (when Start Offer pressed). Sorted by picked_at desc.
+            # The offer_picks collection is the single source of truth for offerwall activity.
+            clicks_collection = db_instance.get_collection('offer_picks')
+            if clicks_collection is None:
+                clicks_collection = db_instance.get_collection('offerwall_clicks')
+        else:
+            clicks_collection = db_instance.get_collection('clicks')
         if clicks_collection is None:
             return jsonify({'error': 'Database not available'}), 503
 
-        query = {'timestamp': {'$gte': start_date, '$lte': end_date}}
+        # For offer_picks, the timestamp field is 'picked_at' not 'timestamp'
+        if source_filter == 'offerwall':
+            query = {'picked_at': {'$gte': start_date, '$lte': end_date}}
+        else:
+            query = {'timestamp': {'$gte': start_date, '$lte': end_date}}
         if offer_id:
             query['offer_id'] = offer_id
-        if publisher_id:
-            query['$or'] = [{'user_id': publisher_id}, {'affiliate_id': publisher_id}]
+        if source_filter == 'offerwall':
+            # For offer_picks: filter by publisher via placement lookup
+            if publisher_id:
+                from bson import ObjectId as BsonOidMain
+                placements_col_main = db_instance.get_collection('placements')
+                if placements_col_main is not None:
+                    try:
+                        pub_placements_main = list(placements_col_main.find(
+                            {'publisherId': BsonOidMain(publisher_id)},
+                            {'placementIdentifier': 1}
+                        ))
+                        pub_pids = [p['placementIdentifier'] for p in pub_placements_main if p.get('placementIdentifier')]
+                        if pub_pids:
+                            query['placement_id'] = {'$in': pub_pids}
+                        else:
+                            query['placement_id'] = {'$in': []}
+                    except Exception:
+                        query['placement_id'] = {'$in': []}
+            # user_id is the end user passed via iframe
+            if user_id_filter:
+                query['user_id'] = user_id_filter
+        else:
+            if publisher_id:
+                query['$or'] = [{'user_id': publisher_id}, {'affiliate_id': publisher_id}]
         if country_filter:
-            query['country'] = country_filter
+            if source_filter == 'offerwall':
+                # Country in offerwall_clicks_detailed is stored as full name ("India") or code ("IN")
+                # Support both formats with case-insensitive match
+                if '$and' not in query:
+                    query['$and'] = []
+                # Try exact match on geo.country OR country field (case insensitive)
+                country_regex = {'$regex': f'^{country_filter}$', '$options': 'i'}
+                query['$and'].append({'$or': [
+                    {'geo.country': country_regex},
+                    {'geo.country': {'$regex': country_filter, '$options': 'i'}},
+                    {'country': country_regex},
+                    {'country': {'$regex': country_filter, '$options': 'i'}},
+                ]})
+            else:
+                query['country'] = country_filter
         if city_filter:
             query['city'] = city_filter
         if region_filter:
             query['region'] = region_filter
         if device_filter:
-            query['device_type'] = device_filter
+            if source_filter == 'offerwall':
+                # Device stored as device.type (nested) - case insensitive
+                device_regex = {'$regex': f'^{device_filter}$', '$options': 'i'}
+                if '$and' not in query:
+                    query['$and'] = []
+                query['$and'].append({'$or': [{'device.type': device_regex}, {'device_type': device_regex}]})
+            else:
+                query['device_type'] = device_filter
+
+        # Status filter (for offerwall: picked, clicked, pending, completed, reversed)
+        if status_filter and status_filter != 'all':
+            query['status'] = status_filter
+
+        # Search filter (offer_name or publisher_name)
+        search_filter = request.args.get('search')
+        if search_filter and source_filter == 'offerwall':
+            search_regex = {'$regex': search_filter, '$options': 'i'}
+            if '$and' not in query:
+                query['$and'] = []
+            query['$and'].append({'$or': [
+                {'offer_name': search_regex},
+                {'publisher_name': search_regex},
+                {'user_id': search_regex},
+            ]})
 
         # Phase 1.3: Postback status and event status filters
         # Use $and to combine multiple $or conditions safely
@@ -502,7 +805,179 @@ def admin_clicks_report():
         total = clicks_collection.count_documents(query)
         skip = (page - 1) * per_page
 
-        clicks = list(clicks_collection.find(query).sort('timestamp', -1).skip(skip).limit(per_page))
+        clicks = list(clicks_collection.find(query, allow_disk_use=True).sort('picked_at' if source_filter == 'offerwall' else 'timestamp', -1).skip(skip).limit(per_page))
+
+        # Get status counts for filter pills (offerwall source only)
+        # IMPORTANT: Use the same base query (minus status filter) so counts reflect active filters
+        status_counts = {}
+        if source_filter == 'offerwall':
+            # Build count query matching the main query but without status filter
+            count_query = dict(query)  # Copy the main query
+            count_query.pop('status', None)  # Remove status filter for counting all statuses
+            
+            pipeline = [
+                {'$match': count_query},
+                {'$group': {'_id': '$status', 'count': {'$sum': 1}}}
+            ]
+            for doc in clicks_collection.aggregate(pipeline):
+                status_counts[doc['_id'] or 'clicked'] = doc['count']
+            
+            # Also count picks from offer_picks collection (with same filters applied)
+            picks_col = db_instance.get_collection('offer_picks')
+            if picks_col is not None:
+                picks_count_query = {'picked_at': {'$gte': start_date, '$lte': end_date}}
+                if user_id_filter:
+                    picks_count_query['user_id'] = user_id_filter
+                if offer_id:
+                    picks_count_query['offer_id'] = offer_id
+                # For publisher filter on picks, we need to find placements owned by this publisher
+                if publisher_id:
+                    placements_col_count = db_instance.get_collection('placements')
+                    if placements_col_count is not None:
+                        from bson import ObjectId as BsonOidCount
+                        try:
+                            from bson import ObjectId as BsonOidPub
+                            pub_id_query = publisher_id
+                            try:
+                                pub_id_query = BsonOidPub(publisher_id)
+                            except Exception:
+                                pass
+                            pub_placements = list(placements_col_count.find(
+                                {'publisherId': pub_id_query},
+                                {'placementIdentifier': 1}
+                            ))
+                            pub_placement_ids = [p['placementIdentifier'] for p in pub_placements if p.get('placementIdentifier')]
+                            if pub_placement_ids:
+                                picks_count_query['placement_id'] = {'$in': pub_placement_ids}
+                            else:
+                                picks_count_query['placement_id'] = {'$in': []}  # No placements = no picks
+                        except Exception:
+                            pass
+                picked_count = picks_col.count_documents(picks_count_query)
+                status_counts['picked'] = picked_count
+            
+            # Count conversions (pending/completed/reversed) from forwarded_postbacks
+            fwd_col = db_instance.get_collection('forwarded_postbacks')
+            if fwd_col is not None:
+                conv_count_query = {
+                    'timestamp': {'$gte': start_date, '$lte': end_date},
+                    'placement_id': {'$exists': True, '$nin': ['', None, 'default']}
+                }
+                if offer_id:
+                    conv_count_query['offer_id'] = offer_id
+                if publisher_id:
+                    conv_count_query['publisher_id'] = publisher_id
+                # Count completed (forwarded/success/not_forwarded = completed conversions)
+                completed_query = {**conv_count_query, 'forward_status': {'$in': ['forwarded', 'success', 'not_forwarded']}}
+                status_counts['completed'] = fwd_col.count_documents(completed_query)
+                # Count pending
+                pending_query = {**conv_count_query, 'forward_status': 'pending'}
+                status_counts['pending'] = fwd_col.count_documents(pending_query)
+                # Reversed (has reversed_at field)
+                reversed_query = {**conv_count_query, 'reversed_at': {'$exists': True, '$ne': None}}
+                status_counts['reversed'] = fwd_col.count_documents(reversed_query)
+            
+            status_counts['all'] = sum(status_counts.values())
+
+        # Status=picked is now handled by the main query on offer_picks (no separate path needed)
+
+        # If filtering by completed/pending/reversed, query forwarded_postbacks
+        if source_filter == 'offerwall' and status_filter in ('completed', 'pending', 'reversed'):
+            fwd_col = db_instance.get_collection('forwarded_postbacks')
+            if fwd_col is None:
+                return jsonify({'error': 'Database not available'}), 503
+            
+            fwd_query = {
+                'timestamp': {'$gte': start_date, '$lte': end_date},
+                'placement_id': {'$exists': True, '$nin': ['', None, 'default']}
+            }
+            if publisher_id:
+                fwd_query['publisher_id'] = publisher_id
+            if offer_id:
+                fwd_query['offer_id'] = offer_id
+            if status_filter == 'completed':
+                fwd_query['forward_status'] = {'$in': ['forwarded', 'success', 'not_forwarded']}
+            elif status_filter == 'pending':
+                fwd_query['forward_status'] = 'pending'
+            elif status_filter == 'reversed':
+                fwd_query['reversed_at'] = {'$exists': True, '$ne': None}
+            
+            total = fwd_col.count_documents(fwd_query)
+            skip = (page - 1) * per_page
+            fwd_records = list(fwd_col.find(fwd_query, allow_disk_use=True).sort('timestamp', -1).skip(skip).limit(per_page))
+            
+            # Enrich with offer data
+            fwd_offer_ids = list(set(r.get('offer_id') for r in fwd_records if r.get('offer_id')))
+            fwd_offers_map = {}
+            if fwd_offer_ids:
+                offers_col = db_instance.get_collection('offers')
+                if offers_col is not None:
+                    for o in offers_col.find({'offer_id': {'$in': fwd_offer_ids}}, {'offer_id': 1, 'name': 1, 'network': 1, 'category': 1, 'payout': 1, 'revenue': 1, 'currency': 1}):
+                        fwd_offers_map[o['offer_id']] = o
+            
+            clicks = []
+            for r in fwd_records:
+                offer_data = fwd_offers_map.get(r.get('offer_id', ''), {})
+                ts = r.get('timestamp')
+                if ts and hasattr(ts, 'strftime'):
+                    ist_ts = ts + timedelta(hours=5, minutes=30)
+                    time_str = ist_ts.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    time_str = str(ts) if ts else ''
+                
+                fwd_status = r.get('forward_status', '')
+                if r.get('reversed_at'):
+                    display_status = 'reversed'
+                elif fwd_status in ('forwarded', 'success', 'not_forwarded'):
+                    display_status = 'completed'
+                elif fwd_status == 'pending':
+                    display_status = 'pending'
+                else:
+                    display_status = 'completed'
+                
+                payout = r.get('points', 0) or offer_data.get('payout', 0)
+                revenue = offer_data.get('revenue') or offer_data.get('payout', 0) or payout
+                
+                clicks.append({
+                    '_id': str(r['_id']),
+                    'click_id': r.get('click_id', ''),
+                    'offer_id': r.get('offer_id', ''),
+                    'offer_name': r.get('offer_name', '') or offer_data.get('name', ''),
+                    'publisher_id': r.get('publisher_id', ''),
+                    'publisher_name': r.get('publisher_name', ''),
+                    'publisher_role': 'partner',
+                    'end_user_id': r.get('end_user_id') or r.get('username', ''),
+                    'user_id': r.get('end_user_id') or r.get('username', ''),
+                    'status': display_status,
+                    'time': time_str,
+                    'timestamp': time_str,
+                    'when_clicked': time_str,
+                    'payout': float(payout),
+                    'revenue': float(revenue),
+                    'margin': round(float(revenue) - float(payout), 2),
+                    'network': offer_data.get('network', ''),
+                    'category': offer_data.get('category', ''),
+                    'advertiser_name': offer_data.get('network', ''),
+                    'currency': offer_data.get('currency', 'USD'),
+                    'country': r.get('country', ''),
+                    'device_type': r.get('device_type', ''),
+                    'ip_address': r.get('ip_address', ''),
+                    'is_vpn': False,
+                    'is_duplicate': False,
+                    'fraud_score': 0,
+                    'adv_postback_status': 'received',
+                    'pub_postback_status': r.get('forward_status', ''),
+                })
+            
+            return jsonify({
+                'success': True,
+                'clicks': clicks,
+                'status_counts': status_counts,
+                'pagination': {
+                    'page': page, 'per_page': per_page,
+                    'total': total, 'pages': (total + per_page - 1) // per_page
+                }
+            }), 200
 
         # Batch-load offer data for enrichment
         offer_ids_in_page = list(set(c.get('offer_id') for c in clicks if c.get('offer_id')))
@@ -510,44 +985,144 @@ def admin_clicks_report():
         if offer_ids_in_page:
             offers_col = db_instance.get_collection('offers')
             if offers_col is not None:
-                for o in offers_col.find({'offer_id': {'$in': offer_ids_in_page}}, {'offer_id': 1, 'name': 1, 'network': 1, 'category': 1, 'vertical': 1, 'payout': 1, 'currency': 1, 'target_url': 1, 'postback_url': 1}):
+                for o in offers_col.find({'offer_id': {'$in': offer_ids_in_page}}, {'offer_id': 1, 'name': 1, 'network': 1, 'category': 1, 'vertical': 1, 'payout': 1, 'revenue': 1, 'currency': 1, 'target_url': 1, 'postback_url': 1, 'advertiser_id': 1, 'advertiser_name': 1}):
                     offers_map[o['offer_id']] = o
 
-        # Batch-load publisher data — try username, name, and _id lookups
-        user_ids_in_page = list(set(c.get('user_id') for c in clicks if c.get('user_id')))
-        users_map = {}
-        if user_ids_in_page:
-            users_col = db_instance.get_collection('users')
-            if users_col is not None:
-                # Try matching by username first
-                for u in users_col.find({'username': {'$in': user_ids_in_page}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}):
-                    users_map[u['username']] = u
-                # For any unmatched, try by name
-                unmatched = [uid for uid in user_ids_in_page if uid not in users_map]
-                if unmatched:
-                    for u in users_col.find({'name': {'$in': unmatched}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}):
-                        users_map[u.get('name', '')] = u
-                # For any still unmatched, try by _id (ObjectId)
-                still_unmatched = [uid for uid in user_ids_in_page if uid not in users_map]
-                if still_unmatched:
+        # Batch-load publisher data
+        if source_filter == 'offerwall':
+            # For offerwall, publisher_id is the MongoDB ObjectId of the publisher account
+            pub_ids_in_page = list(set(c.get('publisher_id') for c in clicks if c.get('publisher_id')))
+            users_map = {}
+            if pub_ids_in_page:
+                users_col = db_instance.get_collection('users')
+                if users_col is not None:
                     from bson import ObjectId as BsonObjectId
                     valid_oids = []
-                    for uid in still_unmatched:
+                    for pid in pub_ids_in_page:
                         try:
-                            valid_oids.append(BsonObjectId(uid))
+                            valid_oids.append(BsonObjectId(pid))
                         except Exception:
                             pass
                     if valid_oids:
                         for u in users_col.find({'_id': {'$in': valid_oids}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}):
                             users_map[str(u['_id'])] = u
+                    # Also try by username for any unmatched
+                    unmatched = [pid for pid in pub_ids_in_page if pid not in users_map]
+                    if unmatched:
+                        for u in users_col.find({'username': {'$in': unmatched}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}):
+                            users_map[u['username']] = u
+        else:
+            # Original logic for simple clicks (user_id = publisher username)
+            user_ids_in_page = list(set(c.get('user_id') for c in clicks if c.get('user_id')))
+            users_map = {}
+            if user_ids_in_page:
+                users_col = db_instance.get_collection('users')
+                if users_col is not None:
+                    for u in users_col.find({'username': {'$in': user_ids_in_page}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}):
+                        users_map[u['username']] = u
+                    unmatched = [uid for uid in user_ids_in_page if uid not in users_map]
+                    if unmatched:
+                        for u in users_col.find({'name': {'$in': unmatched}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}):
+                            users_map[u.get('name', '')] = u
+                    still_unmatched = [uid for uid in user_ids_in_page if uid not in users_map]
+                    if still_unmatched:
+                        from bson import ObjectId as BsonObjectId
+                        valid_oids = []
+                        for uid in still_unmatched:
+                            try:
+                                valid_oids.append(BsonObjectId(uid))
+                            except Exception:
+                                pass
+                        if valid_oids:
+                            for u in users_col.find({'_id': {'$in': valid_oids}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}):
+                                users_map[str(u['_id'])] = u
+
+        # Also load conversion data for offerwall clicks to determine completed/reversed status
+        conversions_map = {}
+        if source_filter == 'offerwall':
+            click_ids_in_page = [c.get('click_id') for c in clicks if c.get('click_id')]
+            if click_ids_in_page:
+                convs_col = db_instance.get_collection('offerwall_conversions')
+                if convs_col is None:
+                    convs_col = db_instance.get_collection('forwarded_postbacks')
+                if convs_col is not None:
+                    for conv in convs_col.find({'click_id': {'$in': click_ids_in_page}}, {'click_id': 1, 'status': 1, 'payout': 1, 'revenue': 1, 'points': 1, 'postback_url': 1, 'forward_status': 1, 'reversed_at': 1}):
+                        conversions_map[conv['click_id']] = conv
 
         for click in clicks:
             click['_id'] = str(click['_id'])
-            ts = click.get('timestamp') or click.get('click_time')
+
+            # FLATTEN NESTED FIELDS for offerwall_clicks_detailed and offerwall_clicks
+            # These collections store geo/device/fraud/network in nested objects
+            if source_filter == 'offerwall':
+                geo = click.get('geo', {})
+                device = click.get('device', {})
+                fraud = click.get('fraud_indicators', {})
+                fingerprint = click.get('fingerprint', {})
+                offer_nested = click.get('offer', {})
+                network_nested = click.get('network', {})
+                
+                # Handle 'network' field — can be a nested object (offerwall_clicks) or a string
+                if isinstance(network_nested, dict):
+                    # offerwall_clicks stores network info as {asn, ip_address, isp, organization, proxy_detected, vpn_detected}
+                    click['ip_address'] = click.get('ip_address') or network_nested.get('ip_address', '')
+                    click['isp'] = network_nested.get('isp', '')
+                    click['asn'] = network_nested.get('asn', '')
+                    click['organization'] = network_nested.get('organization', '')
+                    click['vpn_detected'] = network_nested.get('vpn_detected', False)
+                    click['proxy_detected'] = network_nested.get('proxy_detected', False)
+                    click['network'] = ''  # Reset to empty string (not the object)
+                
+                # Flatten geo fields to top level
+                if isinstance(geo, dict) and geo:
+                    click['ip_address'] = click.get('ip_address') or geo.get('ip_address', '')
+                    click['country'] = click.get('country') or geo.get('country', '')
+                    click['country_code'] = click.get('country_code') or geo.get('country_code', '')
+                    click['city'] = click.get('city') or geo.get('city', '')
+                    click['region'] = click.get('region') or geo.get('region', '')
+                    click['isp'] = click.get('isp') or geo.get('isp', '')
+                    click['asn'] = click.get('asn') or geo.get('asn', '')
+                    click['organization'] = click.get('organization') or geo.get('organization', '')
+                
+                # Flatten device fields
+                if isinstance(device, dict) and device:
+                    click['device_type'] = click.get('device_type') or device.get('type', '')
+                    click['browser'] = click.get('browser') or device.get('browser', '')
+                    click['os'] = click.get('os') or device.get('os', '')
+                
+                # Flatten fraud indicators
+                if isinstance(fraud, dict) and fraud:
+                    click['vpn_detected'] = fraud.get('vpn_detected', False)
+                    click['proxy_detected'] = fraud.get('proxy_detected', False)
+                    click['tor_detected'] = fraud.get('tor_detected', False)
+                    click['duplicate_click'] = fraud.get('duplicate_click', False)
+                    click['fraud_score'] = fraud.get('fraud_score', 0)
+                    click['fraud_status'] = fraud.get('fraud_status', '')
+                
+                # Flatten offer nested data
+                if isinstance(offer_nested, dict) and offer_nested:
+                    click['category'] = click.get('category') or offer_nested.get('category', '')
+                    if not isinstance(click.get('network'), str) or not click.get('network'):
+                        click['network'] = offer_nested.get('network', '')
+                    click['payout'] = click.get('payout') or offer_nested.get('payout', 0)
+                
+                # Flatten user_agent from fingerprint
+                if isinstance(fingerprint, dict) and fingerprint:
+                    click['user_agent'] = click.get('user_agent') or fingerprint.get('user_agent', '')
+                
+                # Ensure all potentially-object fields are strings
+                for field in ['ip_address', 'country', 'city', 'region', 'device_type', 'browser', 'os', 'network', 'category']:
+                    if isinstance(click.get(field), dict):
+                        click[field] = ''
+
+            ts = click.get('picked_at') or click.get('timestamp') or click.get('click_time')
             # Convert UTC to IST (UTC+5:30)
             if ts:
-                ist_ts = ts + timedelta(hours=5, minutes=30)
-                click['time'] = ist_ts.strftime('%Y-%m-%d %H:%M:%S')
+                if hasattr(ts, 'strftime'):
+                    ist_ts = ts + timedelta(hours=5, minutes=30)
+                    click['time'] = ist_ts.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    click['time'] = str(ts)
             else:
                 click['time'] = ''
 
@@ -555,22 +1130,60 @@ def admin_clicks_report():
             offer_data = offers_map.get(click.get('offer_id'), {})
             if not click.get('offer_name'):
                 click['offer_name'] = offer_data.get('name', '')
-            click['network'] = offer_data.get('network', '')
-            click['category'] = offer_data.get('category') or offer_data.get('vertical', '')
-            click['payout'] = offer_data.get('payout', 0)
-            click['currency'] = offer_data.get('currency', 'USD')
-            click['postback_url'] = offer_data.get('postback_url', '')
+            click['network'] = click.get('network') or offer_data.get('network', '')
+            click['category'] = click.get('category') or offer_data.get('category') or offer_data.get('vertical', '')
+            click['payout'] = click.get('payout') or offer_data.get('payout', 0)
+            click['revenue'] = click.get('revenue') or offer_data.get('revenue') or click['payout']
+            click['currency'] = click.get('currency') or offer_data.get('currency', 'USD')
+            click['offer_postback_url'] = offer_data.get('postback_url', '')
             click['target_url'] = offer_data.get('target_url', '')
+            click['advertiser_name'] = offer_data.get('advertiser_name') or offer_data.get('network', '')
 
             # Enrich with publisher data
-            pub_data = users_map.get(click.get('user_id'), {})
-            click['publisher_name'] = pub_data.get('name') or pub_data.get('username') or click.get('user_id', '')
-            click['publisher_email'] = pub_data.get('email', '')
-            click['publisher_role'] = pub_data.get('role', '')
-            # Use publisher's postback URL if available, otherwise use offer's
-            pub_postback = pub_data.get('postback_url', '')
-            if pub_postback:
-                click['postback_url'] = pub_postback
+            if source_filter == 'offerwall':
+                pub_key = click.get('publisher_id', '')
+                pub_data = users_map.get(pub_key, {})
+                click['publisher_name'] = pub_data.get('name') or pub_data.get('username') or pub_key
+                click['publisher_email'] = pub_data.get('email', '')
+                click['publisher_role'] = pub_data.get('role', 'partner')
+                click['pub_postback_url'] = pub_data.get('postback_url', '')
+                # user_id stays as-is (end user)
+                click['end_user_id'] = click.get('user_id', '')
+            else:
+                pub_data = users_map.get(click.get('user_id'), {})
+                click['publisher_name'] = pub_data.get('name') or pub_data.get('username') or click.get('user_id', '')
+                click['publisher_email'] = pub_data.get('email', '')
+                click['publisher_role'] = pub_data.get('role', '')
+                click['pub_postback_url'] = pub_data.get('postback_url', '')
+                click['end_user_id'] = ''
+
+            # Compute margin
+            payout = float(click.get('payout') or 0)
+            revenue = float(click.get('revenue') or payout)
+            click['margin'] = round(revenue - payout, 2)
+
+            # Conversion enrichment for offerwall
+            if source_filter == 'offerwall':
+                conv_data = conversions_map.get(click.get('click_id', ''), {})
+                if conv_data:
+                    # Override status if conversion exists
+                    conv_status = conv_data.get('status', '')
+                    if conv_data.get('reversed_at'):
+                        click['status'] = 'reversed'
+                    elif conv_status in ('completed', 'approved', 'credited'):
+                        click['status'] = 'completed'
+                    elif conv_status == 'pending':
+                        click['status'] = 'pending'
+                    click['adv_postback_status'] = 'received'
+                    click['pub_postback_status'] = conv_data.get('forward_status', '')
+                else:
+                    click['adv_postback_status'] = ''
+                    click['pub_postback_status'] = ''
+                # Ensure status field exists
+                if not click.get('status'):
+                    click['status'] = 'clicked'
+            else:
+                click['postback_url'] = click.get('pub_postback_url') or click.get('offer_postback_url', '')
 
             # Ensure OS field exists
             if not click.get('os'):
@@ -594,7 +1207,6 @@ def admin_clicks_report():
                         click['country_code'] = ip_data.get('country_code', '')
                         click['city'] = ip_data.get('city', 'Unknown')
                         click['region'] = ip_data.get('region', 'Unknown')
-                        # Also update the DB record so we don't re-lookup next time
                         try:
                             clicks_collection.update_one(
                                 {'_id': ObjectId(click['_id'])},
@@ -606,7 +1218,7 @@ def admin_clicks_report():
                     pass
 
             # Timing fields
-            click['when_clicked'] = click['time']  # Same as timestamp
+            click['when_clicked'] = click['time']
             when_closed = click.get('when_closed')
             if when_closed:
                 if hasattr(when_closed, 'strftime'):
@@ -626,9 +1238,16 @@ def admin_clicks_report():
             else:
                 click['time_spent'] = ''
 
+            # Integrity fields
+            click['is_vpn'] = click.get('vpn_detected', False) or click.get('proxy_detected', False) or click.get('is_vpn', False)
+            click['is_duplicate'] = click.get('duplicate_click', False) or click.get('is_duplicate', False) or (not click.get('is_unique', True))
+            click['geo_match'] = click.get('geo_match', True)  # Default true unless flagged
+            click['fraud_score'] = click.get('fraud_score', 0)
+
         return jsonify({
             'success': True,
             'clicks': clicks,
+            'status_counts': status_counts if source_filter == 'offerwall' else {},
             'pagination': {
                 'page': page, 'per_page': per_page,
                 'total': total, 'pages': (total + per_page - 1) // per_page
@@ -749,6 +1368,18 @@ def admin_report_filters():
             try:
                 cities = clicks_collection.distinct('city')
                 cities = sorted([c for c in cities if c and c != 'Unknown' and c != ''])
+            except Exception:
+                pass
+
+        # Also pull from offerwall_clicks_detailed for offerwall geo data
+        offerwall_clicks_col = db_instance.get_collection('offerwall_clicks_detailed')
+        if offerwall_clicks_col is not None:
+            try:
+                ow_countries = offerwall_clicks_col.distinct('geo.country')
+                for c in ow_countries:
+                    if c and c != 'Unknown' and c not in countries:
+                        countries.append(c)
+                countries = sorted(set(countries))
             except Exception:
                 pass
 

@@ -909,7 +909,7 @@ def get_tracking_logs():
                         {'placement_id': {'$regex': search, '$options': 'i'}}
                     ]
                 if picks_col is not None:
-                    for p in picks_col.find(pick_query).sort('picked_at', -1).limit(500):
+                    for p in picks_col.find(pick_query, allow_disk_use=True).sort('picked_at', -1).limit(500):
                         pid = p.get('placement_id', '')
                         pinfo = placement_cache.get(pid, {})
                         ts = p.get('picked_at') or p.get('created_at')
