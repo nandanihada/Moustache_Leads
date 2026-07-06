@@ -266,7 +266,7 @@ class OfferRotationService:
         # 3. Fetch candidates with skip for pagination through the pool
         skip_count = (batch_index * batch_size) % max(total_inactive, 1)
         candidates = list(
-            self.offers_col.find(query)
+            self.offers_col.find(query, allow_disk_use=True)
             .sort('payout', -1)
             .skip(skip_count)
             .limit(batch_size * 3)  # Fetch extra for dedup headroom
@@ -276,7 +276,7 @@ class OfferRotationService:
         if len(candidates) < batch_size * 3 and skip_count > 0:
             remaining = batch_size * 3 - len(candidates)
             wrap_candidates = list(
-                self.offers_col.find(query)
+                self.offers_col.find(query, allow_disk_use=True)
                 .sort('payout', -1)
                 .limit(remaining)
             )
