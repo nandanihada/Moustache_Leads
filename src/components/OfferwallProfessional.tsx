@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Search, X, ChevronRight, Timer, Sparkles, Award, LayoutGrid, List, QrCode, Headphones, Activity, Clock, CheckCircle, AlertCircle, ChevronDown, Mail, ExternalLink, Users, Smartphone, Monitor, Globe } from 'lucide-react';
+import { Search, X, ChevronLeft, ChevronRight, Timer, Sparkles, Award, LayoutGrid, List, QrCode, Headphones, Activity, Clock, CheckCircle, AlertCircle, ChevronDown, Mail, ExternalLink, Users, Smartphone, Monitor, Globe } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { OfferModal } from './OfferModal';
 import SurveyTemplateRenderer, { TemplateName } from './survey-templates/SurveyTemplateRenderer';
@@ -417,6 +417,29 @@ export const OfferwallProfessional: React.FC<Props> = ({
   // Featured offers + Telegram button
   const [featuredOfferIds, setFeaturedOfferIds] = useState<string[]>([]);
   const [showTelegramBtn, setShowTelegramBtn] = useState(true);
+  const featuredScrollRef = useRef<HTMLDivElement>(null);
+  const [featuredCanScrollLeft, setFeaturedCanScrollLeft] = useState(false);
+  const [featuredCanScrollRight, setFeaturedCanScrollRight] = useState(false);
+
+  const updateFeaturedScrollButtons = useCallback(() => {
+    const el = featuredScrollRef.current;
+    if (!el) return;
+    setFeaturedCanScrollLeft(el.scrollLeft > 0);
+    setFeaturedCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+  }, []);
+
+  const scrollFeatured = (direction: 'left' | 'right') => {
+    const el = featuredScrollRef.current;
+    if (!el) return;
+    const scrollAmount = 320;
+    el.scrollBy({ left: direction === 'left' ? -scrollAmount : scrollAmount, behavior: 'smooth' });
+    setTimeout(updateFeaturedScrollButtons, 350);
+  };
+
+  useEffect(() => {
+    // Initialize scroll button states once featured offers render
+    setTimeout(updateFeaturedScrollButtons, 500);
+  }, [featuredOfferIds, updateFeaturedScrollButtons]);
 
   // Survey Funnel State
   const [funnel, setFunnel] = useState<any>(null);
@@ -513,7 +536,32 @@ export const OfferwallProfessional: React.FC<Props> = ({
   const trackImpression = async () => {
     try {
       const sk = `offerwall_session_${placementId}_${userId}`; let sid = sessionStorage.getItem(sk);
-      if (!sid) { sid = `s_${Date.now()}_${Math.random().toString(36).slice(2,10)}`; sessionStorage.setItem(sk, sid); }
+      if (!sid) {
+        // Create a backend session first
+        sid = `s_${Date.now()}_${Math.random().toString(36).slice(2,10)}`;
+        try {
+          const sessionRes = await fetch(`${baseUrl}/api/offerwall/session/create`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              placement_id: placementId,
+              user_id: userId,
+              sub_id: subId || undefined,
+              device_info: {
+                device_type: /mobile|android|iphone|ipad/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
+                browser: navigator.userAgent,
+                os: navigator.platform
+              },
+              geo_info: {}
+            })
+          });
+          if (sessionRes.ok) {
+            const sessionData = await sessionRes.json();
+            if (sessionData.session_id) sid = sessionData.session_id;
+          }
+        } catch {}
+        sessionStorage.setItem(sk, sid);
+      }
       await fetch(`${baseUrl}/api/offerwall/track/impression`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ session_id:sid, placement_id:placementId, user_id:userId, user_agent:navigator.userAgent, referrer:document.referrer }) });
     } catch {}
   };
@@ -800,11 +848,21 @@ export const OfferwallProfessional: React.FC<Props> = ({
           if (featuredOffers.length === 0) return null;
           return (
             <div className="mb-5">
-              <div className="flex items-center gap-2 mb-2.5">
-                <Sparkles className="h-4 w-4 text-orange-500" />
-                <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Featured Offers</span>
+              <div className="flex items-center justify-between mb-2.5">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-orange-500" />
+                  <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Featured Offers</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => scrollFeatured('left')} className={`w-7 h-7 rounded-full flex items-center justify-center border transition-all ${featuredCanScrollLeft ? 'border-purple-200 bg-white hover:bg-purple-50 hover:border-purple-300 text-gray-700 cursor-pointer' : 'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed'}`} disabled={!featuredCanScrollLeft} aria-label="Scroll left">
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => scrollFeatured('right')} className={`w-7 h-7 rounded-full flex items-center justify-center border transition-all ${featuredCanScrollRight ? 'border-purple-200 bg-white hover:bg-purple-50 hover:border-purple-300 text-gray-700 cursor-pointer' : 'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed'}`} disabled={!featuredCanScrollRight} aria-label="Scroll right">
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
-              <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+              <div ref={featuredScrollRef} onScroll={updateFeaturedScrollButtons} onLoad={updateFeaturedScrollButtons} className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide scroll-smooth">
                 {featuredOffers.map(offer => {
                   const pts = Math.round(offer.reward_amount || 0);
                   return (

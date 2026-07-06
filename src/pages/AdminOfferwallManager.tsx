@@ -5,6 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { TEMPLATE_OPTIONS, TemplateName } from "@/components/survey-templates/SurveyTemplateRenderer";
 import { OfferwallOfferEditor } from "@/components/OfferwallOfferEditor";
 import { OfferwallReports } from "@/components/OfferwallReports";
+import { OfferwallAnalyticsDashboard } from "@/components/OfferwallAnalyticsDashboard";
 import {
   Card, CardContent, CardHeader, CardTitle
 } from "@/components/ui/card";
@@ -702,7 +703,7 @@ const AdminOfferwallManager = () => {
   return (
     <div className="p-6 space-y-6">
       <Tabs defaultValue="preview" className="space-y-4" onValueChange={(v) => setActiveTab(v)}>
-      {activeTab !== 'tracking' && (
+      {activeTab !== 'tracking' && activeTab !== 'analytics' && (
       <>
       <div className="flex items-center justify-between">
         <div>
@@ -769,6 +770,7 @@ const AdminOfferwallManager = () => {
           <TabsTrigger value="qualification">Qualification Survey</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
           <TabsTrigger value="announcements">Announcements</TabsTrigger>
+          <TabsTrigger value="analytics">Analytics</TabsTrigger>
           <TabsTrigger value="tracking">Tracking</TabsTrigger>
         </TabsList>
 
@@ -1267,6 +1269,11 @@ const AdminOfferwallManager = () => {
               </div>
             </DialogContent>
           </Dialog>
+        </TabsContent>
+
+        {/* ===== ANALYTICS TAB ===== */}
+        <TabsContent value="analytics" className="mt-0">
+          <OfferwallAnalyticsDashboard />
         </TabsContent>
 
         {/* ===== TRACKING TAB ===== */}

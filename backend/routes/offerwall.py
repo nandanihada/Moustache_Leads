@@ -2436,7 +2436,7 @@ def get_offers():
                         tracking_url = masked_url
                 
                 if not tracking_url and offer.get('target_url'):
-                    tracking_url = f"{tracking_base_url}/track/{offer.get('offer_id')}?user_id={user_id}&sub1={placement_id}"
+                    tracking_url = f"{tracking_base_url}/track/{offer.get('offer_id')}?user_id={user_id}&sub1={placement_id}&sub2={user_id}&sub3=offerwall"
                 
                 if not tracking_url:
                     tracking_url = offer.get('target_url') or offer.get('url') or '#'
@@ -2707,9 +2707,12 @@ def create_offerwall_session():
             try:
                 placement = placements_col.find_one({'_id': ObjectId(data['placement_id'])})
             except:
-                # Try as string
+                pass
+            
+            if not placement:
                 placement = placements_col.find_one({
                     '$or': [
+                        {'placementIdentifier': data['placement_id']},
                         {'_id': data['placement_id']},
                         {'placementId': data['placement_id']},
                         {'placement_id': data['placement_id']}
@@ -2793,6 +2796,37 @@ def track_offerwall_impression():
                 'user_agent': data.get('user_agent')
             }
         )
+
+        # Enrich the impression with IP and country (update after insert for speed)
+        try:
+            x_forwarded_for = request.headers.get('X-Forwarded-For', '')
+            ip_address = x_forwarded_for.split(',')[0].strip() if x_forwarded_for else request.remote_addr
+            country = 'Unknown'
+            
+            # Skip geo lookup for local IPs
+            is_local = not ip_address or ip_address in ['127.0.0.1', '::1', 'localhost'] or \
+                       ip_address.startswith('192.168.') or ip_address.startswith('10.') or \
+                       ip_address.startswith('172.16.')
+            
+            if not is_local:
+                try:
+                    from services.ipinfo_service import get_ipinfo_service
+                    geo = get_ipinfo_service()
+                    ip_data = geo.lookup_ip(ip_address)
+                    if ip_data:
+                        country = ip_data.get('country', ip_data.get('country_code', 'Unknown'))
+                except:
+                    pass
+
+            # Update the impression record with IP and country
+            impressions_col = db_instance.get_collection('offerwall_impressions')
+            if impressions_col and impression_id:
+                impressions_col.update_one(
+                    {'impression_id': impression_id},
+                    {'$set': {'ip_address': ip_address, 'country': country}}
+                )
+        except Exception as geo_err:
+            logger.warning(f"⚠️ Failed to enrich impression with geo: {geo_err}")
         
         if error:
             return jsonify({'error': error}), 500

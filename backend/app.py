@@ -61,6 +61,7 @@ bonus_management_bp = safe_import_blueprint('routes.bonus_management', 'bonus_ma
 admin_offerwall_analytics_bp = safe_import_blueprint('routes.admin_offerwall_analytics', 'admin_offerwall_analytics_bp')
 user_offerwall_rewards_bp = safe_import_blueprint('routes.user_offerwall_rewards', 'user_offerwall_rewards_bp')
 comprehensive_analytics_bp = safe_import_blueprint('routes.comprehensive_analytics', 'comprehensive_analytics_bp')
+offerwall_analytics_dashboard_bp = safe_import_blueprint('routes.offerwall_analytics_dashboard', 'offerwall_analytics_dashboard_bp')
 login_logs_bp = safe_import_blueprint('routes.login_logs', 'login_logs_bp')
 admin_subadmin_management_bp = safe_import_blueprint('routes.admin_subadmin_management', 'admin_subadmin_management_bp')
 gift_cards_bp = safe_import_blueprint('routes.gift_cards', 'gift_cards_bp')
@@ -174,6 +175,7 @@ blueprints = [
     (admin_offerwall_analytics_bp, ''),
     (user_offerwall_rewards_bp, ''),
     (comprehensive_analytics_bp, ''),
+    (offerwall_analytics_dashboard_bp, ''),
     (login_logs_bp, '/api/admin'),
     (admin_subadmin_management_bp, '/api/admin'),
     (gift_cards_bp, '/api'),
