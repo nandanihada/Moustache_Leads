@@ -720,11 +720,11 @@ def start_background_services():
         # DISABLED: Invoice Scheduler — admin triggers via Automation tab button
         logging.info("ℹ️ Invoice scheduler DISABLED (admin button in Automation tab)")
         
-        # RE-ENABLED: Telegram Bot — posts trending offers every 7 hours
+        # RE-ENABLED: Telegram Bot — posts trending offers every 12 hours
         try:
             from services.telegram_trending_bot import start_scheduler as start_telegram_scheduler
             start_telegram_scheduler()
-            logging.info("✅ Telegram trending bot scheduler started (every 7 hours)")
+            logging.info("✅ Telegram trending bot scheduler started (every 12 hours)")
         except Exception as e:
             logging.warning(f"⚠️ Telegram trending bot failed to start: {str(e)}")
         

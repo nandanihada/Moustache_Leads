@@ -1,5 +1,5 @@
 """
-Telegram Bot: Sends top picked offers every 7 hours.
+Telegram Bot: Sends top picked offers every 12 hours.
 Run standalone: python -m services.telegram_trending_bot
 Or import schedule_trending_updates() to run in background.
 
@@ -8,7 +8,6 @@ Add TELEGRAM_BOT_TOKEN to .env
 """
 import os
 import sys
-import asyncio
 import logging
 from datetime import datetime, timedelta
 
@@ -84,16 +83,13 @@ def format_trending_message(offers):
     return '\n'.join(lines)
 
 
-async def send_trending_to_telegram():
+def send_trending_to_telegram():
     """Send trending offers to Telegram channel. Only sends if there are picks in the last 7 hours."""
     if not BOT_TOKEN or not CHANNEL_ID:
         logger.warning("TELEGRAM_BOT_TOKEN or TELEGRAM_CHANNEL_ID not set")
         return False
     
     try:
-        from telegram import Bot
-        bot = Bot(token=BOT_TOKEN)
-        
         offers = get_trending_offers(hours=48, limit=7)
         message = format_trending_message(offers)
         
@@ -102,21 +98,31 @@ async def send_trending_to_telegram():
             logger.info("No picks in the last 2 days — skipping Telegram send")
             return False
         
-        await bot.send_message(
-            chat_id=CHANNEL_ID,
-            text=message,
-            parse_mode='Markdown'
-        )
-        logger.info(f"Sent trending offers to Telegram channel ({len(offers)} offers)")
-        return True
+        # Use requests library for reliability (avoids async event loop issues in Flask)
+        import requests
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {
+            'chat_id': CHANNEL_ID,
+            'text': message,
+            'parse_mode': 'Markdown'
+        }
+        resp = requests.post(url, json=payload, timeout=10)
+        result = resp.json()
+        
+        if result.get('ok'):
+            logger.info(f"Sent trending offers to Telegram channel ({len(offers)} offers)")
+            return True
+        else:
+            logger.error(f"Telegram API error: {result.get('description', 'Unknown error')}")
+            return False
     except Exception as e:
         logger.error(f"Failed to send to Telegram channel: {e}")
         return False
 
 
 def run_trending_update():
-    """Synchronous wrapper for the async send function."""
-    asyncio.run(send_trending_to_telegram())
+    """Synchronous wrapper for the send function."""
+    send_trending_to_telegram()
 
 
 def start_scheduler():
@@ -125,9 +131,16 @@ def start_scheduler():
     import time as _time
     
     def _loop():
-        logger.info("📡 Telegram trending bot scheduler started (every 2 days)")
+        logger.info("📡 Telegram trending bot scheduler started (every 12 hours)")
+        # Wait 5 minutes before first send (avoids duplicate sends on rapid restarts/deploys)
+        _time.sleep(300)
+        try:
+            run_trending_update()
+        except Exception as e:
+            logger.error(f"Scheduler initial run error: {e}")
+        
         while True:
-            _time.sleep(2 * 24 * 3600)  # Wait 2 days
+            _time.sleep(12 * 3600)  # Wait 12 hours
             try:
                 run_trending_update()
             except Exception as e:
@@ -142,14 +155,14 @@ if __name__ == '__main__':
     
     import sys
     if '--loop' in sys.argv:
-        # Run in continuous loop mode (every 2 days)
+        # Run in continuous loop mode (every 7 hours)
         import time as _time
-        print("Starting Telegram bot in loop mode (every 2 days)...")
+        print("Starting Telegram bot in loop mode (every 12 hours)...")
         print("Press Ctrl+C to stop.\n")
         while True:
             run_trending_update()
-            print(f"Next run in 2 days...")
-            _time.sleep(2 * 24 * 3600)
+            print(f"Next run in 12 hours...")
+            _time.sleep(12 * 3600)
     else:
         # Single run mode
         print("Sending trending offers to Telegram...")
