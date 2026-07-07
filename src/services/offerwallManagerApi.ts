@@ -36,11 +36,33 @@ export interface OfferwallOfferFilter {
 }
 
 export interface OfferwallStats {
-  total_active: number;
-  total_visible: number;
+  total_in_offerwall: number;
+  visible_to_all: number;
+  visible_per_request: number;
+  source_breakdown: {
+    api_import: number;
+    manual_exclusive: number;
+  };
+  starter_offers: number;
   pinned_count: number;
   featured_count: number;
   hidden_count: number;
+  publisher_breakdown: Array<{
+    publisher_id: string;
+    publisher_name: string;
+    placements: number;
+    approved_requests: number;
+    grants: number;
+    total_offers: number;
+  }>;
+  total_publishers_with_access: number;
+  exclusive_history: Array<{
+    date: string;
+    count: number;
+    admin: string;
+    method: string;
+    sample_offers: string[];
+  }>;
 }
 
 class OfferwallManagerApi {
@@ -113,7 +135,7 @@ class OfferwallManagerApi {
     return res.json();
   }
 
-  async getOfferwallOfferIds(params?: {search?: string; refined?: string; vertical?: string; network?: string; country?: string; min_payout?: string; max_payout?: string; status?: string; has_event?: string}): Promise<{offer_ids: string[]; offers: any[]; total: number}> {
+  async getOfferwallOfferIds(params?: {search?: string; refined?: string; vertical?: string; network?: string; country?: string; min_payout?: string; max_payout?: string; status?: string; has_event?: string; visibility?: string; publisher_id?: string; source?: string}): Promise<{offer_ids: string[]; offers: any[]; total: number}> {
     const query = new URLSearchParams();
     // Fetch all pages — use a high per_page to get all IDs in one shot
     query.set('per_page', '1000');
@@ -127,6 +149,9 @@ class OfferwallManagerApi {
     if (params?.max_payout) query.set('max_payout', params.max_payout);
     if (params?.status && params.status !== 'all') query.set('status', params.status);
     if (params?.has_event) query.set('has_event', params.has_event);
+    if (params?.visibility) query.set('visibility', params.visibility);
+    if (params?.publisher_id) query.set('publisher_id', params.publisher_id);
+    if (params?.source) query.set('source', params.source);
     const res = await fetch(`${API_BASE_URL}/offerwall-offers?${query.toString()}`, { headers: this.getHeaders() });
     if (!res.ok) throw new Error('Failed to fetch offer IDs');
     const data = await res.json();
@@ -138,7 +163,7 @@ class OfferwallManagerApi {
     };
   }
 
-  async getOfferwallOffers(params?: {search?: string; page?: number; per_page?: number; refined?: string; vertical?: string; network?: string; country?: string; min_payout?: string; max_payout?: string; status?: string}): Promise<any> {
+  async getOfferwallOffers(params?: {search?: string; page?: number; per_page?: number; refined?: string; vertical?: string; network?: string; country?: string; min_payout?: string; max_payout?: string; status?: string; visibility?: string; publisher_id?: string; source?: string; has_event?: string; device?: string; has_cap?: string}): Promise<any> {
     const query = new URLSearchParams();
     if (params?.search) query.set('search', params.search);
     if (params?.page) query.set('page', String(params.page));
@@ -150,7 +175,12 @@ class OfferwallManagerApi {
     if (params?.min_payout) query.set('min_payout', params.min_payout);
     if (params?.max_payout) query.set('max_payout', params.max_payout);
     if (params?.status && params.status !== 'all') query.set('status', params.status);
-    if ((params as any)?.has_event) query.set('has_event', (params as any).has_event);
+    if (params?.has_event) query.set('has_event', params.has_event);
+    if (params?.visibility) query.set('visibility', params.visibility);
+    if (params?.publisher_id) query.set('publisher_id', params.publisher_id);
+    if (params?.source) query.set('source', params.source);
+    if (params?.device && params.device !== 'all') query.set('device', params.device);
+    if (params?.has_cap) query.set('has_cap', params.has_cap);
     const res = await fetch(`${API_BASE_URL}/offerwall-offers?${query.toString()}`, { headers: this.getHeaders() });
     if (!res.ok) throw new Error('Failed to fetch offerwall offers');
     return res.json();
@@ -329,6 +359,92 @@ class OfferwallManagerApi {
       body: JSON.stringify({ offer_id, new_name, original_name })
     });
     if (!res.ok) throw new Error('Failed to rename offer');
+    return res.json();
+  }
+
+  // ===================== SELECTIVE & BULK REFINEMENT =====================
+
+  async selectiveRefine(offer_id: string, fields: string[]): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/selective-refine`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ offer_id, fields })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed' }));
+      throw new Error(err.error || 'Failed selective refinement');
+    }
+    return res.json();
+  }
+
+  async startBulkRefine(offer_ids: string[], field: string): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/bulk-refine`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ offer_ids, field })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed' }));
+      throw new Error(err.error || 'Failed to start bulk refinement');
+    }
+    return res.json();
+  }
+
+  async getBulkRefineStatus(job_id: string): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/bulk-refine/status/${job_id}`, {
+      headers: this.getHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to get job status');
+    return res.json();
+  }
+
+  async cancelBulkRefine(job_id: string): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/bulk-refine/cancel/${job_id}`, {
+      method: 'POST',
+      headers: this.getHeaders()
+    });
+    return res.json();
+  }
+
+  async getActiveBulkJobs(): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/bulk-refine/active-jobs`, {
+      headers: this.getHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to get active jobs');
+    return res.json();
+  }
+
+  async getBulkRefineNotifications(): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/bulk-refine/notifications`, {
+      headers: this.getHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to get notifications');
+    return res.json();
+  }
+
+  async markBulkRefineNotificationRead(job_id: string): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/bulk-refine/mark-read`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ job_id })
+    });
+    return res.json();
+  }
+
+  async markOffersReviewed(offer_ids: string[]): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/bulk-refine/mark-reviewed`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ offer_ids })
+    });
+    return res.json();
+  }
+
+  async getRefinementHistory(offer_id: string): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/refinement-history/${offer_id}`, {
+      headers: this.getHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to get refinement history');
     return res.json();
   }
 }

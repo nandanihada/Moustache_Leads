@@ -47,6 +47,7 @@ import {
   Pin,
   X,
   Megaphone,
+  Sparkles,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -87,6 +88,9 @@ import HealthPopup from '@/components/HealthPopup';
 import { OfferRenamingModal } from '@/components/OfferRenamingModal';
 import MailOfferScheduleModal from '@/components/MailOfferScheduleModal';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import SelectiveRefineModal from '@/components/SelectiveRefineModal';
+import RefinementHistoryPopup from '@/components/RefinementHistoryPopup';
+import BulkRefineNotification from '@/components/BulkRefineNotification';
 
 const AdminOffers = () => {
   const { toast } = useToast();
@@ -1269,6 +1273,11 @@ const AdminOffers = () => {
   const [refineEditorOpen, setRefineEditorOpen] = useState(false);
   const [refineEditorOffer, setRefineEditorOffer] = useState<any>(null);
 
+  // Selective Refine Modal state
+  const [selectiveRefineOpen, setSelectiveRefineOpen] = useState(false);
+  const [selectiveRefineMode, setSelectiveRefineMode] = useState<'single' | 'bulk'>('single');
+  const [selectiveRefineOfferIds, setSelectiveRefineOfferIds] = useState<string[]>([]);
+
   const handleBulkMarkStarter = async () => {
     const ids = Array.from(selectedOffers);
     if (ids.length === 0) {
@@ -2365,6 +2374,16 @@ const AdminOffers = () => {
               setMailScheduleOffers(selected);
               setMailScheduleModalOpen(true);
             }}
+            onRefineDescription={() => {
+              const ids = Array.from(selectedOffers);
+              if (ids.length === 0) {
+                toast({ title: "No Selection", description: "Select offers to refine", variant: "destructive" });
+                return;
+              }
+              setSelectiveRefineOfferIds(ids);
+              setSelectiveRefineMode(ids.length === 1 ? 'single' : 'bulk');
+              setSelectiveRefineOpen(true);
+            }}
           />
         </div>
       </TooltipProvider>
@@ -2713,6 +2732,7 @@ const AdminOffers = () => {
                                   <DropdownMenuItem onClick={() => { setSelectedOffer(offer); setOfferDetailsModalOpen(true); }}><Eye className="h-4 w-4 mr-2" />View</DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => { setSelectedOffer(offer); setEditOfferModalOpen(true); }}><Edit className="h-4 w-4 mr-2" />Edit</DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => { setRefineEditorOffer(offer); setRefineEditorOpen(true); }}><Zap className="h-4 w-4 mr-2" />Refine & Edit</DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => { setSelectiveRefineOfferIds([offer.offer_id]); setSelectiveRefineMode('single'); setSelectiveRefineOpen(true); }}><Sparkles className="h-4 w-4 mr-2 text-amber-500" />Selective Refine</DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => { setMailScheduleOffers([offer as any]); setMailScheduleModalOpen(true); }}><Mail className="h-4 w-4 mr-2" />Mail Schedule</DropdownMenuItem>
                                   <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteOffer(offer.offer_id, offer.name)}><Trash2 className="h-4 w-4 mr-2" />Delete</DropdownMenuItem>
                                 </DropdownMenuContent>
@@ -3161,7 +3181,7 @@ const AdminOffers = () => {
               </TableHeader>
               <TableBody>
                 {offers.map((offer) => (
-                  <TableRow key={offer.offer_id}>
+                  <TableRow key={offer.offer_id} className={(offer as any).bulk_refined ? 'bg-amber-50/60 dark:bg-amber-950/30 border-l-4 border-l-amber-400' : ''}>
                     <TableCell>
                       <input
                         type="checkbox"
@@ -3246,6 +3266,15 @@ const AdminOffers = () => {
                         )}
                         {offer.target_url && (
                           <a href={offer.target_url} target="_blank" rel="noopener noreferrer" className="text-[9px] font-mono text-blue-400 hover:text-blue-600 truncate max-w-[300px] block" title={offer.target_url}>{offer.target_url}</a>
+                        )}
+                        {/* Refinement History Badge */}
+                        {((offer as any).refinement_count > 0 || (offer as any).last_refined_at || (offer as any).refined_at) && (
+                          <RefinementHistoryPopup
+                            offerId={offer.offer_id}
+                            refinementCount={(offer as any).refinement_count || ((offer as any).refined_at ? 1 : 0)}
+                            lastRefinedAt={(offer as any).last_refined_at || (offer as any).refined_at}
+                            compact={compactMode}
+                          />
                         )}
                         <div className={`text-sm text-muted-foreground ${compactMode ? 'hidden' : ''}`}>
                           {offer.affiliates === 'all' || !offer.affiliates ? 'All Users' :
@@ -5567,6 +5596,28 @@ const AdminOffers = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Selective Refine Modal */}
+      <SelectiveRefineModal
+        open={selectiveRefineOpen}
+        onClose={() => setSelectiveRefineOpen(false)}
+        offerIds={selectiveRefineOfferIds}
+        offerNames={Object.fromEntries(offers.map(o => [o.offer_id, o.name]))}
+        mode={selectiveRefineMode}
+        onComplete={() => fetchOffers()}
+      />
+
+      {/* Bulk Refine Notification Popup */}
+      <BulkRefineNotification
+        onViewOffers={(ids) => {
+          // Use the health filter to show bulk_refined offers
+          setHealthFilter('bulk_refined');
+          setStatusFilter('all');
+          setSearchTerm('');
+          setPagination(prev => ({ ...prev, page: 1 }));
+          fetchOffers();
+        }}
+      />
     </div>
   );
 };

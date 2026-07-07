@@ -878,8 +878,8 @@ const ConversionsSubTab: React.FC<{ filters: FilterState; dateRange: { start: st
                           <XCircle className="h-3.5 w-3.5 mr-2 text-red-500" /> Reverse conversion
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => toast.info('Pause offer')}>Pause offer</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => toast.info('Block user')}>Block user</DropdownMenuItem>
+                        <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">🔒 Pause offer</DropdownMenuItem>
+                        <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">🔒 Block user</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -1204,15 +1204,15 @@ const ClickTrackingSubTab: React.FC<ClickTrackingProps> = ({ filters, dateRange,
                             <XCircle className="h-3.5 w-3.5 mr-2 text-red-500" /> Reverse conversion
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleAction('pause_offer', cl)}>Pause offer</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleAction('block_user', cl)}>Block user</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleAction('block_ip', cl)}>Block IP</DropdownMenuItem>
+                          <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">?? Pause offer</DropdownMenuItem>
+                          <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">?? Block user</DropdownMenuItem>
+                          <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">?? Block IP</DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleAction('change_payout_all', cl)}>Change payout (all)</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleAction('change_payout_user', cl)}>Change payout (user)</DropdownMenuItem>
+                          <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">?? Change payout (all)</DropdownMenuItem>
+                          <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">?? Change payout (user)</DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleAction('send_warning', cl)}>Send warning</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleAction('request_proof', cl)}>Request proof</DropdownMenuItem>
+                          <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">?? Send warning</DropdownMenuItem>
+                          <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">?? Request proof</DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -1265,15 +1265,15 @@ const ClickTrackingSubTab: React.FC<ClickTrackingProps> = ({ filters, dateRange,
                             <XCircle className="h-3.5 w-3.5 mr-2 text-red-500" /> Reverse conversion
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleAction('pause_offer', cl)}>Pause offer</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleAction('block_user', cl)}>Block user</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleAction('block_ip', cl)}>Block IP</DropdownMenuItem>
+                          <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">?? Pause offer</DropdownMenuItem>
+                          <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">?? Block user</DropdownMenuItem>
+                          <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">?? Block IP</DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleAction('change_payout_all', cl)}>Change payout (all)</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleAction('change_payout_user', cl)}>Change payout (user)</DropdownMenuItem>
+                          <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">?? Change payout (all)</DropdownMenuItem>
+                          <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">?? Change payout (user)</DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleAction('send_warning', cl)}>Send warning</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleAction('request_proof', cl)}>Request proof</DropdownMenuItem>
+                          <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">?? Send warning</DropdownMenuItem>
+                          <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">?? Request proof</DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>

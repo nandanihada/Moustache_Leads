@@ -474,13 +474,25 @@ def get_offerwall_offers():
 
         # Add refined filter — only match offers refined via admin dialog
         if refined_filter == 'yes':
-            query_filter['$and'].append({'refined_via_admin': True})
-        elif refined_filter == 'no':
             query_filter['$and'].append({'$or': [
-                {'refined_via_admin': {'$exists': False}},
-                {'refined_via_admin': False},
-                {'refined_via_admin': None},
+                {'refined_via_admin': True},
+                {'refinement_count': {'$gt': 0}},
             ]})
+        elif refined_filter == 'no':
+            query_filter['$and'].append({'$and': [
+                {'$or': [
+                    {'refined_via_admin': {'$exists': False}},
+                    {'refined_via_admin': False},
+                    {'refined_via_admin': None},
+                ]},
+                {'$or': [
+                    {'refinement_count': {'$exists': False}},
+                    {'refinement_count': 0},
+                    {'refinement_count': None},
+                ]}
+            ]})
+        elif refined_filter == 'bulk_refined':
+            query_filter['$and'].append({'bulk_refined': True})
 
         # Apply server-side additional filters
         if vertical_filter:
@@ -510,6 +522,72 @@ def get_offerwall_offers():
         if status_filter:
             query_filter['$and'].append({'status': status_filter})
 
+        # Visibility filter (from clickable stats)
+        visibility_filter = request.args.get('visibility', '')
+        if visibility_filter == 'exclusive':
+            # Only offerwall exclusive offers (visible to all users)
+            query_filter['$and'].append({'offerwall_exclusive': True})
+        elif visibility_filter == 'per_request':
+            # Only non-exclusive offers (visible per publisher request)
+            query_filter['$and'].append({'$or': [
+                {'offerwall_exclusive': {'$exists': False}},
+                {'offerwall_exclusive': False},
+                {'offerwall_exclusive': None},
+            ]})
+        elif visibility_filter == 'starter':
+            # Only starter offers
+            starter_ids = (settings or {}).get('new_user_offer_ids', [])
+            if starter_ids:
+                query_filter['$and'].append({'offer_id': {'$in': starter_ids}})
+            else:
+                query_filter['$and'].append({'offer_id': {'$in': []}})  # No results
+
+        # Publisher filter (show only offers approved for a specific publisher)
+        publisher_filter = request.args.get('publisher_id', '')
+        if publisher_filter:
+            # Get offer IDs approved for this publisher
+            from bson import ObjectId as OID
+            affiliate_requests_col = get_collection('affiliate_requests')
+            offer_grants_col = get_collection('offer_grants')
+            pub_offer_ids = set()
+            user_id_variants = [publisher_filter]
+            try:
+                if OID.is_valid(publisher_filter):
+                    user_id_variants.append(OID(publisher_filter))
+            except:
+                pass
+            if affiliate_requests_col is not None:
+                for doc in affiliate_requests_col.find(
+                    {'$or': [{'user_id': {'$in': user_id_variants}}, {'publisher_id': {'$in': user_id_variants}}], 'status': 'approved'},
+                    {'offer_id': 1}
+                ):
+                    if doc.get('offer_id'):
+                        pub_offer_ids.add(doc['offer_id'])
+            if offer_grants_col is not None:
+                for doc in offer_grants_col.find(
+                    {'publisher_id': {'$in': user_id_variants}, 'status': 'active'},
+                    {'offer_id': 1}
+                ):
+                    if doc.get('offer_id'):
+                        pub_offer_ids.add(doc['offer_id'])
+            if pub_offer_ids:
+                query_filter['$and'].append({'offer_id': {'$in': list(pub_offer_ids)}})
+            else:
+                query_filter['$and'].append({'offer_id': {'$in': []}})  # No results
+
+        # Source filter (api_import or manual_exclusive)
+        source_filter = request.args.get('source', '')
+        if source_filter == 'api_import':
+            query_filter['$and'].append({'$or': [
+                {'show_in_offerwall_source': 'api_import'},
+                {'$and': [
+                    {'$or': [{'show_in_offerwall_source': {'$exists': False}}, {'show_in_offerwall_source': ''}, {'show_in_offerwall_source': None}]},
+                    {'$or': [{'offerwall_exclusive': {'$exists': False}}, {'offerwall_exclusive': False}, {'offerwall_exclusive': None}]}
+                ]}
+            ]})
+        elif source_filter == 'manual_exclusive':
+            query_filter['$and'].append({'show_in_offerwall_source': 'manual_exclusive'})
+
         # Event flow filter
         has_event = request.args.get('has_event', '')
         if has_event == 'yes':
@@ -520,25 +598,83 @@ def get_offerwall_offers():
                 {'refined_description.event_flow': {'$in': [None, '']}},
             ]})
 
+        # Device filter — server-side
+        device_filter = request.args.get('device', '')
+        if device_filter and device_filter != 'all':
+            if device_filter == 'mobile':
+                # Mobile = android OR ios OR mobile (exclude desktop-only)
+                query_filter['$and'].append({'$or': [
+                    {'refined_description.device': {'$regex': 'android|ios|mobile', '$options': 'i'}},
+                    {'device_targeting': {'$regex': 'android|ios|mobile', '$options': 'i'}},
+                    # Offers with 'all' or no device set are available on mobile too
+                    {'device_targeting': {'$in': ['all', '', None]}},
+                    {'device_targeting': {'$exists': False}},
+                ]})
+            elif device_filter == 'desktop':
+                # Desktop = desktop OR web (exclude mobile-only)
+                query_filter['$and'].append({'$or': [
+                    {'refined_description.device': {'$regex': 'desktop|web', '$options': 'i'}},
+                    {'device_targeting': {'$regex': 'desktop|web', '$options': 'i'}},
+                    # Offers with 'all' or no device set are available on desktop too
+                    {'device_targeting': {'$in': ['all', '', None]}},
+                    {'device_targeting': {'$exists': False}},
+                ]})
+            elif device_filter in ('android', 'ios'):
+                # Specific platform — match exact or mobile or all
+                query_filter['$and'].append({'$or': [
+                    {'refined_description.device': {'$regex': device_filter + '|mobile', '$options': 'i'}},
+                    {'device_targeting': {'$regex': device_filter + '|mobile', '$options': 'i'}},
+                    # Offers with 'all' or no device set are available on any platform
+                    {'device_targeting': {'$in': ['all', '', None]}},
+                    {'device_targeting': {'$exists': False}},
+                ]})
+
+        # Cap filter — show offers that have caps configured
+        cap_filter = request.args.get('has_cap', '')
+        if cap_filter == 'yes':
+            query_filter['$and'].append({'$or': [
+                {'daily_cap': {'$exists': True, '$gt': 0}},
+                {'weekly_cap': {'$exists': True, '$gt': 0}},
+                {'monthly_cap': {'$exists': True, '$gt': 0}},
+                {'limit': {'$exists': True, '$gt': 0}},
+            ]})
+        elif cap_filter == 'no':
+            query_filter['$and'].append({'$and': [
+                {'$or': [{'daily_cap': {'$exists': False}}, {'daily_cap': None}, {'daily_cap': 0}, {'daily_cap': ''}]},
+                {'$or': [{'weekly_cap': {'$exists': False}}, {'weekly_cap': None}, {'weekly_cap': 0}, {'weekly_cap': ''}]},
+                {'$or': [{'monthly_cap': {'$exists': False}}, {'monthly_cap': None}, {'monthly_cap': 0}, {'monthly_cap': ''}]},
+                {'$or': [{'limit': {'$exists': False}}, {'limit': None}, {'limit': 0}, {'limit': ''}]},
+            ]})
+        elif cap_filter == 'reached':
+            # Offers that have been auto-paused due to cap or have cap_reached flag
+            query_filter['$and'].append({'$or': [
+                {'cap_reached': True},
+                {'auto_pause_on_cap': True, 'status': 'paused'},
+            ]})
+
         # Fetch ALL matching offers (no health check — admin needs to see ALL show_in_offerwall offers)
-        # OPTIMIZATION: Don't include large text fields in list projection
-        # description and refined_description.summary can be huge — only fetch for individual editor
+        # Include all fields needed for the offer editor — description for "Raw Description" view,
+        # refined_description fully for the refined panel, original_name for restore
         projection = {
             'offer_id': 1, 'name': 1, 'original_name': 1, 'status': 1, 'category': 1, 'vertical': 1,
             'payout': 1, 'network': 1, 'image_url': 1, 'thumbnail_url': 1,
+            'description': 1, 'original_description': 1,
             'countries': 1, 'allowed_countries': 1,
             'created_at': 1, 'updated_at': 1, 'refined_at': 1, 'renamed_at': 1,
             'target_url': 1, 'payout_model': 1, 'offer_type': 1, 'payout_type': 1,
             'offerwall_position': 1, 'price_boost': 1, 'publisher_payout_override': 1,
-            'refined_description.event_flow': 1, 'refined_description.difficulty': 1,
-            'refined_description.estimated_time': 1, 'refined_description.countries': 1,
-            'refined_description.allowed_countries': 1, 'refined_description.restricted_areas': 1,
+            'refined_description': 1,
+            'device_targeting': 1,
             'refined_via_admin': 1,
             'show_in_offerwall_source': 1, 'show_in_offerwall_added_at': 1,
             'offerwall_exclusive': 1, 'offerwall_exclusive_since': 1,
             'auto_deactivated': 1, 'auto_deactivated_at': 1,
             'is_pinned': 1, 'pinnedPosition': 1,
             'fallback_redirect_enabled': 1, 'fallback_redirect_url': 1, 'fallback_redirect_message': 1,
+            'refinement_count': 1, 'last_refined_at': 1, 'bulk_refined': 1, 'bulk_refined_at': 1,
+            'refinement_log': 1,
+            'caps': 1, 'cap_reached': 1,
+            'daily_cap': 1, 'weekly_cap': 1, 'monthly_cap': 1, 'limit': 1, 'auto_pause_on_cap': 1,
         }
 
         # Use DB-level pagination — do NOT load all offers into memory
@@ -576,8 +712,10 @@ def get_offerwall_offers():
                 'network': offer.get('network', ''),
                 'image_url': offer.get('image_url', '') or offer.get('thumbnail_url', ''),
                 'description': offer.get('description', ''),
+                'original_description': offer.get('original_description', ''),
                 'target_url': offer.get('target_url', ''),
                 'countries': offer.get('countries', []) or offer.get('allowed_countries', []) or [],
+                'device_targeting': offer.get('device_targeting', ''),
                 'offerwall_position': offer.get('offerwall_position'),
                 'created_at': created_at_str,
                 'updated_at': offer.get('updated_at', '').isoformat() + 'Z' if isinstance(offer.get('updated_at'), datetime) else str(offer.get('updated_at') or ''),
@@ -587,6 +725,24 @@ def get_offerwall_offers():
                 'is_boosted': is_boosted,
                 'has_refined': bool(offer.get('refined_via_admin')),
                 'offerwall_source': _get_offerwall_source(offer),
+                'refinement_count': offer.get('refinement_count', 0) or 0,
+                'last_refined_at': offer.get('last_refined_at', '').isoformat() + 'Z' if isinstance(offer.get('last_refined_at'), datetime) else str(offer.get('last_refined_at') or ''),
+                'bulk_refined': bool(offer.get('bulk_refined')),
+                'refined_via_admin': bool(offer.get('refined_via_admin')),
+                'caps': {
+                    'daily_cap': offer.get('daily_cap'),
+                    'weekly_cap': offer.get('weekly_cap'),
+                    'monthly_cap': offer.get('monthly_cap'),
+                    'total_cap': offer.get('limit'),
+                    'auto_pause': offer.get('auto_pause_on_cap', False),
+                },
+                'has_cap': bool(
+                    offer.get('daily_cap') or
+                    offer.get('weekly_cap') or
+                    offer.get('monthly_cap') or
+                    offer.get('limit')
+                ),
+                'cap_reached': bool(offer.get('cap_reached')),
                 'show_in_offerwall_added_at': offer.get('show_in_offerwall_added_at', '').isoformat() + 'Z' if isinstance(offer.get('show_in_offerwall_added_at'), datetime) else str(offer.get('show_in_offerwall_added_at') or ''),
                 'price_boost': {
                     'percentage': boost.get('percentage', 0),
@@ -671,7 +827,7 @@ def update_new_user_offers():
 @admin_offerwall_management_bp.route('/offerwall-management/stats', methods=['GET'])
 @token_required
 def get_stats():
-    """Get offerwall statistics: total active, visible (actual offerwall count), pinned, featured."""
+    """Get accurate offerwall visibility breakdown with source tracking and per-publisher data."""
     try:
         current_user = request.current_user
         if current_user.get('role') != 'admin':
@@ -679,37 +835,213 @@ def get_stats():
 
         offers_collection = get_collection('offers')
         settings_collection = get_collection('offerwall_settings')
+        affiliate_requests_col = get_collection('affiliate_requests')
+        offer_grants_col = get_collection('offer_grants')
+        exclusive_log_col = get_collection('offerwall_exclusive_log')
+        users_col = get_collection('users')
 
         if offers_collection is None or settings_collection is None:
             return jsonify({'error': 'Database connection failed'}), 500
-
-        # Count active offers
-        total_active = offers_collection.count_documents({'status': {'$in': ['active', 'running']}})
 
         # Get settings for hidden/pinned/featured counts
         settings = settings_collection.find_one({}) or {}
         hidden_offers = settings.get('hidden_offers', [])
         pinned_offers = settings.get('pinned_offers', [])
         featured_offers = settings.get('featured_offers', [])
+        starter_offer_ids = settings.get('new_user_offer_ids', [])
 
-        hidden_count = len(hidden_offers)
-        pinned_count = len(pinned_offers)
-        featured_count = len(featured_offers)
+        # === TOTAL IN OFFERWALL (base query — what the offerwall actually queries) ===
+        base_query = get_offerwall_base_query(hidden_offers)
+        total_in_offerwall = offers_collection.count_documents(base_query)
 
-        # Get actual offerwall-visible count (same query + health check as the real offerwall)
-        total_visible = count_offerwall_visible()
+        # === OFFERWALL EXCLUSIVE (visible to ALL users without request) ===
+        exclusive_query = {
+            'offerwall_exclusive': True,
+            'status': {'$in': ['active', 'running']},
+            '$or': [{'deleted': {'$exists': False}}, {'deleted': False}, {'deleted': None}]
+        }
+        if hidden_offers:
+            exclusive_query['offer_id'] = {'$nin': hidden_offers}
+        visible_to_all = offers_collection.count_documents(exclusive_query)
+
+        # === PER-REQUEST OFFERS (only visible to publishers with approved access) ===
+        # These are offers that are in the offerwall but NOT offerwall_exclusive
+        non_exclusive_in_offerwall_query = dict(base_query)
+        non_exclusive_in_offerwall_query['$and'] = list(base_query.get('$and', [])) + [
+            {'$or': [{'offerwall_exclusive': {'$exists': False}}, {'offerwall_exclusive': False}, {'offerwall_exclusive': None}]}
+        ]
+        visible_per_request = offers_collection.count_documents(non_exclusive_in_offerwall_query)
+
+        # === SOURCE BREAKDOWN: How offers got into the offerwall ===
+        # 1. Manually made offerwall exclusive by admin (only those in offerwall_exclusive_log)
+        source_manual_exclusive = 0
+        manual_exclusive_offer_ids = set()
+        if exclusive_log_col is not None:
+            # Get distinct offer_ids that were explicitly activated by admin
+            manual_exclusive_offer_ids = set(
+                exclusive_log_col.distinct('offer_id', {'action': 'activate'})
+            )
+            # Count how many of those are still active in the offerwall
+            if manual_exclusive_offer_ids:
+                manual_still_active = offers_collection.count_documents({
+                    'offer_id': {'$in': list(manual_exclusive_offer_ids)},
+                    'offerwall_exclusive': True,
+                    'status': {'$in': ['active', 'running']},
+                    '$or': [{'deleted': {'$exists': False}}, {'deleted': False}, {'deleted': None}]
+                })
+                source_manual_exclusive = manual_still_active
+
+        # 2. API Import (everything in offerwall that is NOT admin-exclusive-actioned)
+        # = total_in_offerwall minus those admin explicitly marked exclusive
+        source_api_import = total_in_offerwall - source_manual_exclusive
+
+        # === STARTER OFFERS ===
+        starter_count = len(starter_offer_ids)
+
+        # === PER-PUBLISHER BREAKDOWN ===
+        # Only show publishers who have actually installed the iframe (have LIVE placements)
+        publisher_breakdown = []
+        placements_col = get_collection('placements')
+        
+        if affiliate_requests_col is not None and placements_col is not None:
+            # First, get publishers who have LIVE website placements (iframe installed)
+            live_placements = list(placements_col.find(
+                {'status': 'LIVE', 'platformType': 'website'},
+                {'publisherId': 1, 'placementIdentifier': 1, 'platformName': 1, 'offerwallTitle': 1}
+            ))
+            
+            # Get unique publisher IDs who have installed iframe
+            iframe_publisher_ids = list(set(
+                str(p['publisherId']) for p in live_placements if p.get('publisherId')
+            ))
+            
+            if not iframe_publisher_ids:
+                iframe_publisher_ids = []
+
+            # Get all offer_ids that are currently in the offerwall
+            offerwall_offer_ids = set(
+                doc['offer_id'] for doc in offers_collection.find(base_query, {'offer_id': 1})
+                if doc.get('offer_id')
+            )
+
+            # For each iframe-publisher, count their approved offers that are in the offerwall
+            from bson import ObjectId as OID
+            
+            # Fetch publisher names
+            pub_name_map = {}
+            if users_col is not None and iframe_publisher_ids:
+                obj_ids = []
+                for pid in iframe_publisher_ids:
+                    try:
+                        if OID.is_valid(pid):
+                            obj_ids.append(OID(pid))
+                    except:
+                        pass
+                if obj_ids:
+                    for u in users_col.find({'_id': {'$in': obj_ids}}, {'_id': 1, 'username': 1, 'company_name': 1, 'email': 1}):
+                        uid = str(u['_id'])
+                        pub_name_map[uid] = u.get('company_name') or u.get('username') or u.get('email', uid)
+
+            # Get approved requests for iframe publishers only
+            for pub_id in iframe_publisher_ids:
+                user_id_variants = [pub_id]
+                try:
+                    if OID.is_valid(pub_id):
+                        user_id_variants.append(OID(pub_id))
+                except:
+                    pass
+                
+                # Count approved requests that are in the offerwall
+                approved_offer_ids = set()
+                if affiliate_requests_col is not None:
+                    approved_docs = affiliate_requests_col.find(
+                        {'$or': [{'user_id': {'$in': user_id_variants}}, {'publisher_id': {'$in': user_id_variants}}], 'status': 'approved'},
+                        {'offer_id': 1}
+                    )
+                    approved_offer_ids = set(d['offer_id'] for d in approved_docs if d.get('offer_id'))
+                
+                # Count grants
+                grant_offer_ids = set()
+                if offer_grants_col is not None:
+                    grant_docs = offer_grants_col.find(
+                        {'publisher_id': {'$in': user_id_variants}, 'status': 'active'},
+                        {'offer_id': 1}
+                    )
+                    grant_offer_ids = set(d['offer_id'] for d in grant_docs if d.get('offer_id'))
+                
+                # Intersect with offerwall
+                requests_in_offerwall = approved_offer_ids & offerwall_offer_ids
+                grants_in_offerwall = grant_offer_ids & offerwall_offer_ids
+                combined = requests_in_offerwall | grants_in_offerwall
+                
+                # Count placements for this publisher
+                pub_placements = [p for p in live_placements if str(p.get('publisherId', '')) == pub_id]
+                
+                publisher_breakdown.append({
+                    'publisher_id': pub_id,
+                    'publisher_name': pub_name_map.get(pub_id, pub_id),
+                    'placements': len(pub_placements),
+                    'approved_requests': len(requests_in_offerwall),
+                    'grants': len(grants_in_offerwall),
+                    'total_offers': len(combined)
+                })
+
+            # Sort by total_offers desc
+            publisher_breakdown.sort(key=lambda x: x['total_offers'], reverse=True)
+
+        # === EXCLUSIVE HISTORY (last 10 bulk operations) ===
+        exclusive_history = []
+        if exclusive_log_col is not None:
+            # Group by timestamp (within 5 second window = same bulk action)
+            recent_logs = list(exclusive_log_col.find({'action': 'activate'}).sort('timestamp', -1).limit(200))
+            # Group into bulk operations (same admin + within 5 seconds)
+            if recent_logs:
+                groups = []
+                current_group = [recent_logs[0]]
+                for log in recent_logs[1:]:
+                    prev_ts = current_group[-1].get('timestamp')
+                    curr_ts = log.get('timestamp')
+                    same_admin = log.get('admin_username') == current_group[-1].get('admin_username')
+                    if isinstance(prev_ts, datetime) and isinstance(curr_ts, datetime):
+                        diff = abs((prev_ts - curr_ts).total_seconds())
+                        if diff <= 5 and same_admin:
+                            current_group.append(log)
+                            continue
+                    groups.append(current_group)
+                    current_group = [log]
+                groups.append(current_group)
+
+                for group in groups[:10]:
+                    ts = group[0].get('timestamp')
+                    method = group[0].get('method', 'manual')  # 'manual', 'api_import', or 'sheet_import'
+                    exclusive_history.append({
+                        'date': ts.isoformat() + 'Z' if isinstance(ts, datetime) else str(ts or ''),
+                        'count': len(group),
+                        'admin': group[0].get('admin_username', 'admin'),
+                        'method': method,
+                        'sample_offers': [g.get('offer_name', g.get('offer_id', '')) for g in group[:3]]
+                    })
 
         stats = {
-            'total_active': total_active,
-            'total_visible': total_visible,
-            'pinned_count': pinned_count,
-            'featured_count': featured_count,
-            'hidden_count': hidden_count
+            'total_in_offerwall': total_in_offerwall,
+            'visible_to_all': visible_to_all,
+            'visible_per_request': visible_per_request,
+            'source_breakdown': {
+                'api_import': source_api_import,
+                'manual_exclusive': source_manual_exclusive,
+            },
+            'starter_offers': starter_count,
+            'pinned_count': len(pinned_offers),
+            'featured_count': len(featured_offers),
+            'hidden_count': len(hidden_offers),
+            'publisher_breakdown': publisher_breakdown[:20],  # Top 20
+            'total_publishers_with_access': len(publisher_breakdown),
+            'exclusive_history': exclusive_history,
         }
 
         return jsonify({'stats': stats}), 200
     except Exception as e:
-        logger.error(f"Error getting offerwall stats: {str(e)}")
+        logger.error(f"Error getting offerwall stats: {str(e)}", exc_info=True)
         return jsonify({'error': 'Failed to fetch stats'}), 500
 
 
@@ -1848,7 +2180,18 @@ def save_refined_description():
 
         result = offers_col.update_one(
             {'offer_id': offer_id},
-            {'$set': update_fields}
+            {
+                '$set': update_fields,
+                '$push': {
+                    'refinement_log': {
+                        'field': 'full_description',
+                        'value': 'Full AI refinement saved',
+                        'timestamp': datetime.utcnow(),
+                        'source': 'admin_save'
+                    }
+                },
+                '$inc': {'refinement_count': 1}
+            }
         )
 
         if result.modified_count == 0:
@@ -2162,6 +2505,25 @@ def refine_single_field():
                 else:
                     value = 'all'
 
+        # Log refinement history
+        from datetime import timezone as tz
+        now = datetime.now(tz.utc)
+        offers_col.update_one(
+            {'offer_id': offer_id},
+            {
+                '$push': {
+                    'refinement_log': {
+                        'field': field,
+                        'value': value,
+                        'timestamp': now,
+                        'source': 'manual'
+                    }
+                },
+                '$set': {'last_refined_at': now},
+                '$inc': {'refinement_count': 1}
+            }
+        )
+
         return jsonify({
             'success': True,
             'field': field,
@@ -2248,3 +2610,416 @@ def rename_offer_from_manager():
     except Exception as e:
         logger.error(f"Error renaming offer: {e}", exc_info=True)
         return jsonify({'error': 'Failed to rename offer'}), 500
+
+
+# ===================== SELECTIVE REFINEMENT + BULK REFINEMENT =====================
+
+@admin_offerwall_management_bp.route('/offerwall-management/selective-refine', methods=['POST'])
+@token_required
+def selective_refine():
+    """
+    Refine specific fields for selected offers (single or multiple).
+    Accepts offer_ids (list) and fields (list of field names to refine).
+    For single offer, refines immediately. For multiple, use bulk endpoint.
+    """
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        offer_id = data.get('offer_id')
+        fields = data.get('fields', [])
+
+        if not offer_id:
+            return jsonify({'error': 'offer_id is required'}), 400
+        if not fields or not isinstance(fields, list):
+            return jsonify({'error': 'fields must be a non-empty list'}), 400
+
+        # Valid field names for selective refinement
+        valid_fields = ['device', 'description', 'title', 'category', 'event', 'country', 'cap']
+        invalid = [f for f in fields if f not in valid_fields]
+        if invalid:
+            return jsonify({'error': f'Invalid fields: {invalid}. Valid: {valid_fields}'}), 400
+
+        offers_col = get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        offer = offers_col.find_one({'offer_id': offer_id})
+        if not offer:
+            return jsonify({'error': 'Offer not found'}), 404
+
+        name = offer.get('name', '')
+        description = offer.get('description', '')
+        payout = float(offer.get('payout', 0) or 0)
+
+        if not description and not name:
+            return jsonify({'error': 'Offer has no content to refine'}), 400
+
+        from config import Config
+        from groq import Groq, AuthenticationError as GroqAuthError, RateLimitError as GroqRateLimitError
+        import json as json_module
+        from datetime import timezone as tz
+
+        keys = Config.get_groq_api_keys()
+        if not keys:
+            return jsonify({'error': 'GROQ_API_KEY not configured'}), 500
+
+        results = {}
+        now = datetime.now(tz.utc)
+
+        # Custom prompts for fields not in FIELD_PROMPTS
+        custom_prompts = {
+            'title': FIELD_PROMPTS.get('refined_name', ''),
+            'description': FIELD_PROMPTS.get('summary', ''),
+            'event': FIELD_PROMPTS.get('steps', ''),
+            'country': FIELD_PROMPTS.get('countries', ''),
+            'device': FIELD_PROMPTS.get('device', ''),
+            'category': """Analyze this offer and determine the best category/vertical for it.
+Choose from: FINANCE, GAMING, DATING, ECOMMERCE, UTILITIES, CRYPTO, HEALTH, ENTERTAINMENT, EDUCATION, SURVEYS, SPORTS, TRAVEL, FOOD, SOCIAL, OTHER.
+Return JSON: {"category": "PRIMARY_CATEGORY", "categories": ["CAT1", "CAT2"]}""",
+            'cap': """Based on this offer's payout and type, suggest reasonable daily/monthly cap limits.
+Consider: high-payout offers need lower caps, low-payout mass-install offers can have higher caps.
+Return JSON: {"daily_cap": 100, "monthly_cap": 2000, "reasoning": "brief explanation"}"""
+        }
+
+        user_content = f"OFFER NAME: {name}\nOFFER PAYOUT: ${payout}\nRAW DESCRIPTION:\n{description}"
+
+        for field in fields:
+            system_prompt = custom_prompts.get(field, FIELD_PROMPTS.get(field, ''))
+            if not system_prompt:
+                results[field] = {'error': f'No prompt for field {field}'}
+                continue
+
+            last_error = None
+            result = None
+            for api_key in keys:
+                try:
+                    client = Groq(api_key=api_key)
+                    response = client.chat.completions.create(
+                        model="llama-3.1-8b-instant",
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_content}
+                        ],
+                        temperature=0.3,
+                        max_tokens=300,
+                        response_format={"type": "json_object"}
+                    )
+                    result = json_module.loads(response.choices[0].message.content.strip())
+                    break
+                except (GroqAuthError, GroqRateLimitError) as key_err:
+                    last_error = key_err
+                    continue
+                except Exception as key_err:
+                    results[field] = {'error': str(key_err)[:100]}
+                    break
+
+            if result is None:
+                results[field] = {'error': str(last_error)[:100] if last_error else 'AI unavailable'}
+                continue
+
+            # Extract value based on field
+            value = _extract_selective_value(result, field, name)
+            results[field] = {'value': value, 'success': True}
+
+            # Log to refinement_log
+            offers_col.update_one(
+                {'offer_id': offer_id},
+                {
+                    '$push': {
+                        'refinement_log': {
+                            'field': field,
+                            'value': value,
+                            'timestamp': now,
+                            'source': 'selective'
+                        }
+                    },
+                    '$set': {'last_refined_at': now},
+                    '$inc': {'refinement_count': 1}
+                }
+            )
+
+        return jsonify({
+            'success': True,
+            'offer_id': offer_id,
+            'results': results
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error in selective refine: {e}", exc_info=True)
+        return jsonify({'error': f'Selective refine failed: {str(e)}'}), 500
+
+
+def _extract_selective_value(result: dict, field: str, name: str):
+    """Extract and validate field value from AI response for selective refinement."""
+    if field == 'device':
+        value = str(result.get('device', 'all')).strip().lower()
+        if value not in ('android', 'ios', 'mobile', 'desktop', 'all'):
+            name_lower = name.lower()
+            if 'android' in name_lower:
+                value = 'android'
+            elif 'ios' in name_lower or 'iphone' in name_lower:
+                value = 'ios'
+            else:
+                value = 'all'
+        return value
+    elif field == 'description':
+        return str(result.get('summary', '')).strip()
+    elif field == 'title':
+        return str(result.get('refined_name', '')).strip()[:80]
+    elif field == 'category':
+        return {
+            'category': str(result.get('category', 'OTHER')).upper(),
+            'categories': result.get('categories', [])
+        }
+    elif field == 'event':
+        steps = result.get('steps', [])
+        return steps if isinstance(steps, list) else []
+    elif field == 'country':
+        countries = result.get('countries', [])
+        if isinstance(countries, list):
+            return [str(c).strip().upper() for c in countries if len(str(c).strip()) == 2]
+        return []
+    elif field == 'cap':
+        return {
+            'daily_cap': result.get('daily_cap', 100),
+            'monthly_cap': result.get('monthly_cap', 2000),
+            'reasoning': str(result.get('reasoning', ''))
+        }
+    return result
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/bulk-refine', methods=['POST'])
+@token_required
+def start_bulk_refinement():
+    """
+    Start a background bulk refinement job.
+    Processes offers one by one with 2-3 min delay between each.
+    field can be: a single field name, comma-separated fields, or 'full' for all fields.
+    """
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        offer_ids = data.get('offer_ids', [])
+        field = data.get('field')
+
+        if not offer_ids or not isinstance(offer_ids, list):
+            return jsonify({'error': 'offer_ids must be a non-empty list'}), 400
+
+        valid_fields = ['device', 'description', 'title', 'category', 'event', 'country', 'cap', 'full']
+        
+        # Support comma-separated fields or 'full'
+        if not field:
+            return jsonify({'error': 'field is required'}), 400
+        
+        if field == 'full':
+            fields_to_process = ['device', 'description', 'title', 'category', 'event', 'country', 'cap']
+        elif ',' in field:
+            fields_to_process = [f.strip() for f in field.split(',') if f.strip()]
+            invalid = [f for f in fields_to_process if f not in valid_fields]
+            if invalid:
+                return jsonify({'error': f'Invalid fields: {invalid}'}), 400
+        else:
+            if field not in valid_fields:
+                return jsonify({'error': f'field must be one of: {valid_fields}'}), 400
+            fields_to_process = [field]
+
+        # Generate job ID
+        import uuid
+        job_id = f"bulk-refine-{uuid.uuid4().hex[:8]}"
+        admin_user_id = str(current_user.get('_id', ''))
+
+        from services.bulk_refinement_service import get_bulk_refinement_service
+        service = get_bulk_refinement_service()
+        
+        # Pass the fields list as comma-separated for the service
+        field_param = ','.join(fields_to_process) if len(fields_to_process) > 1 else fields_to_process[0]
+        result = service.start_bulk_job(job_id, offer_ids, field_param, admin_user_id)
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"Error starting bulk refinement: {e}", exc_info=True)
+        return jsonify({'error': f'Failed to start bulk refinement: {str(e)}'}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/bulk-refine/status/<job_id>', methods=['GET'])
+@token_required
+def get_bulk_refinement_status(job_id):
+    """Get the status of a bulk refinement job."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        from services.bulk_refinement_service import get_bulk_refinement_service
+        service = get_bulk_refinement_service()
+        status = service.get_job_status(job_id)
+
+        if not status:
+            return jsonify({'error': 'Job not found'}), 404
+
+        return jsonify({'success': True, **status}), 200
+
+    except Exception as e:
+        logger.error(f"Error getting bulk refine status: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/bulk-refine/cancel/<job_id>', methods=['POST'])
+@token_required
+def cancel_bulk_refinement(job_id):
+    """Cancel a running bulk refinement job."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        from services.bulk_refinement_service import get_bulk_refinement_service
+        service = get_bulk_refinement_service()
+        success = service.cancel_job(job_id)
+
+        return jsonify({'success': success, 'message': 'Job cancelled' if success else 'Job not found or already finished'}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/bulk-refine/active-jobs', methods=['GET'])
+@token_required
+def get_active_bulk_jobs():
+    """Get all active bulk refinement jobs for the current admin."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        from services.bulk_refinement_service import get_bulk_refinement_service
+        service = get_bulk_refinement_service()
+        admin_user_id = str(current_user.get('_id', ''))
+        jobs = service.get_active_jobs(admin_user_id)
+
+        return jsonify({'success': True, 'jobs': jobs}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/bulk-refine/notifications', methods=['GET'])
+@token_required
+def get_bulk_refine_notifications():
+    """Get unread bulk refinement completion notifications."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        from services.bulk_refinement_service import get_bulk_refinement_service
+        service = get_bulk_refinement_service()
+        admin_user_id = str(current_user.get('_id', ''))
+        notifications = service.get_unreviewed_notifications(admin_user_id)
+
+        return jsonify({'success': True, 'notifications': notifications}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/bulk-refine/mark-read', methods=['POST'])
+@token_required
+def mark_bulk_refine_notification_read():
+    """Mark a bulk refinement notification as read."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        job_id = data.get('job_id')
+        if not job_id:
+            return jsonify({'error': 'job_id required'}), 400
+
+        from services.bulk_refinement_service import get_bulk_refinement_service
+        service = get_bulk_refinement_service()
+        service.mark_notification_read(job_id)
+
+        return jsonify({'success': True}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/bulk-refine/mark-reviewed', methods=['POST'])
+@token_required
+def mark_offers_reviewed():
+    """Remove the bulk-refined highlight from offers after admin reviews them."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        offer_ids = data.get('offer_ids', [])
+        if not offer_ids:
+            return jsonify({'error': 'offer_ids required'}), 400
+
+        from services.bulk_refinement_service import get_bulk_refinement_service
+        service = get_bulk_refinement_service()
+        count = service.mark_offers_reviewed(offer_ids)
+
+        return jsonify({'success': True, 'cleared': count}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/refinement-history/<offer_id>', methods=['GET'])
+@token_required
+def get_refinement_history(offer_id):
+    """Get the refinement history log for a specific offer."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        offers_col = get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        offer = offers_col.find_one(
+            {'offer_id': offer_id},
+            {'refinement_log': 1, 'refinement_count': 1, 'last_refined_at': 1,
+             'refined_at': 1, 'bulk_refined': 1, 'bulk_refined_at': 1}
+        )
+        if not offer:
+            return jsonify({'error': 'Offer not found'}), 404
+
+        log = offer.get('refinement_log', [])
+        # Serialize timestamps
+        for entry in log:
+            if 'timestamp' in entry and hasattr(entry['timestamp'], 'isoformat'):
+                entry['timestamp'] = entry['timestamp'].isoformat() + 'Z'
+
+        return jsonify({
+            'success': True,
+            'offer_id': offer_id,
+            'refinement_count': offer.get('refinement_count', 0),
+            'last_refined_at': offer.get('last_refined_at', offer.get('refined_at')),
+            'bulk_refined': offer.get('bulk_refined', False),
+            'log': log
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error getting refinement history: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500

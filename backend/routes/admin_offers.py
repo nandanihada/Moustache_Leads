@@ -1428,16 +1428,38 @@ def get_offers():
 
         # --- "Not Refined" filter: offers not refined via admin ---
         if filters.get('health') == 'not_refined':
-            not_refined_condition = {'$or': [
-                {'refined_via_admin': {'$exists': False}},
-                {'refined_via_admin': False},
-                {'refined_via_admin': None},
+            not_refined_condition = {'$and': [
+                {'$or': [
+                    {'refined_via_admin': {'$exists': False}},
+                    {'refined_via_admin': False},
+                    {'refined_via_admin': None},
+                ]},
+                {'$or': [
+                    {'refinement_count': {'$exists': False}},
+                    {'refinement_count': 0},
+                    {'refinement_count': None},
+                ]}
             ]}
             if '$and' in query:
                 query['$and'].append(not_refined_condition)
             else:
                 existing = dict(query)
                 query = {'$and': [existing, not_refined_condition]}
+            
+            del filters['health']
+            
+            pinned_query = dict(query)
+            pinned_query['is_pinned'] = True
+            pinned_offers = list(offers_col.find(pinned_query).limit(50))
+
+        # --- "Bulk Refined" filter: offers that were bulk-refined and pending review ---
+        if filters.get('health') == 'bulk_refined':
+            bulk_refined_condition = {'bulk_refined': True}
+            if '$and' in query:
+                query['$and'].append(bulk_refined_condition)
+            else:
+                existing = dict(query)
+                query = {'$and': [existing, bulk_refined_condition]}
             
             del filters['health']
             
@@ -4126,6 +4148,11 @@ def bulk_upload_offers():
         for row in valid_rows:
             row['show_in_offerwall'] = show_in_offerwall
             row['status'] = default_status
+            # Track source of offerwall visibility
+            if show_in_offerwall:
+                row['show_in_offerwall_source'] = 'api_import'
+                row['show_in_offerwall_added_at'] = datetime.utcnow()
+                row['show_in_offerwall_added_by'] = str(current_user.get('_id', current_user.get('username', 'admin')))
         
         # If there are validation issues OR no valid rows, generate detailed feedback
         if error_rows or missing_offers_rows or not valid_rows:
@@ -4859,6 +4886,12 @@ def import_api_offers():
                 # Apply default status and offerwall visibility from options
                 mapped_offer['status'] = default_status
                 mapped_offer['show_in_offerwall'] = show_in_offerwall
+                
+                # Track source of offerwall visibility
+                if show_in_offerwall:
+                    mapped_offer['show_in_offerwall_source'] = 'api_import'
+                    mapped_offer['show_in_offerwall_added_at'] = datetime.utcnow()
+                    mapped_offer['show_in_offerwall_added_by'] = created_by
                 
                 mapped_offer['approval_settings'] = approval_settings
                 mapped_offer['approval_type'] = approval_type
@@ -6913,6 +6946,9 @@ def set_offerwall_exclusive():
         }
         if is_exclusive:
             update_fields['offerwall_exclusive_since'] = now
+            update_fields['show_in_offerwall_source'] = 'manual_exclusive'
+            update_fields['show_in_offerwall_added_at'] = now
+            update_fields['show_in_offerwall_added_by'] = admin_username
         else:
             update_fields['offerwall_exclusive_since'] = None
         
@@ -6930,12 +6966,16 @@ def set_offerwall_exclusive():
             ))
             name_map = {doc['offer_id']: doc.get('name', 'Unknown') for doc in offer_docs}
             
+            # Determine method: 'manual' (admin UI button) vs 'api_import' vs 'sheet_import'
+            method = data.get('method', 'manual')  # default to manual if not specified
+            
             log_entries = []
             for oid in offer_ids:
                 log_entries.append({
                     'offer_id': oid,
                     'offer_name': name_map.get(oid, 'Unknown'),
                     'action': action,
+                    'method': method,
                     'admin_id': admin_id,
                     'admin_username': admin_username,
                     'timestamp': now

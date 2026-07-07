@@ -28,10 +28,11 @@ import {
 } from "@/components/ui/dialog";
 import {
   Star, Eye, EyeOff, Sparkles, Plus, Trash2, Save,
-  BarChart3, Pin, Layout, Monitor, X, ChevronLeft, ChevronRight,
+  BarChart3, Pin, Layout, Monitor, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Activity, CheckCircle, Clock, AlertCircle, Search, RefreshCw,
-  Flame, TrendingUp, TrendingDown, Hash, Wand2, Globe, Loader2, Pencil, Mail
+  Flame, TrendingUp, TrendingDown, Hash, Wand2, Globe, Loader2, Pencil, Mail, Users
 } from "lucide-react";
+import BulkRefineNotification from "@/components/BulkRefineNotification";
 
 // ===================== BOOST COUNTDOWN COMPONENT =====================
 const BoostTimer: React.FC<{ expiresAt: string }> = ({ expiresAt }) => {
@@ -76,6 +77,7 @@ const AdminOfferwallManager = () => {
   const [preloadedOffers, setPreloadedOffers] = useState<Map<string, any>>(new Map());
   const [activeTab, setActiveTab] = useState('preview');
   const [offerwallPage, setOfferwallPage] = useState(1);
+  const [offerwallPerPage, setOfferwallPerPage] = useState(30);
   const [starterOfferIds, setStarterOfferIds] = useState<string[]>([]);
   const [qualSurveySettings, setQualSurveySettings] = useState<{points: number; display_title: string; display_description: string; display_image_url: string; template: string} | null>(null);
   const [qualSaving, setQualSaving] = useState(false);
@@ -120,6 +122,29 @@ const AdminOfferwallManager = () => {
   // Force-hide by offer ID
   const [forceHideId, setForceHideId] = useState('');
   const [forceHiding, setForceHiding] = useState(false);
+  // Stats dropdown expansion
+  const [statsExpanded, setStatsExpanded] = useState(false);
+  // Active filter label from stats click
+  const [activeVisibilityFilter, setActiveVisibilityFilter] = useState('');
+
+  // Helper: click on a stat to filter Offer Controls
+  const applyStatsFilter = (filterKey: string, filterValue: string, label: string) => {
+    setBackendFilters({ [filterKey]: filterValue });
+    setActiveVisibilityFilter(label);
+    setActiveTab('offers');
+    setOfferwallPage(1);
+    setSearch('');
+    // Auto-scroll to Offer Controls tab after a brief delay for tab switch
+    setTimeout(() => {
+      document.getElementById('offer-controls-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+  };
+
+  const clearStatsFilter = () => {
+    setBackendFilters({});
+    setActiveVisibilityFilter('');
+    setOfferwallPage(1);
+  };
 
   // Fetch starter offers
   useEffect(() => {
@@ -221,13 +246,14 @@ const AdminOfferwallManager = () => {
   });
 
   // Fetch offers (only those visible on the offerwall)
-  const { data: offersData, isLoading: offersLoading } = useQuery({
-    queryKey: ['offerwall-management-offers', search, offerwallPage, refinedFilter, backendFilters],
+  const { data: offersData, isLoading: offersLoading, isFetching } = useQuery({
+    queryKey: ['offerwall-management-offers', search, offerwallPage, offerwallPerPage, refinedFilter, backendFilters],
     queryFn: () => offerwallManagerApi.getOfferwallOffers({ 
-      search, page: offerwallPage, per_page: 30, 
+      search, page: offerwallPage, per_page: offerwallPerPage, 
       refined: refinedFilter || undefined,
       ...backendFilters
     }),
+    placeholderData: (prev) => prev,
   });
 
   // Pre-populate position inputs from offers data
@@ -361,7 +387,7 @@ const AdminOfferwallManager = () => {
   };
 
   const offers = offersData?.offers || offersData?.data || [];
-  const pagination = offersData?.pagination || { page: 1, per_page: 30, total: 0, pages: 1 };
+  const pagination = offersData?.pagination || { page: 1, per_page: offerwallPerPage, total: 0, pages: 1 };
 
   const handleSelectOffer = (offerId: string, checked: boolean) => {
     setSelectedOffers(prev => {
@@ -702,7 +728,7 @@ const AdminOfferwallManager = () => {
 
   return (
     <div className="p-6 space-y-6">
-      <Tabs defaultValue="preview" className="space-y-4" onValueChange={(v) => setActiveTab(v)}>
+      <Tabs value={activeTab} className="space-y-4" onValueChange={(v) => setActiveTab(v)}>
       {activeTab !== 'tracking' && activeTab !== 'analytics' && (
       <>
       <div className="flex items-center justify-between">
@@ -713,52 +739,145 @@ const AdminOfferwallManager = () => {
       </div>
 
       {/* Stats Boxes */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <BarChart3 className="h-8 w-8 text-blue-500" />
-              <div>
-                <p className="text-sm text-muted-foreground">Total Active</p>
-                <p className="text-2xl font-bold">{stats?.total_active ?? '—'}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
+      <Card>
+        <CardContent className="p-4">
+          <div
+            className="flex items-center justify-between cursor-pointer"
+            onClick={() => setStatsExpanded(!statsExpanded)}
+          >
             <div className="flex items-center gap-3">
               <Eye className="h-8 w-8 text-green-500" />
               <div>
-                <p className="text-sm text-muted-foreground">Visible</p>
-                <p className="text-2xl font-bold">{stats?.total_visible ?? '—'}</p>
+                <p className="text-sm text-muted-foreground">Total Offers in Offerwall</p>
+                <p className="text-2xl font-bold">{stats?.total_in_offerwall ?? '—'}</p>
               </div>
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <Pin className="h-8 w-8 text-orange-500" />
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-6 text-sm text-muted-foreground">
+                <span className="flex items-center gap-1"><Pin className="h-4 w-4 text-orange-500" /> {stats?.pinned_count ?? 0} Pinned</span>
+                <span className="flex items-center gap-1"><Sparkles className="h-4 w-4 text-purple-500" /> {stats?.featured_count ?? 0} Featured</span>
+                <span className="flex items-center gap-1"><EyeOff className="h-4 w-4 text-red-400" /> {stats?.hidden_count ?? 0} Hidden</span>
+              </div>
+              {statsExpanded ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
+            </div>
+          </div>
+
+          {statsExpanded && stats && (
+            <div className="mt-4 border-t pt-4 space-y-4">
+              {/* Visibility Breakdown */}
               <div>
-                <p className="text-sm text-muted-foreground">Pinned</p>
-                <p className="text-2xl font-bold">{stats?.pinned_count ?? '—'}</p>
+                <h4 className="text-sm font-semibold mb-2">Visibility Breakdown</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div
+                    className="bg-green-50 dark:bg-green-950/30 rounded-lg p-3 cursor-pointer hover:ring-2 hover:ring-green-400 transition-all"
+                    onClick={() => applyStatsFilter('visibility', 'exclusive', 'Visible to All Users')}
+                  >
+                    <p className="text-xs text-muted-foreground">Visible to All Users</p>
+                    <p className="text-lg font-bold text-green-700 dark:text-green-400">{stats.visible_to_all}</p>
+                    <p className="text-[11px] text-muted-foreground">Offerwall Exclusive — shown to everyone</p>
+                  </div>
+                  <div
+                    className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all"
+                    onClick={() => applyStatsFilter('visibility', 'per_request', 'Visible per Request')}
+                  >
+                    <p className="text-xs text-muted-foreground">Visible per Request</p>
+                    <p className="text-lg font-bold text-blue-700 dark:text-blue-400">{stats.visible_per_request}</p>
+                    <p className="text-[11px] text-muted-foreground">Only visible to publishers with approved access</p>
+                  </div>
+                  <div
+                    className="bg-amber-50 dark:bg-amber-950/30 rounded-lg p-3 cursor-pointer hover:ring-2 hover:ring-amber-400 transition-all"
+                    onClick={() => applyStatsFilter('visibility', 'starter', 'Starter Offers')}
+                  >
+                    <p className="text-xs text-muted-foreground">Starter Offers</p>
+                    <p className="text-lg font-bold text-amber-700 dark:text-amber-400">{stats.starter_offers}</p>
+                    <p className="text-[11px] text-muted-foreground">Always shown to new users</p>
+                  </div>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <Sparkles className="h-8 w-8 text-purple-500" />
+
+              {/* Source Breakdown */}
               <div>
-                <p className="text-sm text-muted-foreground">Featured</p>
-                <p className="text-2xl font-bold">{stats?.featured_count ?? '—'}</p>
+                <h4 className="text-sm font-semibold mb-2">How Offers Got Into Offerwall</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="border rounded-lg p-3 cursor-pointer hover:ring-2 hover:ring-indigo-400 transition-all" onClick={() => applyStatsFilter('source', 'api_import', 'Via API Import / Sheet')}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <Globe className="h-4 w-4 text-indigo-500" />
+                      <p className="text-xs font-medium">Via API Import / Sheet Upload</p>
+                    </div>
+                    <p className="text-lg font-bold">{stats.source_breakdown.api_import}</p>
+                    <p className="text-[11px] text-muted-foreground">Imported with "Show in Offerwall" checkbox ticked during import</p>
+                  </div>
+                  <div className="border rounded-lg p-3 cursor-pointer hover:ring-2 hover:ring-purple-400 transition-all" onClick={() => applyStatsFilter('source', 'manual_exclusive', 'Manually Made Exclusive')}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <Sparkles className="h-4 w-4 text-purple-500" />
+                      <p className="text-xs font-medium">Manually Made Exclusive by Admin</p>
+                    </div>
+                    <p className="text-lg font-bold">{stats.source_breakdown.manual_exclusive}</p>
+                    <p className="text-[11px] text-muted-foreground">Admin used "Mark as Offerwall Exclusive" button on existing offers</p>
+                  </div>
+                </div>
               </div>
+
+              {/* Exclusive History */}
+              {stats.exclusive_history && stats.exclusive_history.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold mb-2">Recent Exclusive Actions</h4>
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {stats.exclusive_history.map((h, i) => (
+                      <div key={i} className="flex items-center justify-between text-xs border-b pb-1">
+                        <span className="text-muted-foreground">
+                          {new Date(h.date).toLocaleDateString()} — <span className="font-medium text-foreground">{h.admin}</span> marked <span className="font-semibold">{h.count}</span> offers exclusive
+                          {h.method && h.method !== 'manual' && (
+                            <span className="ml-1 text-indigo-500">({h.method === 'api_import' ? 'via API' : h.method === 'sheet_import' ? 'via Sheet' : h.method})</span>
+                          )}
+                        </span>
+                        <span className="text-muted-foreground truncate max-w-[200px]">{h.sample_offers.join(', ')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Per-Publisher Breakdown */}
+              {stats.publisher_breakdown && stats.publisher_breakdown.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                    <Users className="h-4 w-4" />
+                    Publishers with Iframe Installed ({stats.total_publishers_with_access})
+                  </h4>
+                  <p className="text-[11px] text-muted-foreground mb-2">
+                    Only showing publishers who have installed the offerwall iframe (LIVE placements)
+                  </p>
+                  <div className="border rounded-lg overflow-hidden max-h-60 overflow-y-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="text-xs">
+                          <TableHead className="py-2">Publisher</TableHead>
+                          <TableHead className="py-2 text-center">Iframes</TableHead>
+                          <TableHead className="py-2 text-center">Approved Requests</TableHead>
+                          <TableHead className="py-2 text-center">Admin Sent</TableHead>
+                          <TableHead className="py-2 text-center">Total Visible</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {stats.publisher_breakdown.map((pub) => (
+                          <TableRow key={pub.publisher_id} className="text-xs cursor-pointer hover:bg-muted/50" onClick={() => applyStatsFilter('publisher_id', pub.publisher_id, pub.publisher_name)}>
+                            <TableCell className="py-1.5 font-medium">{pub.publisher_name}</TableCell>
+                            <TableCell className="py-1.5 text-center">{pub.placements}</TableCell>
+                            <TableCell className="py-1.5 text-center">{pub.approved_requests}</TableCell>
+                            <TableCell className="py-1.5 text-center">{pub.grants}</TableCell>
+                            <TableCell className="py-1.5 text-center font-semibold">{pub.total_offers}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          )}
+        </CardContent>
+      </Card>
       </>
       )}
 
@@ -796,13 +915,21 @@ const AdminOfferwallManager = () => {
         </TabsContent>
 
         {/* Offer Controls Tab */}
-        <TabsContent value="offers">
+        <TabsContent value="offers" id="offer-controls-section">
           <Card>
             <CardHeader>
               <CardTitle>Offer Controls</CardTitle>
               <p className="text-sm text-muted-foreground">
                 Showing offers currently live in the offerwall — active, healthy, and visible to users ({pagination.total} total)
-              </p>              <div className="mt-2 flex items-center gap-3 flex-wrap">
+              </p>
+              {activeVisibilityFilter && (
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-xs font-medium">
+                    Filtered: {activeVisibilityFilter}
+                    <X className="h-3 w-3 cursor-pointer hover:text-red-500" onClick={clearStatsFilter} />
+                  </span>
+                </div>
+              )}              <div className="mt-2 flex items-center gap-3 flex-wrap">
                 <Input
                   placeholder="Search offers..."
                   value={search}
@@ -866,11 +993,8 @@ const AdminOfferwallManager = () => {
               </div>
             </CardHeader>
             <CardContent>
-              {offersLoading ? (
-                <p className="text-muted-foreground">Loading offers...</p>
-              ) : (
-                <OfferwallOfferEditor
-                  offers={showBoostedOnly ? boostedOffers : showFeaturedOnly ? offers.filter((o: any) => (settings?.featured_offers || []).includes(o.offer_id)) : offers}
+              <OfferwallOfferEditor
+                  offers={offersLoading ? [] : (showBoostedOnly ? boostedOffers : showFeaturedOnly ? offers.filter((o: any) => (settings?.featured_offers || []).includes(o.offer_id)) : offers)}
                   settings={settings}
                   starterOfferIds={starterOfferIds}
                   boostedOffers={boostedOffers}
@@ -889,11 +1013,11 @@ const AdminOfferwallManager = () => {
                   onSetPosition={handleSetPosition}
                   setPositionInputs={setPositionInputs}
                   onPageChange={(page) => { setOfferwallPage(page); }}
+                  onPerPageChange={(perPage) => { setOfferwallPerPage(perPage); setOfferwallPage(1); }}
                   onFiltersChange={(filters) => { setBackendFilters(filters); setOfferwallPage(1); }}
                   onBoost={() => setShowBoostDialog(true)}
                   onRemoveBoost={handleRemoveBoost}
                 />
-              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -2104,6 +2228,18 @@ const AdminOfferwallManager = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Bulk Refine Notification Popup */}
+      <BulkRefineNotification
+        onViewOffers={(ids) => {
+          // Filter to show only bulk-refined offers
+          setBackendFilters({ refined: 'bulk_refined' });
+          setActiveVisibilityFilter('Bulk Refined');
+          setActiveTab('offers');
+          setOfferwallPage(1);
+          setSearch('');
+        }}
+      />
     </div>
   );
 };

@@ -131,8 +131,8 @@ const ActionsDropdown: React.FC<ActionsDropdownProps> = ({
         {(onRefineDescription || onSetFallback) && <DropdownMenuSeparator />}
         {onRefineDescription && (
           <DropdownMenuItem onClick={onRefineDescription}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refine Description (AI)
+            <RefreshCw className="mr-2 h-4 w-4 text-amber-500" />
+            Selective Refine (AI)
           </DropdownMenuItem>
         )}
         {onSetFallback && (

@@ -990,9 +990,13 @@ def admin_clicks_report():
 
         # Batch-load publisher data
         if source_filter == 'offerwall':
-            # For offerwall, publisher_id is the MongoDB ObjectId of the publisher account
+            # For offerwall, resolve publisher via publisher_id field OR placement_id
             pub_ids_in_page = list(set(c.get('publisher_id') for c in clicks if c.get('publisher_id')))
+            placement_ids_in_page_ow = list(set(c.get('placement_id') for c in clicks if c.get('placement_id')))
             users_map = {}
+            placement_publisher_map = {}
+
+            # First try direct publisher_id lookup
             if pub_ids_in_page:
                 users_col = db_instance.get_collection('users')
                 if users_col is not None:
@@ -1011,31 +1015,107 @@ def admin_clicks_report():
                     if unmatched:
                         for u in users_col.find({'username': {'$in': unmatched}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}):
                             users_map[u['username']] = u
+
+            # Also resolve via placement_id for clicks that don't have publisher_id
+            if placement_ids_in_page_ow:
+                placements_col_ow = db_instance.get_collection('placements')
+                users_col_ow = db_instance.get_collection('users')
+                if placements_col_ow is not None and users_col_ow is not None:
+                    from bson import ObjectId as BsonObjectId
+                    placements_data_ow = list(placements_col_ow.find(
+                        {'placementIdentifier': {'$in': placement_ids_in_page_ow}},
+                        {'placementIdentifier': 1, 'publisherId': 1}
+                    ))
+                    pub_oids_ow = []
+                    placement_to_pubid_ow = {}
+                    for p in placements_data_ow:
+                        pid = p.get('publisherId')
+                        if pid:
+                            placement_to_pubid_ow[p.get('placementIdentifier')] = str(pid)
+                            try:
+                                pub_oids_ow.append(BsonObjectId(str(pid)))
+                            except:
+                                pass
+                    if pub_oids_ow:
+                        for u in users_col_ow.find({'_id': {'$in': pub_oids_ow}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}):
+                            users_map[str(u['_id'])] = u
+                    for plc_id, pub_id in placement_to_pubid_ow.items():
+                        if pub_id in users_map:
+                            placement_publisher_map[plc_id] = users_map[pub_id]
+                            placement_publisher_map[plc_id]['_pub_id'] = pub_id
+
         else:
-            # Original logic for simple clicks (user_id = publisher username)
+            # Original logic for simple clicks (user_id = end user, publisher resolved from placement_id)
             user_ids_in_page = list(set(c.get('user_id') for c in clicks if c.get('user_id')))
+            affiliate_ids_in_page = list(set(c.get('affiliate_id') for c in clicks if c.get('affiliate_id')))
+            placement_ids_in_page = list(set(c.get('placement_id') for c in clicks if c.get('placement_id')))
             users_map = {}
+
+            # Resolve publishers from placement_id → placements → publisherId → users
+            placement_publisher_map = {}  # placement_id -> publisher user data
+            if placement_ids_in_page:
+                placements_col_lookup = db_instance.get_collection('placements')
+                users_col = db_instance.get_collection('users')
+                if placements_col_lookup is not None and users_col is not None:
+                    from bson import ObjectId as BsonObjectId
+                    placements_data = list(placements_col_lookup.find(
+                        {'placementIdentifier': {'$in': placement_ids_in_page}},
+                        {'placementIdentifier': 1, 'publisherId': 1}
+                    ))
+                    pub_oids = []
+                    placement_to_pubid = {}
+                    for p in placements_data:
+                        pid = p.get('publisherId')
+                        if pid:
+                            placement_to_pubid[p.get('placementIdentifier')] = str(pid)
+                            try:
+                                pub_oids.append(BsonObjectId(str(pid)))
+                            except:
+                                pass
+                    if pub_oids:
+                        for u in users_col.find({'_id': {'$in': pub_oids}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}):
+                            users_map[str(u['_id'])] = u
+                    # Build placement_id -> user data map
+                    for plc_id, pub_id in placement_to_pubid.items():
+                        if pub_id in users_map:
+                            placement_publisher_map[plc_id] = users_map[pub_id]
+                            placement_publisher_map[plc_id]['_pub_id'] = pub_id
+
+            # Also try resolving by username/ObjectId for any user_ids that look like publisher identifiers
             if user_ids_in_page:
                 users_col = db_instance.get_collection('users')
                 if users_col is not None:
                     for u in users_col.find({'username': {'$in': user_ids_in_page}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}):
                         users_map[u['username']] = u
-                    unmatched = [uid for uid in user_ids_in_page if uid not in users_map]
-                    if unmatched:
-                        for u in users_col.find({'name': {'$in': unmatched}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}):
-                            users_map[u.get('name', '')] = u
-                    still_unmatched = [uid for uid in user_ids_in_page if uid not in users_map]
-                    if still_unmatched:
-                        from bson import ObjectId as BsonObjectId
-                        valid_oids = []
-                        for uid in still_unmatched:
-                            try:
-                                valid_oids.append(BsonObjectId(uid))
-                            except Exception:
-                                pass
-                        if valid_oids:
-                            for u in users_col.find({'_id': {'$in': valid_oids}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}):
-                                users_map[str(u['_id'])] = u
+                    # Try ObjectId
+                    from bson import ObjectId as BsonObjectId
+                    valid_oids = []
+                    for uid in user_ids_in_page:
+                        try:
+                            valid_oids.append(BsonObjectId(uid))
+                        except:
+                            pass
+                    if valid_oids:
+                        for u in users_col.find({'_id': {'$in': valid_oids}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}):
+                            users_map[str(u['_id'])] = u
+
+            # Also resolve affiliate_ids
+            if affiliate_ids_in_page:
+                users_col = db_instance.get_collection('users')
+                if users_col is not None:
+                    from bson import ObjectId as BsonObjectId
+                    valid_aff_oids = []
+                    for aid in affiliate_ids_in_page:
+                        try:
+                            valid_aff_oids.append(BsonObjectId(aid))
+                        except:
+                            pass
+                    if valid_aff_oids:
+                        for u in users_col.find({'_id': {'$in': valid_aff_oids}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}):
+                            users_map[str(u['_id'])] = u
+                    # Try by username
+                    for u in users_col.find({'username': {'$in': affiliate_ids_in_page}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}):
+                        users_map[u['username']] = u
 
         # Also load conversion data for offerwall clicks to determine completed/reversed status
         conversions_map = {}
@@ -1143,19 +1223,44 @@ def admin_clicks_report():
             if source_filter == 'offerwall':
                 pub_key = click.get('publisher_id', '')
                 pub_data = users_map.get(pub_key, {})
-                click['publisher_name'] = pub_data.get('name') or pub_data.get('username') or pub_key
+                # Fallback: resolve from placement_id if publisher_id lookup failed
+                if not pub_data and click.get('placement_id'):
+                    plc_id_ow = click.get('placement_id', '')
+                    if plc_id_ow in placement_publisher_map:
+                        pub_data = placement_publisher_map[plc_id_ow]
+                        pub_key = pub_data.get('_pub_id', pub_key)
+                click['publisher_name'] = pub_data.get('username') or pub_data.get('name') or pub_key
+                click['publisher_id'] = pub_data.get('_pub_id', '') or pub_key
                 click['publisher_email'] = pub_data.get('email', '')
                 click['publisher_role'] = pub_data.get('role', 'partner')
                 click['pub_postback_url'] = pub_data.get('postback_url', '')
                 # user_id stays as-is (end user)
                 click['end_user_id'] = click.get('user_id', '')
             else:
-                pub_data = users_map.get(click.get('user_id'), {})
-                click['publisher_name'] = pub_data.get('name') or pub_data.get('username') or click.get('user_id', '')
+                # Try resolving publisher from placement_id first (most reliable)
+                pub_data = {}
+                pub_id_resolved = ''
+                plc_id = click.get('placement_id', '')
+                if plc_id and plc_id in placement_publisher_map:
+                    pub_data = placement_publisher_map[plc_id]
+                    pub_id_resolved = pub_data.get('_pub_id', '')
+                # Fallback: try user_id as username/ObjectId
+                if not pub_data:
+                    pub_data = users_map.get(click.get('user_id'), {})
+                    if pub_data:
+                        pub_id_resolved = str(pub_data.get('_id', ''))
+                # Fallback: try affiliate_id
+                if not pub_data and click.get('affiliate_id'):
+                    pub_data = users_map.get(click.get('affiliate_id'), {})
+                    if pub_data:
+                        pub_id_resolved = str(pub_data.get('_id', ''))
+
+                click['publisher_name'] = pub_data.get('username') or pub_data.get('name') or ''
+                click['publisher_id'] = pub_id_resolved
                 click['publisher_email'] = pub_data.get('email', '')
-                click['publisher_role'] = pub_data.get('role', '')
+                click['publisher_role'] = pub_data.get('role', 'partner')
                 click['pub_postback_url'] = pub_data.get('postback_url', '')
-                click['end_user_id'] = ''
+                click['end_user_id'] = click.get('user_id', '')
 
             # Compute margin
             payout = float(click.get('payout') or 0)

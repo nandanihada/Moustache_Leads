@@ -29,6 +29,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { getOfferImage } from '@/utils/categoryImages';
 import { ImagePickerComponent } from '@/components/ImagePickerComponent';
+import RefinementHistoryPopup from '@/components/RefinementHistoryPopup';
+import SelectiveRefineModal from '@/components/SelectiveRefineModal';
 
 // ===================== TYPES =====================
 interface OfferItem {
@@ -43,6 +45,7 @@ interface OfferItem {
   image_url: string;
   description: string;
   countries: string[];
+  device_targeting?: string;
   offerwall_position?: number;
   created_at: string;
   updated_at?: string;
@@ -90,6 +93,7 @@ interface OfferwallOfferEditorProps {
   onSetPosition: (id: string, pos: string) => void;
   setPositionInputs: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   onPageChange: (page: number) => void;
+  onPerPageChange?: (perPage: number) => void;
   onFiltersChange?: (filters: Record<string, string>) => void;
   onBoost?: () => void;
   onRemoveBoost?: (offerIds: string[]) => void;
@@ -865,6 +869,7 @@ function FallbackEditor({ offer }: { offer: OfferItem }) {
 // ===================== FILTER BAR =====================
 interface FilterState {
   hasEvent: 'all' | 'yes' | 'no';
+  hasCap: 'all' | 'yes' | 'no' | 'reached';
   minPayout: string;
   maxPayout: string;
   country: string;
@@ -873,11 +878,14 @@ interface FilterState {
   difficulty: 'all' | 'Easy' | 'Medium' | 'Hard';
   status: 'all' | 'active' | 'inactive';
   hasImage: 'all' | 'yes' | 'no';
+  sortBy: 'default' | 'payout_high' | 'payout_low' | 'newest' | 'oldest';
+  device: 'all' | 'android' | 'ios' | 'mobile' | 'desktop';
 }
 
 const DEFAULT_FILTERS: FilterState = {
-  hasEvent: 'all', minPayout: '', maxPayout: '', country: '', vertical: 'all',
+  hasEvent: 'all', hasCap: 'all', minPayout: '', maxPayout: '', country: '', vertical: 'all',
   network: 'all', difficulty: 'all', status: 'all', hasImage: 'all',
+  sortBy: 'default', device: 'all',
 };
 
 function FilterBar({
@@ -888,10 +896,28 @@ function FilterBar({
   networks: string[];
   verticals: string[];
 }) {
-  const [open, setOpen] = useState(false);
   const activeCount = Object.entries(filters).filter(([k, v]) =>
     v !== DEFAULT_FILTERS[k as keyof FilterState] && v !== '' && v !== 'all'
   ).length;
+  const [open, setOpen] = useState(activeCount > 0);
+  const [countryInput, setCountryInput] = useState('');
+
+  // Parse country chips from the comma-separated filter string
+  const countryChips = filters.country ? filters.country.split(',').map(c => c.trim()).filter(Boolean) : [];
+
+  const addCountry = (input: string) => {
+    const codes = input.split(',').map(c => c.trim().toUpperCase()).filter(c => c.length >= 2);
+    if (codes.length === 0) return;
+    const existing = new Set(countryChips);
+    codes.forEach(c => existing.add(c));
+    onChange({ ...filters, country: Array.from(existing).join(', ') });
+    setCountryInput('');
+  };
+
+  const removeCountry = (code: string) => {
+    const updated = countryChips.filter(c => c !== code);
+    onChange({ ...filters, country: updated.join(', ') });
+  };
 
   return (
     <div className="space-y-2">
@@ -925,6 +951,18 @@ function FilterBar({
             Clear All
           </button>
         )}
+        {/* Show active country chips outside collapsible panel so they persist visually */}
+        {countryChips.length > 0 && (
+          <>
+            <span className="text-[10px] text-muted-foreground ml-1">|</span>
+            {countryChips.map(code => (
+              <span key={code} className="inline-flex items-center gap-0.5 h-7 px-2 rounded-md bg-purple-100 text-purple-700 text-[11px] font-semibold border border-purple-200">
+                🌍 {code}
+                <button onClick={() => removeCountry(code)} className="ml-0.5 text-purple-400 hover:text-purple-700 text-sm">×</button>
+              </span>
+            ))}
+          </>
+        )}
       </div>
 
       {open && (
@@ -941,10 +979,29 @@ function FilterBar({
               placeholder="Any" className="h-7 text-xs" type="number" />
           </div>
           {/* Country */}
-          <div className="space-y-1">
+          <div className="space-y-1 col-span-2">
             <label className="text-[10px] font-semibold text-muted-foreground uppercase">Country</label>
-            <Input value={filters.country} onChange={e => onChange({ ...filters, country: e.target.value.toUpperCase() })}
-              placeholder="US, UK..." className="h-7 text-xs" maxLength={3} />
+            <div className="flex flex-wrap gap-1 min-h-[28px] p-1 border rounded-md bg-white items-center">
+              {countryChips.map(code => (
+                <span key={code} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[10px] font-semibold">
+                  {code}
+                  <button onClick={() => removeCountry(code)} className="ml-0.5 text-purple-400 hover:text-purple-700">×</button>
+                </span>
+              ))}
+              <input
+                value={countryInput}
+                onChange={e => setCountryInput(e.target.value.toUpperCase())}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    addCountry(countryInput);
+                  }
+                }}
+                onBlur={() => { if (countryInput.trim()) addCountry(countryInput); }}
+                placeholder={countryChips.length === 0 ? "US, UK, CA..." : "Add more..."}
+                className="flex-1 min-w-[60px] h-5 text-xs outline-none border-none bg-transparent"
+              />
+            </div>
           </div>
           {/* Vertical */}
           <div className="space-y-1">
@@ -1002,6 +1059,47 @@ function FilterBar({
                 <SelectItem value="all">All</SelectItem>
                 <SelectItem value="yes">Has Image</SelectItem>
                 <SelectItem value="no">Missing Image</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {/* Device */}
+          <div className="space-y-1">
+            <label className="text-[10px] font-semibold text-muted-foreground uppercase">Device</label>
+            <Select value={filters.device} onValueChange={v => onChange({ ...filters, device: v as any })}>
+              <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Devices</SelectItem>
+                <SelectItem value="android">📱 Android</SelectItem>
+                <SelectItem value="ios">🍎 iOS</SelectItem>
+                <SelectItem value="mobile">📲 Mobile</SelectItem>
+                <SelectItem value="desktop">🖥️ Desktop</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {/* Cap */}
+          <div className="space-y-1">
+            <label className="text-[10px] font-semibold text-muted-foreground uppercase">Cap</label>
+            <Select value={filters.hasCap} onValueChange={v => onChange({ ...filters, hasCap: v as any })}>
+              <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="yes">🎯 Has Cap</SelectItem>
+                <SelectItem value="no">∞ No Cap</SelectItem>
+                <SelectItem value="reached">🚫 Cap Reached</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {/* Sort */}
+          <div className="space-y-1">
+            <label className="text-[10px] font-semibold text-muted-foreground uppercase">Sort By</label>
+            <Select value={filters.sortBy} onValueChange={v => onChange({ ...filters, sortBy: v as any })}>
+              <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Default</SelectItem>
+                <SelectItem value="payout_high">💰 Highest Payout</SelectItem>
+                <SelectItem value="payout_low">💰 Lowest Payout</SelectItem>
+                <SelectItem value="newest">🆕 Newest Added</SelectItem>
+                <SelectItem value="oldest">📅 Oldest Added</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -1293,11 +1391,13 @@ export function OfferwallOfferEditor({
   onSetPosition,
   setPositionInputs,
   onPageChange,
+  onPerPageChange,
   onFiltersChange,
   onBoost,
   onRemoveBoost,
 }: OfferwallOfferEditorProps) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [expandedOffers, setExpandedOffers] = useState<Set<string>>(new Set());
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
@@ -1305,6 +1405,8 @@ export function OfferwallOfferEditor({
   const [bulkFallbackUrl, setBulkFallbackUrl] = useState('');
   const [bulkFallbackMessage, setBulkFallbackMessage] = useState('');
   const [bulkFallbackSaving, setBulkFallbackSaving] = useState(false);
+  // Selective Refine state
+  const [selectiveRefineOpen, setSelectiveRefineOpen] = useState(false);
   // Cache of selected offer data across searches/pages — synced whenever offers load
   const [selectedOffersCache, setSelectedOffersCache] = useState<Map<string, OfferItem>>(new Map());
 
@@ -1357,20 +1459,50 @@ export function OfferwallOfferEditor({
 
   // Client-side filtering (on top of server-side search)
   const filteredOffers = useMemo(() => {
-    return offers.filter(o => {
+    let result = offers.filter(o => {
       if (filters.hasEvent === 'yes' && !o.refined_description?.event_flow) return false;
       if (filters.hasEvent === 'no' && o.refined_description?.event_flow) return false;
       if (filters.minPayout && o.payout < parseFloat(filters.minPayout)) return false;
       if (filters.maxPayout && o.payout > parseFloat(filters.maxPayout)) return false;
-      if (filters.country && !o.countries.some(c => c.toUpperCase().includes(filters.country.toUpperCase()))) return false;
+      // Country filter: supports comma-separated values (e.g. "US, UK, CA")
+      if (filters.country) {
+        const countryCodes = filters.country.split(',').map(c => c.trim()).filter(Boolean);
+        if (countryCodes.length > 0) {
+          const hasMatch = o.countries.some(c => countryCodes.some(fc => c.toUpperCase().includes(fc)));
+          if (!hasMatch) return false;
+        }
+      }
       if (filters.vertical !== 'all' && o.category !== filters.vertical) return false;
       if (filters.network !== 'all' && o.network !== filters.network) return false;
       if (filters.difficulty !== 'all' && o.refined_description?.difficulty !== filters.difficulty) return false;
       if (filters.status !== 'all' && o.status !== filters.status) return false;
       if (filters.hasImage === 'yes' && !o.image_url) return false;
       if (filters.hasImage === 'no' && o.image_url) return false;
+      // Device filter — now handled server-side, skip client-side filtering
+      // (server filters by device_targeting and refined_description.device)
       return true;
     });
+
+    // Sorting
+    if (filters.sortBy === 'payout_high') {
+      result = [...result].sort((a, b) => (b.payout || 0) - (a.payout || 0));
+    } else if (filters.sortBy === 'payout_low') {
+      result = [...result].sort((a, b) => (a.payout || 0) - (b.payout || 0));
+    } else if (filters.sortBy === 'newest') {
+      result = [...result].sort((a, b) => {
+        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return (isNaN(dateB) ? 0 : dateB) - (isNaN(dateA) ? 0 : dateA);
+      });
+    } else if (filters.sortBy === 'oldest') {
+      result = [...result].sort((a, b) => {
+        const dateA = a.created_at ? new Date(a.created_at).getTime() : Number.MAX_SAFE_INTEGER;
+        const dateB = b.created_at ? new Date(b.created_at).getTime() : Number.MAX_SAFE_INTEGER;
+        return (isNaN(dateA) ? Number.MAX_SAFE_INTEGER : dateA) - (isNaN(dateB) ? Number.MAX_SAFE_INTEGER : dateB);
+      });
+    }
+
+    return result;
   }, [offers, filters]);
 
   const toggleExpand = useCallback((id: string) => {
@@ -1386,6 +1518,72 @@ export function OfferwallOfferEditor({
 
   return (
     <div className="space-y-4">
+      {/* Pagination Controls — Top */}
+      <div className="flex items-center justify-between pb-3 border-b">
+        <div className="flex items-center gap-3">
+          {/* Per-page selector */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Show</span>
+            {[20, 50, 100, 200].map(size => (
+              <button
+                key={size}
+                onClick={() => onPerPageChange?.(size)}
+                className={`h-7 px-2.5 rounded text-xs font-medium border transition-all ${
+                  pagination.per_page === size
+                    ? 'bg-purple-600 text-white border-purple-600'
+                    : 'bg-white border-gray-200 text-gray-600 hover:border-purple-300'
+                }`}
+              >
+                {size}
+              </button>
+            ))}
+          </div>
+          <span className="text-xs text-muted-foreground">
+            · <strong>{pagination.total}</strong> offers total
+          </span>
+        </div>
+        {/* Page numbers */}
+        {pagination.pages > 1 && (
+          <div className="flex items-center gap-1">
+            <Button size="sm" variant="outline" className="h-7 w-7 p-0" disabled={pagination.page <= 1} onClick={() => onPageChange(1)}>
+              «
+            </Button>
+            <Button size="sm" variant="outline" className="h-7 w-7 p-0" disabled={pagination.page <= 1} onClick={() => onPageChange(pagination.page - 1)}>
+              ‹
+            </Button>
+            {(() => {
+              const pages: number[] = [];
+              const current = pagination.page;
+              const total = pagination.pages;
+              let start = Math.max(1, current - 2);
+              let end = Math.min(total, current + 2);
+              if (current <= 3) end = Math.min(total, 5);
+              if (current >= total - 2) start = Math.max(1, total - 4);
+              for (let i = start; i <= end; i++) pages.push(i);
+              return pages.map(p => (
+                <button
+                  key={p}
+                  onClick={() => onPageChange(p)}
+                  className={`h-7 min-w-[28px] px-1.5 rounded text-xs font-medium border transition-all ${
+                    p === current
+                      ? 'bg-purple-600 text-white border-purple-600'
+                      : 'bg-white border-gray-200 text-gray-600 hover:border-purple-300'
+                  }`}
+                >
+                  {p}
+                </button>
+              ));
+            })()}
+            <Button size="sm" variant="outline" className="h-7 w-7 p-0" disabled={pagination.page >= pagination.pages} onClick={() => onPageChange(pagination.page + 1)}>
+              ›
+            </Button>
+            <Button size="sm" variant="outline" className="h-7 w-7 p-0" disabled={pagination.page >= pagination.pages} onClick={() => onPageChange(pagination.pages)}>
+              »
+            </Button>
+          </div>
+        )}
+      </div>
+
       {/* Filter Bar + Basket button in same row */}
       <div className="flex items-start gap-2">
         <div className="flex-1">
@@ -1400,9 +1598,12 @@ export function OfferwallOfferEditor({
           if (f.minPayout) backend.min_payout = f.minPayout;
           if (f.maxPayout) backend.max_payout = f.maxPayout;
           if (f.status !== 'all') backend.status = f.status;
+          if (f.device !== 'all') backend.device = f.device;
           // hasEvent maps to refined filter
           if (f.hasEvent === 'yes') backend.has_event = 'yes';
           else if (f.hasEvent === 'no') backend.has_event = 'no';
+          // hasCap filter
+          if (f.hasCap !== 'all') backend.has_cap = f.hasCap;
           onFiltersChange(backend);
         }
       }} networks={networks} verticals={verticals} />
@@ -1505,12 +1706,62 @@ export function OfferwallOfferEditor({
           <Button
             size="sm"
             variant="outline"
+            className="h-8 border-amber-300 text-amber-700 hover:bg-amber-50 gap-1.5"
+            onClick={() => {
+              setSelectiveRefineOpen(true);
+            }}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Selective Refine
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
             className="h-8 border-orange-300 text-orange-700 hover:bg-orange-50 gap-1.5"
             onClick={() => setBulkFallbackOpen(true)}
           >
             <ExternalLink className="h-3.5 w-3.5" />
             Set Fallback
           </Button>
+          {/* Bulk Status Change */}
+          <Select onValueChange={async (newStatus) => {
+            if (!newStatus) return;
+            const selectedIds = Array.from(selectedOffers);
+            if (selectedIds.length === 0) return;
+            try {
+              const { getAuthToken } = await import('@/utils/cookies');
+              const { getApiBaseUrl } = await import('@/services/apiConfig');
+              const token = getAuthToken();
+              const res = await fetch(`${getApiBaseUrl()}/api/admin/offers/bulk-status`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ offer_ids: selectedIds, status: newStatus })
+              });
+              if (res.ok) {
+                const data = await res.json();
+                toast({ title: "Status Updated", description: data.message || `${selectedIds.length} offer(s) updated to ${newStatus}` });
+                queryClient.invalidateQueries({ queryKey: ['offerwall-management-offers'] });
+                queryClient.invalidateQueries({ queryKey: ['offerwall-management-stats'] });
+                onSelectAll(false);
+              } else {
+                const err = await res.json();
+                toast({ title: "Error", description: err.error || "Failed to update status", variant: "destructive" });
+              }
+            } catch (e: any) {
+              toast({ title: "Error", description: e.message || "Network error", variant: "destructive" });
+            }
+          }}>
+            <SelectTrigger className="h-8 w-[140px] text-xs border-blue-300 text-blue-700">
+              <SelectValue placeholder="Change Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="active">✅ Active</SelectItem>
+              <SelectItem value="paused">⏸️ Paused</SelectItem>
+              <SelectItem value="inactive">🚫 Inactive</SelectItem>
+              <SelectItem value="pending">⏳ Pending</SelectItem>
+              <SelectItem value="hidden">👁️‍🗨️ Hidden</SelectItem>
+            </SelectContent>
+          </Select>
           <Button
             size="sm"
             variant="outline"
@@ -1557,7 +1808,7 @@ export function OfferwallOfferEditor({
                 key={id}
                 className={`border rounded-xl overflow-hidden transition-all ${
                   isSelected ? 'border-purple-300 bg-purple-50/30' : 'border-gray-200 bg-white hover:border-gray-300'
-                } ${isBoosted ? 'border-l-4 border-l-orange-400' : ''}`}
+                } ${isBoosted ? 'border-l-4 border-l-orange-400' : ''} ${(offer as any).bulk_refined ? 'bg-amber-50/60 border-l-4 border-l-amber-400' : ''}`}
               >
                 {/* Row Header */}
                 <div className="grid grid-cols-[2rem_3rem_1fr_auto] items-center gap-3 p-3">
@@ -1598,6 +1849,14 @@ export function OfferwallOfferEditor({
                         </span>
                       )}
                       {offer.has_refined && <span className="text-[10px] text-purple-600 font-medium">✨</span>}
+                      {((offer as any).refinement_count > 0 || (offer as any).last_refined_at || (offer as any).refined_at || (offer as any).refined_via_admin) && (
+                        <RefinementHistoryPopup
+                          offerId={offer.offer_id}
+                          refinementCount={(offer as any).refinement_count || ((offer as any).refined_at || (offer as any).refined_via_admin ? 1 : 0)}
+                          lastRefinedAt={(offer as any).last_refined_at || (offer as any).refined_at}
+                          compact
+                        />
+                      )}
                     </div>
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                       <span className="text-[10px] text-muted-foreground font-mono">{id}</span>
@@ -1703,7 +1962,7 @@ export function OfferwallOfferEditor({
         </div>
       )}
 
-      {/* Pagination */}
+      {/* Pagination — Bottom */}
       <div className="flex items-center justify-between pt-4 border-t">
         <p className="text-sm text-muted-foreground">
           {filteredOffers.length < offers.length
@@ -1712,12 +1971,34 @@ export function OfferwallOfferEditor({
           }
         </p>
         {pagination.pages > 1 && (
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" disabled={pagination.page <= 1} onClick={() => onPageChange(pagination.page - 1)}>
+          <div className="flex items-center gap-1">
+            <Button size="sm" variant="outline" className="h-7 px-2" disabled={pagination.page <= 1} onClick={() => onPageChange(pagination.page - 1)}>
               ← Prev
             </Button>
-            <span className="text-xs text-muted-foreground">{pagination.page} / {pagination.pages}</span>
-            <Button size="sm" variant="outline" disabled={pagination.page >= pagination.pages} onClick={() => onPageChange(pagination.page + 1)}>
+            {(() => {
+              const pages: number[] = [];
+              const current = pagination.page;
+              const total = pagination.pages;
+              let start = Math.max(1, current - 2);
+              let end = Math.min(total, current + 2);
+              if (current <= 3) end = Math.min(total, 5);
+              if (current >= total - 2) start = Math.max(1, total - 4);
+              for (let i = start; i <= end; i++) pages.push(i);
+              return pages.map(p => (
+                <button
+                  key={p}
+                  onClick={() => onPageChange(p)}
+                  className={`h-7 min-w-[28px] px-1.5 rounded text-xs font-medium border transition-all ${
+                    p === current
+                      ? 'bg-purple-600 text-white border-purple-600'
+                      : 'bg-white border-gray-200 text-gray-600 hover:border-purple-300'
+                  }`}
+                >
+                  {p}
+                </button>
+              ));
+            })()}
+            <Button size="sm" variant="outline" className="h-7 px-2" disabled={pagination.page >= pagination.pages} onClick={() => onPageChange(pagination.page + 1)}>
               Next →
             </Button>
           </div>
@@ -1788,6 +2069,18 @@ export function OfferwallOfferEditor({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Selective Refine Modal */}
+      <SelectiveRefineModal
+        open={selectiveRefineOpen}
+        onClose={() => setSelectiveRefineOpen(false)}
+        offerIds={Array.from(selectedOffers)}
+        offerNames={Object.fromEntries(filteredOffers.map(o => [o.offer_id, o.name]))}
+        mode={selectedOffers.size === 1 ? 'single' : 'bulk'}
+        onComplete={() => {
+          queryClient.invalidateQueries({ queryKey: ['offerwall-management-offers'] });
+        }}
+      />
     </div>
   );
 }
