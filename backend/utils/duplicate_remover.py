@@ -104,20 +104,68 @@ class DuplicateOfferRemover:
             logging.error(f"Error finding duplicates by name: {str(e)}", exc_info=True)
             return {}
     
+    def find_duplicates_by_campaign_id(self) -> Dict[str, List[Dict]]:
+        """
+        Find duplicate offers grouped by campaign_id (upward partner's offer ID).
+        Catches offers imported multiple times from the same network.
+        """
+        try:
+            pipeline = [
+                {
+                    '$match': {
+                        '$or': [
+                            {'deleted': {'$exists': False}},
+                            {'deleted': False}
+                        ],
+                        'campaign_id': {'$exists': True, '$ne': None, '$ne': '', '$not': {'$regex': '^ML-'}}
+                    }
+                },
+                {
+                    '$group': {
+                        '_id': '$campaign_id',
+                        'count': {'$sum': 1},
+                        'docs': {'$push': '$$ROOT'}
+                    }
+                },
+                {
+                    '$match': {
+                        'count': {'$gt': 1}
+                    }
+                }
+            ]
+            
+            duplicates = {}
+            results = self.offers_collection.aggregate(pipeline, allowDiskUse=True)
+            
+            for result in results:
+                campaign_id = result['_id']
+                if campaign_id:
+                    docs = result['docs']
+                    duplicates[f"campaign:{campaign_id}"] = docs
+            
+            logging.info(f"Found {len(duplicates)} campaign_ids with duplicates")
+            return duplicates
+            
+        except Exception as e:
+            logging.error(f"Error finding duplicates by campaign_id: {str(e)}", exc_info=True)
+            return {}
+
     def find_duplicates(self) -> Dict[str, List[Dict]]:
         """
-        Find all duplicate offers grouped by offer_id AND name
+        Find all duplicate offers grouped by offer_id AND name AND campaign_id
         Returns a dictionary where keys are identifiers and values are lists of duplicate documents
         """
         try:
             # Get duplicates by offer_id
             id_duplicates = self.find_duplicates_by_offer_id()
             
+            # Get duplicates by campaign_id (partner's offer ID)
+            campaign_duplicates = self.find_duplicates_by_campaign_id()
+            
             # Get duplicates by name
             name_duplicates = self.find_duplicates_by_name()
             
-            # Merge both, avoiding double-counting
-            # Track document IDs we've already included
+            # Merge all, avoiding double-counting
             seen_doc_ids = set()
             all_duplicates = {}
             
@@ -127,18 +175,25 @@ class DuplicateOfferRemover:
                 for doc in docs:
                     seen_doc_ids.add(str(doc['_id']))
             
-            # Add name duplicates, but only if they're not already covered by offer_id duplicates
-            for key, docs in name_duplicates.items():
-                # Check if this is a truly new duplicate group
+            # Add campaign_id duplicates
+            for key, docs in campaign_duplicates.items():
                 if len(docs) > 1:
                     already_covered = all(str(doc['_id']) in seen_doc_ids for doc in docs)
-                    
                     if not already_covered:
                         all_duplicates[key] = docs
                         for doc in docs:
                             seen_doc_ids.add(str(doc['_id']))
             
-            logging.info(f"Total duplicate groups found: {len(all_duplicates)} (by ID: {len(id_duplicates)}, by name: {len(name_duplicates)})")
+            # Add name duplicates last
+            for key, docs in name_duplicates.items():
+                if len(docs) > 1:
+                    already_covered = all(str(doc['_id']) in seen_doc_ids for doc in docs)
+                    if not already_covered:
+                        all_duplicates[key] = docs
+                        for doc in docs:
+                            seen_doc_ids.add(str(doc['_id']))
+            
+            logging.info(f"Total duplicate groups found: {len(all_duplicates)} (by ID: {len(id_duplicates)}, by campaign_id: {len(campaign_duplicates)}, by name: {len(name_duplicates)})")
             return all_duplicates
             
         except Exception as e:

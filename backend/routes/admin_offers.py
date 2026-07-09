@@ -4960,35 +4960,58 @@ def import_api_offers():
                     oid = str(offer_data.get('network_offer_id', '') or offer_data.get('offer_id', '') or offer_data.get('id', ''))
                 elif network_type == 'mobplus':
                     oid = str(offer_data.get('id', '') or offer_data.get('offer_id', ''))
-                else:  # hasoffers
-                    oid = str(offer_data.get('id', '') or offer_data.get('offer_id', ''))
+                else:  # hasoffers — offers are wrapped: {"Offer": {"id": "2816", ...}}
+                    if isinstance(offer_data, dict) and 'Offer' in offer_data:
+                        oid = str(offer_data['Offer'].get('id', '') or offer_data['Offer'].get('offer_id', ''))
+                    else:
+                        oid = str(offer_data.get('id', '') or offer_data.get('offer_id', ''))
                 if oid:
                     fetched_campaign_ids.add(oid)
             
+            logging.info(f"🔍 Stale detection: {len(fetched_campaign_ids)} unique offer IDs from API")
+            
             # Query DB for offers from this same network that are active/running
-            # Use admin-specified network_name for matching
+            # Use admin-specified network_name for matching (case-insensitive)
             network_match_values = list(set([network_name, network_id]))
             if network_type == 'adscendmedia':
                 network_match_values.append('adscendmedia')
             
+            # Build network regex for case-insensitive match
+            network_pattern = '|'.join([f'^{v}$' for v in network_match_values])
+            
             db_query = {
-                'network': {'$in': network_match_values},
-                'status': {'$in': ['active', 'running', 'pending']},
-                'campaign_id': {'$exists': True, '$ne': '', '$not': {'$regex': '^ML-'}},
+                'network': {'$regex': network_pattern, '$options': 'i'},
+                '$or': [{'deleted': {'$exists': False}}, {'deleted': False}],
             }
             
             db_offers = list(offers_collection.find(
                 db_query,
-                {'campaign_id': 1, 'name': 1, 'payout': 1, 'countries': 1, 'vertical': 1, 'offer_id': 1, 'status': 1, 'image_url': 1}
+                {'campaign_id': 1, 'network_offer_id': 1, 'name': 1, 'payout': 1, 'countries': 1, 'vertical': 1, 'offer_id': 1, 'status': 1, 'image_url': 1}
             ))
             
+            logging.info(f"🔍 Stale detection: {len(db_offers)} DB offers from network '{network_match_values}'")
+            
             # Find stale offers (in DB but not in API)
+            # Compare campaign_id (the upward partner's offer ID) against fetched API IDs
             stale_offers = []
             for db_offer in db_offers:
-                db_campaign_id = str(db_offer.get('campaign_id', ''))
-                if db_campaign_id and db_campaign_id not in fetched_campaign_ids:
+                db_campaign_id = str(db_offer.get('campaign_id', '')).strip()
+                db_network_offer_id = str(db_offer.get('network_offer_id', '')).strip()
+                db_offer_id = db_offer.get('offer_id', '')
+                
+                # Skip our internal ML-XXXX offers that don't have partner IDs
+                if db_campaign_id.startswith('ML-') or not db_campaign_id:
+                    # Try network_offer_id as fallback
+                    if not db_network_offer_id or db_network_offer_id.startswith('ML-'):
+                        continue
+                    check_id = db_network_offer_id
+                else:
+                    check_id = db_campaign_id
+                
+                # Check if this offer's partner ID exists in the API response
+                if check_id not in fetched_campaign_ids:
                     stale_offers.append({
-                        'offer_id': db_offer.get('offer_id', str(db_offer.get('_id', ''))),
+                        'offer_id': db_offer_id or str(db_offer.get('_id', '')),
                         'campaign_id': db_campaign_id,
                         'name': db_offer.get('name', 'Unknown'),
                         'payout': db_offer.get('payout', 0),
@@ -4997,6 +5020,8 @@ def import_api_offers():
                         'status': db_offer.get('status', ''),
                         'image_url': db_offer.get('image_url', ''),
                     })
+            
+            logging.info(f"🔍 Stale detection: {len(stale_offers)} stale, sample API IDs: {list(fetched_campaign_ids)[:3]}, sample DB campaign_ids: {[str(o.get('campaign_id','')) for o in db_offers[:3]]}")
             
             response_data['stale_offers'] = stale_offers
             response_data['summary']['stale_count'] = len(stale_offers)

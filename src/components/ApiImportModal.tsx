@@ -977,6 +977,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
                       <Table>
                         <TableHeader>
                           <TableRow>
+                            <TableHead className="text-xs">Offer ID</TableHead>
                             <TableHead className="text-xs">Name</TableHead>
                             <TableHead className="text-xs">Payout</TableHead>
                             <TableHead className="text-xs">Countries</TableHead>
@@ -986,6 +987,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
                         <TableBody>
                           {staleOffers.map((offer, i) => (
                             <TableRow key={i} className="text-xs">
+                              <TableCell className="font-mono text-muted-foreground">{offer.campaign_id || offer.offer_id}</TableCell>
                               <TableCell className="font-medium max-w-[200px] truncate">{offer.name}</TableCell>
                               <TableCell>${offer.payout?.toFixed(2)}</TableCell>
                               <TableCell>{(offer.countries || []).slice(0, 3).join(', ')}{offer.countries?.length > 3 ? '...' : ''}</TableCell>
