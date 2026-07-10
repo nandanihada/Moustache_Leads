@@ -54,3 +54,6 @@ class Config:
     PAYPAL_CLIENT_SECRET = os.getenv('PAYPAL_CLIENT_SECRET', '')
     PAYPAL_MODE = os.getenv('PAYPAL_MODE', 'sandbox')
 
+    # Geekflare API (link health checking)
+    GEEKFLARE_API_KEY = os.getenv('GEEKFLARE_API_KEY', '')
+

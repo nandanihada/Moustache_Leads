@@ -246,6 +246,7 @@ const FloatingNotesButton: React.FC = () => {
     '/admin/smart-links': 'Smart Links',
     '/admin/offer-analytics': 'Offer Analytics',
     '/admin/missing-offers': 'Missing Offers',
+    '/admin/link-health': 'Link Health',
     '/admin/offer-insights': 'Offer Insights',
     '/admin/email-activity': 'Email Activity',
     '/admin/promo-codes': 'Promo Codes',

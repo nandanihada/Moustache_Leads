@@ -81,6 +81,7 @@ const AdminPerUserOfferTrack = lazy(() => import("./pages/AdminPerUserOfferTrack
 const AdminMaskedLinks = lazy(() => import("./pages/AdminMaskedLinks"));
 const AdminReferrals = lazy(() => import("./pages/AdminReferrals"));
 const AdminSurveyGateway = lazy(() => import("./pages/AdminSurveyGateway"));
+const AdminLinkHealth = lazy(() => import("./pages/AdminLinkHealth"));
 import Referrals from "./pages/Referrals";
 const AdminPolls = lazy(() => import("./pages/AdminPolls"));
 const AdminPayments = lazy(() => import("./pages/AdminPayments"));
@@ -281,6 +282,7 @@ const App = () => (
                 <Route path="survey-builder" element={<AdminSurveyBuilder />} />
                 <Route path="sub-walls" element={<AdminSubWalls />} />
                 <Route path="redirect-router" element={<AdminRedirectRouter />} />
+                <Route path="link-health" element={<AdminLinkHealth />} />
               </Route>
 
               {/* Advertiser Dashboard routes */}

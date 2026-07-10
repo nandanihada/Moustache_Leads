@@ -125,6 +125,7 @@ admin_invoices_bp = safe_import_blueprint('routes.admin_invoices', 'admin_invoic
 admin_automation_bp = safe_import_blueprint('routes.admin_automation', 'admin_automation_bp')
 offer_status_webhook_bp = safe_import_blueprint('routes.offer_status_webhook', 'offer_status_webhook_bp')
 offer_status_signals_bp = safe_import_blueprint('routes.offer_status_signals', 'offer_status_signals_bp')
+link_health_bp = safe_import_blueprint('routes.link_health', 'link_health_bp')
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
@@ -239,6 +240,7 @@ blueprints = [
     (admin_automation_bp, ''),
     (offer_status_webhook_bp, ''),
     (offer_status_signals_bp, '/api/admin'),
+    (link_health_bp, '/api/admin'),
 ]
 
 def create_app():
@@ -516,6 +518,23 @@ signal.signal(signal.SIGTERM, signal_handler)
 # Track whether background services have been started (to avoid duplicates)
 _background_services_started = False
 
+# Start link health checker immediately (works in both debug and production)
+# Uses use_reloader check to avoid running twice in debug mode
+import os as _os
+if _os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
+    import threading as _th
+    def _start_link_health_delayed():
+        import time
+        time.sleep(15)  # Wait for DB to connect
+        try:
+            from services.link_health_service import get_link_health_service
+            svc = get_link_health_service()
+            svc.start()
+        except Exception as e:
+            print(f"⚠️ Link health auto-start failed: {e}")
+    _th.Thread(target=_start_link_health_delayed, daemon=True, name='link-health-starter').start()
+    print("🔗 Link health checker scheduled to start in 15 seconds...")
+
 def start_background_services():
     """Start background services — called once per process.
     
@@ -728,16 +747,36 @@ def start_background_services():
         except Exception as e:
             logging.warning(f"⚠️ Telegram trending bot failed to start: {str(e)}")
         
+        # RE-ENABLED: Link Health Checker — checks offer links via Geekflare every 2 hours
+        try:
+            from services.link_health_service import get_link_health_service
+            link_health_svc = get_link_health_service()
+            link_health_svc.start()
+        except Exception as e:
+            logging.warning(f"⚠️ Link health service failed to start: {str(e)}")
+
         logging.info("✅ Background services initialization completed (9 active, 5 disabled)")
     except Exception as e:
         logging.error(f"Error in background services initialization: {str(e)}")
 
 # Start background services on first request (lazy init, safe for Gunicorn workers)
+_link_health_started = False
+
 @app.before_request
 def _ensure_background_services():
     """Lazily start background services on the first request this worker handles."""
+    global _link_health_started
     if not _background_services_started:
         start_background_services()
+    # Ensure link health starts even if main background services had issues
+    if not _link_health_started:
+        _link_health_started = True
+        try:
+            from services.link_health_service import get_link_health_service
+            svc = get_link_health_service()
+            svc.start()
+        except Exception as e:
+            print(f"⚠️ Link health service start failed in before_request: {e}")
 
 if __name__ == '__main__':
     # Running directly (not via Gunicorn) — start services immediately

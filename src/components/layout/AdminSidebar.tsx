@@ -120,6 +120,7 @@ const adminMenuStructure = [
       { title: "Smart Links", url: "/admin/smart-links", icon: Zap, tab: "smart-links" },
       { title: "Offer Analytics", url: "/admin/offer-analytics", icon: Sparkles, tab: "offer-analytics" },
       { title: "Missing Offers", url: "/admin/missing-offers", icon: AlertTriangle, tab: "missing-offers" },
+      { title: "Link Health", url: "/admin/link-health", icon: Link2, tab: "link-health" },
       { title: "Offer Insights", url: "/admin/offer-insights", icon: Sparkles, tab: "offer-insights" },
       { title: "Email Activity", url: "/admin/email-activity", icon: Mail, tab: "email-activity" },
       { title: "Promo Codes", url: "/admin/promo-codes", icon: Zap, tab: "promo-codes" },
