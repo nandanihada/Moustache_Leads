@@ -180,11 +180,11 @@ function AdminPostbackPipelineContent() {
                       <TableCell className="text-xs">{pb.timestamp ? new Date(pb.timestamp).toLocaleString() : '-'}</TableCell>
                       <TableCell>{pb.partner_name || '-'}</TableCell>
                       <TableCell>
-                        {pb.event_type === 'complete' && <Badge className="bg-green-500 text-white">✅ Complete</Badge>}
-                        {pb.event_type === 'terminate' && <Badge className="bg-red-500 text-white">❌ Terminate</Badge>}
-                        {pb.event_type === 'quotafull' && <Badge className="bg-yellow-500 text-white">🚫 Quota Full</Badge>}
-                        {pb.event_type === 'security' && <Badge className="bg-purple-500 text-white">⚠️ Security</Badge>}
-                        {(!pb.event_type || !['complete', 'terminate', 'quotafull', 'security'].includes(pb.event_type)) && <Badge variant="outline" className="text-gray-500">—</Badge>}
+                        {pb.event_type === 'complete' && <Badge className="bg-green-100 text-green-700 border border-green-300 text-xs font-medium">Complete</Badge>}
+                        {pb.event_type === 'terminate' && <Badge className="bg-red-100 text-red-700 border border-red-300 text-xs font-medium">Terminate</Badge>}
+                        {pb.event_type === 'quotafull' && <Badge className="bg-amber-100 text-amber-700 border border-amber-300 text-xs font-medium">Quota Full</Badge>}
+                        {pb.event_type === 'security' && <Badge className="bg-purple-100 text-purple-700 border border-purple-300 text-xs font-medium">Security</Badge>}
+                        {(!pb.event_type || !['complete', 'terminate', 'quotafull', 'security'].includes(pb.event_type)) && <Badge variant="outline" className="text-gray-500 text-xs font-medium">{pb.event_type || 'Standard'}</Badge>}
                       </TableCell>
                       <TableCell>
                         {pb.status === 'processed' && <Badge className="bg-green-100 text-green-800">Matched</Badge>}

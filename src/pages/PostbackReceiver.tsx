@@ -964,12 +964,12 @@ const PostbackReceiver: React.FC = () => {
                               </div>
                             </TableCell>
                             <TableCell>
-                              {postback.event_type === 'complete' && <Badge className="bg-green-500 text-white text-xs">✅ Complete</Badge>}
-                              {postback.event_type === 'terminate' && <Badge className="bg-red-500 text-white text-xs">❌ Terminate</Badge>}
-                              {postback.event_type === 'quotafull' && <Badge className="bg-yellow-500 text-white text-xs">🚫 Quota Full</Badge>}
-                              {postback.event_type === 'security' && <Badge className="bg-purple-500 text-white text-xs">⚠️ Security</Badge>}
+                              {postback.event_type === 'complete' && <Badge className="bg-green-100 text-green-700 border border-green-300 text-xs font-medium">Complete</Badge>}
+                              {postback.event_type === 'terminate' && <Badge className="bg-red-100 text-red-700 border border-red-300 text-xs font-medium">Terminate</Badge>}
+                              {postback.event_type === 'quotafull' && <Badge className="bg-amber-100 text-amber-700 border border-amber-300 text-xs font-medium">Quota Full</Badge>}
+                              {postback.event_type === 'security' && <Badge className="bg-purple-100 text-purple-700 border border-purple-300 text-xs font-medium">Security</Badge>}
                               {(!postback.event_type || !['complete', 'terminate', 'quotafull', 'security'].includes(postback.event_type)) && (
-                                <Badge variant="outline" className="text-gray-400 text-xs">{postback.event_type || 'conversion'}</Badge>
+                                <Badge variant="outline" className="text-gray-500 text-xs font-medium">{postback.event_type || 'Standard'}</Badge>
                               )}
                             </TableCell>
                             <TableCell>
