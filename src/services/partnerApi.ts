@@ -21,12 +21,16 @@ export interface Partner {
   // Postback receiver fields
   unique_postback_key?: string;
   postback_receiver_url?: string;
+  event_postback_urls?: Record<string, string>;
   parameter_mapping?: Record<string, string>;
   // NEW: Offer URL auto-param injection
   offer_url_params?: OfferUrlParam[];
   network_domain?: string;
   // Offer Watch webhook params
   offer_watch_params?: OfferUrlParam[];
+  // Redirect mode for survey partners
+  redirect_mode?: boolean;
+  redirect_url?: string;
 }
 
 export interface CreatePartnerData {

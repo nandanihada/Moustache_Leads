@@ -3,7 +3,7 @@ Postback Receiver Routes
 Receives postback notifications from external partners/networks
 """
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, redirect as flask_redirect
 from datetime import datetime, timezone, timedelta
 from bson import ObjectId
 import logging
@@ -277,11 +277,15 @@ def get_username_from_user_id(user_id):
         return user_id
 
 
-@postback_receiver_bp.route('/postback/<unique_key>', methods=['GET', 'POST'])
-def receive_postback(unique_key):
+@postback_receiver_bp.route('/postback/<unique_key>/<event_type>', methods=['GET', 'POST'])
+@postback_receiver_bp.route('/postback/<unique_key>', methods=['GET', 'POST'], defaults={'event_type': None})
+def receive_postback(unique_key, event_type):
     """
     Receive postback from external partners
     URL format: https://postback.moustacheleads.com/postback/{unique_key}?param1=value1&param2=value2
+    OR with event type: https://postback.moustacheleads.com/postback/{unique_key}/{event_type}?param1=value1&param2=value2
+    
+    Standard event types: complete, terminate, quotafull, security
     """
     logger.info(f"🔔 POSTBACK RECEIVER FUNCTION CALLED - VERSION WITH DISTRIBUTION")
     try:
@@ -374,7 +378,7 @@ def receive_postback(unique_key):
             'country_code': geo_country_code,
             'city': geo_city,
             'region': geo_region,
-            'event_type': params.get('event_type', '') or params.get('event', ''),
+            'event_type': event_type or params.get('event_type', '') or params.get('event', ''),
             'sub_id1': params.get('sub_id1', '') or params.get('sub1', ''),
             'sub_id2': params.get('sub_id2', '') or params.get('sub2', ''),
             'sub_id3': params.get('sub_id3', '') or params.get('sub3', ''),
@@ -773,11 +777,25 @@ def receive_postback(unique_key):
                 logger.error(traceback.format_exc())
 
         # Return success response
+        # If partner has redirect_mode enabled OR event_type came from URL path, redirect user to offerwall
+        is_redirect_mode = False
+        redirect_url = None
+        if partner and isinstance(partner, dict):
+            is_redirect_mode = partner.get('redirect_mode', False)
+            redirect_url = partner.get('redirect_url', '')
+        
+        # If event_type came from URL path, it's likely a browser redirect from survey platform
+        if event_type and is_redirect_mode:
+            target = redirect_url or 'https://offerwall.moustacheleads.com'
+            logger.info(f"🔀 Redirect mode: sending user to {target} (event_type={event_type})")
+            return flask_redirect(target)
+        
         return jsonify({
             'status': 'success',
             'message': 'Postback received and processed',
             'log_id': str(result.inserted_id),
-            'conversion_created': conversion_created
+            'conversion_created': conversion_created,
+            'event_type': event_type or ''
         }), 200
 
     except Exception as e:

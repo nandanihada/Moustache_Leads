@@ -64,6 +64,21 @@ def create_partner():
         else:
             postback_receiver_url = base_url
         
+        # Build standard event-typed postback URLs (complete, terminate, quotafull, security)
+        standard_event_types = ['complete', 'terminate', 'quotafull', 'security']
+        event_postback_urls = {}
+        for evt in standard_event_types:
+            evt_base = f"{base_url}/{evt}"
+            if parameter_mapping:
+                params_list = [f"{our_param}={{{their_param}}}" for their_param, our_param in parameter_mapping.items()]
+                event_postback_urls[evt] = f"{evt_base}?{'&'.join(params_list)}"
+            else:
+                event_postback_urls[evt] = evt_base
+        
+        # Check if redirect mode is requested
+        redirect_mode = data.get('redirect_mode', False)
+        redirect_url = data.get('redirect_url', '').strip()
+        
         # Create partner document
         partner_doc = {
             'partner_id': str(uuid.uuid4()),
@@ -74,10 +89,13 @@ def create_partner():
             'description': data.get('description', '').strip(),
             'unique_postback_key': unique_key,
             'postback_receiver_url': postback_receiver_url,
+            'event_postback_urls': event_postback_urls,
             'parameter_mapping': parameter_mapping,
             'offer_url_params': offer_url_params,   # NEW: params to append to offer URLs
             'offer_watch_params': offer_watch_params,  # Offer status watch webhook params
             'network_domain': network_domain,        # NEW: domain for auto-detection
+            'redirect_mode': redirect_mode,
+            'redirect_url': redirect_url,
             'created_by': str(request.current_user['_id']),
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow()
@@ -180,13 +198,18 @@ def update_partner(partner_id):
         
         # Update allowed fields
         allowed_fields = ['partner_name', 'postback_url', 'method', 'status', 'description',
-                          'parameter_mapping', 'offer_url_params', 'offer_watch_params', 'network_domain']
+                          'parameter_mapping', 'offer_url_params', 'offer_watch_params', 'network_domain',
+                          'redirect_mode', 'redirect_url']
         for field in allowed_fields:
             if field in data:
                 if field in ('parameter_mapping', 'offer_url_params', 'offer_watch_params'):
                     update_doc[field] = data[field]
                 elif field == 'network_domain':
                     update_doc[field] = data[field].strip().lower()
+                elif field == 'redirect_mode':
+                    update_doc[field] = bool(data[field])
+                elif field == 'redirect_url':
+                    update_doc[field] = data[field].strip() if isinstance(data[field], str) else ''
                 else:
                     update_doc[field] = data[field].strip() if isinstance(data[field], str) else data[field]
         
@@ -202,6 +225,18 @@ def update_partner(partner_id):
                     update_doc['postback_receiver_url'] = f"{base_url}?{'&'.join(params)}" if params else base_url
                 else:
                     update_doc['postback_receiver_url'] = base_url
+                
+                # Also regenerate event-typed postback URLs
+                standard_event_types = ['complete', 'terminate', 'quotafull', 'security']
+                event_postback_urls = {}
+                for evt in standard_event_types:
+                    evt_base = f"{base_url}/{evt}"
+                    if parameter_mapping:
+                        params_list = [f"{our_param}={{{their_param}}}" for their_param, our_param in parameter_mapping.items()]
+                        event_postback_urls[evt] = f"{evt_base}?{'&'.join(params_list)}"
+                    else:
+                        event_postback_urls[evt] = evt_base
+                update_doc['event_postback_urls'] = event_postback_urls
         
         # Update in database
         partners_collection.update_one(

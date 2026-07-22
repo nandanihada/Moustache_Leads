@@ -616,6 +616,32 @@ const Partners: React.FC = () => {
                                   </Button>
                                 )}
                               </div>
+                              {/* Event-typed postback URLs (Complete, Terminate, Quota Full, Security) */}
+                              {partner.event_postback_urls && Object.keys(partner.event_postback_urls).length > 0 && (
+                                <div className="space-y-0.5 mt-1 pl-2 border-l-2 border-blue-200">
+                                  {Object.entries(partner.event_postback_urls).map(([evt, url]) => (
+                                    <div key={evt} className="flex items-center gap-2">
+                                      <span className={`text-[10px] font-medium ${
+                                        evt === 'complete' ? 'text-green-600' :
+                                        evt === 'terminate' ? 'text-red-600' :
+                                        evt === 'quotafull' ? 'text-yellow-600' :
+                                        'text-purple-600'
+                                      }`}>
+                                        {evt === 'complete' ? '✅ Complete:' :
+                                         evt === 'terminate' ? '❌ Terminate:' :
+                                         evt === 'quotafull' ? '🚫 Quota Full:' :
+                                         '⚠️ Security:'}
+                                      </span>
+                                      <code className="text-[10px] bg-gray-50 px-1.5 py-0.5 rounded max-w-[250px] truncate" title={url}>
+                                        {url}
+                                      </code>
+                                      <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => copyToClipboard(url)}>
+                                        <Copy className="h-2.5 w-2.5" />
+                                      </Button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                               {partner.unique_postback_key && (
                                 <div className="flex items-center gap-2">
                                   <span className="text-[10px] text-orange-600 font-medium">Offer Watch:</span>
