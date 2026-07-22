@@ -607,7 +607,7 @@ const Partners: React.FC = () => {
                             <div className="space-y-1">
                               <div className="flex items-center gap-2">
                                 <span className="text-[10px] text-muted-foreground font-medium">Conversion:</span>
-                                <code className="text-xs bg-gray-100 px-2 py-1 rounded max-w-[280px] truncate" title={partner.postback_receiver_url || partner.postback_url}>
+                                <code className="text-xs bg-gray-100 px-2 py-1 rounded max-w-[450px] truncate" title={partner.postback_receiver_url || partner.postback_url}>
                                   {partner.postback_receiver_url || partner.postback_url || 'Not generated'}
                                 </code>
                                 {(partner.postback_receiver_url || partner.postback_url) && (
@@ -632,7 +632,7 @@ const Partners: React.FC = () => {
                                          evt === 'quotafull' ? '🚫 Quota Full:' :
                                          '⚠️ Security:'}
                                       </span>
-                                      <code className="text-[10px] bg-gray-50 px-1.5 py-0.5 rounded max-w-[250px] truncate" title={url}>
+                                      <code className="text-[10px] bg-gray-50 px-1.5 py-0.5 rounded max-w-[450px] truncate" title={url}>
                                         {url}
                                       </code>
                                       <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => copyToClipboard(url)}>
@@ -645,7 +645,7 @@ const Partners: React.FC = () => {
                               {partner.unique_postback_key && (
                                 <div className="flex items-center gap-2">
                                   <span className="text-[10px] text-orange-600 font-medium">Offer Watch:</span>
-                                  <code className="text-xs bg-orange-50 px-2 py-1 rounded max-w-[280px] truncate" title={(() => {
+                                  <code className="text-xs bg-orange-50 px-2 py-1 rounded max-w-[450px] truncate" title={(() => {
                                     const base = `https://postback.moustacheleads.com/offer-status/${partner.unique_postback_key}`;
                                     const watchParams = partner.offer_watch_params || [];
                                     if (watchParams.length === 0) return base;
@@ -1005,7 +1005,7 @@ const Partners: React.FC = () => {
 
       {/* Add Upward Partner Modal */}
       <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add Upward Partner</DialogTitle>
             <DialogDescription>
