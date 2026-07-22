@@ -167,6 +167,7 @@ function AdminPostbackPipelineContent() {
                   <TableRow>
                     <TableHead>Time</TableHead>
                     <TableHead>Partner</TableHead>
+                    <TableHead>Event Type</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Key</TableHead>
                     <TableHead>Country</TableHead>
@@ -179,6 +180,13 @@ function AdminPostbackPipelineContent() {
                       <TableCell className="text-xs">{pb.timestamp ? new Date(pb.timestamp).toLocaleString() : '-'}</TableCell>
                       <TableCell>{pb.partner_name || '-'}</TableCell>
                       <TableCell>
+                        {pb.event_type === 'complete' && <Badge className="bg-green-500 text-white">✅ Complete</Badge>}
+                        {pb.event_type === 'terminate' && <Badge className="bg-red-500 text-white">❌ Terminate</Badge>}
+                        {pb.event_type === 'quotafull' && <Badge className="bg-yellow-500 text-white">🚫 Quota Full</Badge>}
+                        {pb.event_type === 'security' && <Badge className="bg-purple-500 text-white">⚠️ Security</Badge>}
+                        {(!pb.event_type || !['complete', 'terminate', 'quotafull', 'security'].includes(pb.event_type)) && <Badge variant="outline" className="text-gray-500">—</Badge>}
+                      </TableCell>
+                      <TableCell>
                         {pb.status === 'processed' && <Badge className="bg-green-100 text-green-800">Matched</Badge>}
                         {pb.status === 'unmatched' && <Badge className="bg-red-100 text-red-800">Unmatched</Badge>}
                         {pb.status === 'received' && <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>}
@@ -190,7 +198,7 @@ function AdminPostbackPipelineContent() {
                     </TableRow>
                   ))}
                   {(!stats?.recent_received || stats.recent_received.length === 0) && (
-                    <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">No received postbacks in this period</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">No received postbacks in this period</TableCell></TableRow>
                   )}
                 </TableBody>
               </Table>

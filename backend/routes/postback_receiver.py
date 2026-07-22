@@ -445,19 +445,34 @@ def receive_postback(unique_key, event_type):
             logger.warning(f"Survey router session update failed (non-critical): {sr_err}")
 
         # 🎯 AUTO-CREATE CONVERSION (only from real matched clicks — no fallback)
+        # IMPORTANT: Only create conversions for 'complete' event type (or no event type for backward compat)
+        # terminate, quotafull, security should only be logged — no payout
         conversion_created = False
         conversion_id_result = None
-        try:
-            from routes.postback_processor import process_single_postback
-            success, conv_result = process_single_postback(received_log)
-            if success:
-                conversion_created = True
-                conversion_id_result = conv_result
-                logger.info(f"✅ Auto-created verified conversion: {conv_result}")
-            else:
-                logger.warning(f"⚠️ Could not auto-create conversion: {conv_result}")
-        except Exception as conv_error:
-            logger.error(f"❌ Conversion creation error: {conv_error}")
+        
+        # Determine if this is a non-conversion event type
+        non_conversion_events = ['terminate', 'quotafull', 'security', 'terminated', 'quota_full', 'security_term']
+        is_non_conversion = event_type and event_type.lower() in non_conversion_events
+        
+        if is_non_conversion:
+            logger.info(f"🚫 Event type '{event_type}' — skipping conversion creation (log only, no payout)")
+            # Update the log status to reflect the event type
+            received_postbacks_collection.update_one(
+                {'_id': result.inserted_id},
+                {'$set': {'status': f'logged_{event_type}', 'is_non_conversion': True}}
+            )
+        else:
+            try:
+                from routes.postback_processor import process_single_postback
+                success, conv_result = process_single_postback(received_log)
+                if success:
+                    conversion_created = True
+                    conversion_id_result = conv_result
+                    logger.info(f"✅ Auto-created verified conversion: {conv_result}")
+                else:
+                    logger.warning(f"⚠️ Could not auto-create conversion: {conv_result}")
+            except Exception as conv_error:
+                logger.error(f"❌ Conversion creation error: {conv_error}")
 
         # Track whether fallback already handled everything (to avoid double-processing)
         fallback_handled = False

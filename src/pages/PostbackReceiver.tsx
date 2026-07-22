@@ -930,6 +930,7 @@ const PostbackReceiver: React.FC = () => {
                         </TableHead>
                         <TableHead>Timestamp</TableHead>
                         <TableHead>Partner</TableHead>
+                        <TableHead>Event Type</TableHead>
                         <TableHead>Username</TableHead>
                         <TableHead>Method</TableHead>
                         <TableHead>Parameters</TableHead>
@@ -940,7 +941,7 @@ const PostbackReceiver: React.FC = () => {
                     <TableBody>
                       {filteredReceivedPostbacks.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={8} className="text-center text-gray-500">
+                          <TableCell colSpan={9} className="text-center text-gray-500">
                             No postbacks found
                           </TableCell>
                         </TableRow>
@@ -961,6 +962,15 @@ const PostbackReceiver: React.FC = () => {
                                 <div className="font-medium">{postback.partner_name}</div>
                                 <div className="text-xs text-gray-500">{postback.partner_id}</div>
                               </div>
+                            </TableCell>
+                            <TableCell>
+                              {postback.event_type === 'complete' && <Badge className="bg-green-500 text-white text-xs">✅ Complete</Badge>}
+                              {postback.event_type === 'terminate' && <Badge className="bg-red-500 text-white text-xs">❌ Terminate</Badge>}
+                              {postback.event_type === 'quotafull' && <Badge className="bg-yellow-500 text-white text-xs">🚫 Quota Full</Badge>}
+                              {postback.event_type === 'security' && <Badge className="bg-purple-500 text-white text-xs">⚠️ Security</Badge>}
+                              {(!postback.event_type || !['complete', 'terminate', 'quotafull', 'security'].includes(postback.event_type)) && (
+                                <Badge variant="outline" className="text-gray-400 text-xs">{postback.event_type || 'conversion'}</Badge>
+                              )}
                             </TableCell>
                             <TableCell>
                               <div className="font-medium text-sm">
