@@ -4674,7 +4674,7 @@ def full_preview_api_offers():
             
             # Check countries
             countries = offer.get('countries', [])
-            if not countries or countries == ['US']:
+            if not countries or countries == [''] or countries == []:
                 issues.append('missing_countries')
                 missing_counts['missing_countries'] += 1
             
@@ -4960,6 +4960,8 @@ def import_api_offers():
                     oid = str(offer_data.get('network_offer_id', '') or offer_data.get('offer_id', '') or offer_data.get('id', ''))
                 elif network_type == 'mobplus':
                     oid = str(offer_data.get('id', '') or offer_data.get('offer_id', ''))
+                elif network_type == 'marketxcel':
+                    oid = str(offer_data.get('project_id', '') or offer_data.get('survey_id', '') or offer_data.get('id', ''))
                 else:  # hasoffers — offers are wrapped: {"Offer": {"id": "2816", ...}}
                     if isinstance(offer_data, dict) and 'Offer' in offer_data:
                         oid = str(offer_data['Offer'].get('id', '') or offer_data['Offer'].get('offer_id', ''))
@@ -4975,6 +4977,9 @@ def import_api_offers():
             network_match_values = list(set([network_name, network_id]))
             if network_type == 'adscendmedia':
                 network_match_values.append('adscendmedia')
+            elif network_type == 'marketxcel':
+                network_match_values.append('marketxcel')
+                network_match_values.append('MarketXcel')
             
             # Build network regex for case-insensitive match
             network_pattern = '|'.join([f'^{v}$' for v in network_match_values])

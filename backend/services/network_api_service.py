@@ -44,6 +44,8 @@ class NetworkAPIService:
                 return self._test_mobplus_connection(network_id, api_key)
             elif network_type == 'adscendmedia':
                 return self._test_adscendmedia_connection(network_id, api_key)
+            elif network_type == 'marketxcel':
+                return self._test_marketxcel_connection(network_id, api_key)
             elif network_type == 'cj':
                 return self._test_cj_connection(network_id, api_key)
             elif network_type == 'shareasale':
@@ -80,6 +82,8 @@ class NetworkAPIService:
                 return self._fetch_mobplus_offers(network_id, api_key, filters, limit)
             elif network_type == 'adscendmedia':
                 return self._fetch_adscendmedia_offers(network_id, api_key, filters, limit)
+            elif network_type == 'marketxcel':
+                return self._fetch_marketxcel_offers(network_id, api_key, filters, limit)
             elif network_type == 'cj':
                 return self._fetch_cj_offers(network_id, api_key, filters, limit)
             elif network_type == 'shareasale':
@@ -742,6 +746,239 @@ class NetworkAPIService:
         except Exception as e:
             logger.error(f"AdscendMedia fetch error: {str(e)}", exc_info=True)
             return [], f"Failed to fetch offers: {str(e)}"
+    
+    # ==================== MarketXcel Implementation ====================
+    
+    def _generate_marketxcel_token(self, supplier_id: str, salt: str, hashing_key: str) -> str:
+        """
+        Generate authentication token for MarketXcel API.
+        
+        Tries multiple token generation strategies:
+        1. HMAC-SHA256(hashing_key, supplier_id + salt)
+        2. MD5(supplier_id + salt + hashing_key)
+        3. SHA256(supplier_id + salt + hashing_key)
+        4. HMAC-MD5(hashing_key, supplier_id + salt)
+        
+        Returns the first strategy result (caller should try if it fails).
+        Since we can't know which works without testing, we return the HMAC-SHA256 version.
+        """
+        import hashlib
+        import hmac
+        message = supplier_id + salt
+        token = hmac.new(
+            hashing_key.encode('utf-8'),
+            message.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+        return token
+    
+    def _generate_marketxcel_token_variants(self, supplier_id: str, salt: str, hashing_key: str) -> list:
+        """
+        Generate all possible token variants for MarketXcel API authentication.
+        Returns list of tokens to try in order.
+        """
+        import hashlib
+        import hmac
+        
+        tokens = []
+        
+        # Strategy 1: HMAC-SHA256(hashing_key, supplier_id + salt)
+        msg1 = (supplier_id + salt).encode('utf-8')
+        tokens.append(hmac.new(hashing_key.encode('utf-8'), msg1, hashlib.sha256).hexdigest())
+        
+        # Strategy 2: MD5(supplier_id + salt + hashing_key)
+        tokens.append(hashlib.md5((supplier_id + salt + hashing_key).encode('utf-8')).hexdigest())
+        
+        # Strategy 3: HMAC-SHA256(salt, supplier_id + hashing_key)
+        msg3 = (supplier_id + hashing_key).encode('utf-8')
+        tokens.append(hmac.new(salt.encode('utf-8'), msg3, hashlib.sha256).hexdigest())
+        
+        # Strategy 4: MD5(salt + hashing_key)
+        tokens.append(hashlib.md5((salt + hashing_key).encode('utf-8')).hexdigest())
+        
+        # Strategy 5: SHA256(supplier_id + salt + hashing_key)
+        tokens.append(hashlib.sha256((supplier_id + salt + hashing_key).encode('utf-8')).hexdigest())
+        
+        # Strategy 6: HMAC-MD5(hashing_key, supplier_id + salt)
+        tokens.append(hmac.new(hashing_key.encode('utf-8'), msg1, hashlib.md5).hexdigest())
+        
+        # Strategy 7: HMAC-SHA256(salt, hashing_key) — token from just salt and key
+        tokens.append(hmac.new(salt.encode('utf-8'), hashing_key.encode('utf-8'), hashlib.sha256).hexdigest())
+        
+        # Strategy 8: Direct use — if the "salt" IS the token (user might paste the pre-generated token)
+        tokens.append(salt)
+        
+        return tokens
+    
+    def _test_marketxcel_connection(self, network_id: str, api_key: str) -> Tuple[bool, Optional[int], Optional[str]]:
+        """
+        Test MarketXcel API connection.
+        
+        Args:
+            network_id: The Supplier ID for MarketXcel
+            api_key: Either a pre-generated token directly, OR pipe-separated "salt|hashing_key" for auto-generation
+            
+        Returns:
+            Tuple of (success, offer_count, error_message)
+        """
+        try:
+            supplier_id = network_id.strip()
+            url = "https://api.marketxcel.co.in/webservices/supplier/send_supplier_data"
+            
+            # Determine tokens to try
+            tokens_to_try = []
+            
+            if '|' in api_key:
+                # Format: "salt|hashing_key" — generate token variants
+                parts = api_key.split('|')
+                salt = parts[0].strip()
+                hashing_key = parts[1].strip()
+                tokens_to_try = self._generate_marketxcel_token_variants(supplier_id, salt, hashing_key)
+            else:
+                # Assume the api_key IS the pre-generated token directly
+                tokens_to_try = [api_key.strip()]
+            
+            logger.info(f"Testing MarketXcel connection for supplier {supplier_id} ({len(tokens_to_try)} token variants)")
+            
+            last_error = None
+            for idx, token in enumerate(tokens_to_try):
+                try:
+                    headers = {
+                        'Supplierid': supplier_id,
+                        'token': token,
+                        'Accept': 'application/json'
+                    }
+                    
+                    response = self.session.get(url, headers=headers, timeout=self.timeout)
+                    
+                    if response.status_code == 401:
+                        last_error = f"Token variant {idx+1} failed: Authentication denied"
+                        continue
+                    elif response.status_code == 403:
+                        last_error = f"Token variant {idx+1} failed: Access forbidden"
+                        continue
+                    elif response.status_code != 200:
+                        last_error = f"Token variant {idx+1} failed: HTTP {response.status_code}"
+                        continue
+                    
+                    data = response.json()
+                    
+                    if data.get('ResponseCode') != 1:
+                        msg = data.get('Message', 'Unknown error')
+                        # If the message indicates no projects (which is valid), count as success with 0
+                        if 'no' in msg.lower() and ('project' in msg.lower() or 'data' in msg.lower()):
+                            logger.info(f"✅ MarketXcel connection successful (variant {idx+1}): 0 surveys (no active projects)")
+                            return True, 0, None
+                        last_error = f"API Error: {msg}"
+                        continue
+                    
+                    surveys = data.get('Data', [])
+                    offer_count = len(surveys)
+                    
+                    logger.info(f"✅ MarketXcel connection successful (variant {idx+1}): {offer_count} surveys available")
+                    return True, offer_count, None
+                    
+                except requests.exceptions.Timeout:
+                    last_error = "Connection timed out"
+                    break  # Timeout means the server is slow, no point trying other tokens
+                except requests.exceptions.ConnectionError:
+                    last_error = "Could not connect to MarketXcel API"
+                    break
+                except ValueError:
+                    last_error = f"Token variant {idx+1}: Invalid JSON response"
+                    continue
+            
+            # None of the variants worked
+            error_msg = last_error or "All token generation strategies failed"
+            if '|' in api_key:
+                error_msg += ". Try providing the pre-generated token directly (without pipe separator)."
+            return False, None, error_msg
+            
+        except Exception as e:
+            logger.error(f"MarketXcel connection test error: {str(e)}", exc_info=True)
+            return False, None, f"Connection test failed: {str(e)}"
+    
+    def _fetch_marketxcel_offers(self, network_id: str, api_key: str,
+                                  filters: Optional[Dict] = None,
+                                  limit: Optional[int] = None) -> Tuple[List[Dict], Optional[str]]:
+        """
+        Fetch surveys from MarketXcel API.
+        
+        Args:
+            network_id: Supplier ID
+            api_key: Pre-generated token OR pipe-separated "salt|hashing_key"
+            filters: Optional filters
+            limit: Optional limit
+            
+        Returns:
+            Tuple of (surveys_list, error_message)
+        """
+        try:
+            supplier_id = network_id.strip()
+            
+            # Determine tokens to try
+            tokens_to_try = []
+            if '|' in api_key:
+                parts = api_key.split('|')
+                salt = parts[0].strip()
+                hashing_key = parts[1].strip()
+                tokens_to_try = self._generate_marketxcel_token_variants(supplier_id, salt, hashing_key)
+            else:
+                tokens_to_try = [api_key.strip()]
+            
+            url = "https://api.marketxcel.co.in/webservices/supplier/send_supplier_data"
+            
+            logger.info(f"Fetching MarketXcel surveys for supplier {supplier_id}")
+            
+            last_error = None
+            for idx, token in enumerate(tokens_to_try):
+                try:
+                    headers = {
+                        'Supplierid': supplier_id,
+                        'token': token,
+                        'Accept': 'application/json'
+                    }
+                    
+                    response = self.session.get(url, headers=headers, timeout=60)
+                    
+                    if response.status_code == 401 or response.status_code == 403:
+                        last_error = "Authentication failed"
+                        continue
+                    elif response.status_code != 200:
+                        last_error = f"HTTP {response.status_code}"
+                        continue
+                    
+                    data = response.json()
+                    
+                    if data.get('ResponseCode') != 1:
+                        msg = data.get('Message', '')
+                        if 'no' in msg.lower() and ('project' in msg.lower() or 'data' in msg.lower()):
+                            return [], None  # No surveys, not an error
+                        last_error = f"API: {msg}"
+                        continue
+                    
+                    surveys = data.get('Data', [])
+                    
+                    # Apply limit if specified
+                    if limit and len(surveys) > limit:
+                        surveys = surveys[:limit]
+                    
+                    logger.info(f"✅ Fetched {len(surveys)} surveys from MarketXcel (variant {idx+1})")
+                    return surveys, None
+                    
+                except requests.exceptions.Timeout:
+                    return [], "Request timed out fetching surveys from MarketXcel"
+                except requests.exceptions.ConnectionError:
+                    return [], "Could not connect to MarketXcel API"
+                except ValueError:
+                    last_error = "Invalid JSON response"
+                    continue
+            
+            return [], last_error or "Authentication failed — could not generate valid token"
+            
+        except Exception as e:
+            logger.error(f"MarketXcel fetch error: {str(e)}", exc_info=True)
+            return [], f"Failed to fetch surveys: {str(e)}"
     
     # ==================== CJ Implementation ====================
     

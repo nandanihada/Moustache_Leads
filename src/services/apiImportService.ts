@@ -56,6 +56,7 @@ export interface ImportRequest {
   network_id: string;
   api_key: string;
   network_type: string;
+  network_name?: string;
   fetch_mode?: string;
   filters?: {
     status?: string;

@@ -133,6 +133,8 @@ class NetworkFieldMapper:
                 return self._map_mobplus_offer(offer_data, network_id)
             elif network_type == 'adscendmedia':
                 return self._map_adscendmedia_offer(offer_data, network_id)
+            elif network_type == 'marketxcel':
+                return self._map_marketxcel_offer(offer_data, network_id)
             elif network_type == 'cj':
                 return self._map_cj_offer(offer_data, network_id)
             elif network_type == 'shareasale':
@@ -1549,6 +1551,238 @@ class NetworkFieldMapper:
             
         except Exception as e:
             logger.error(f"Error mapping AdscendMedia offer: {str(e)}", exc_info=True)
+            return {}
+    
+    def _map_marketxcel_offer(self, offer_data: Dict, network_id: str = None) -> Dict[str, Any]:
+        """
+        Map MarketXcel survey/project data to database format.
+        
+        Real API response fields:
+        - project_id, project_code, project_name, country, language
+        - country_id, language_id, category, currency, audience_type
+        - pii_collection, application_download, facial_coding
+        - project_ir, project_loi, cpi, quota
+        - live_click_quota, test_click_quota
+        - project_start_date, project_end_date
+        - live_url, test_url, status, device_type
+        - qualifications, target_spec
+        """
+        try:
+            # Handle potentially nested data
+            if 'project' in offer_data and isinstance(offer_data.get('project'), dict):
+                offer_data = offer_data['project']
+            elif 'survey' in offer_data and isinstance(offer_data.get('survey'), dict):
+                offer_data = offer_data['survey']
+            
+            # Campaign ID — project_id is the primary key
+            survey_id = str(
+                offer_data.get('project_id', '') or 
+                offer_data.get('survey_id', '') or 
+                offer_data.get('id', '') or ''
+            )
+            
+            # Project code and name
+            survey_code = str(
+                offer_data.get('project_code', '') or 
+                offer_data.get('survey_code', '') or ''
+            )
+            survey_name = str(
+                offer_data.get('project_name', '') or 
+                offer_data.get('survey_name', '') or 
+                survey_code or 
+                f"MarketXcel Survey {survey_id}"
+            )
+            
+            # Build a readable display name
+            name = f"MarketXcel Survey - {survey_id}"
+            if survey_name and survey_name != survey_code:
+                name = survey_name
+            
+            # Description from target_spec (contains qualification info as HTML)
+            target_spec = offer_data.get('target_spec', '') or ''
+            description = offer_data.get('survey_description', '') or ''
+            
+            # Build description from available data
+            loi = str(offer_data.get('project_loi', '') or offer_data.get('length_of_interview', '') or '')
+            ir = str(offer_data.get('project_ir', '') or offer_data.get('incidence_rate', '') or '')
+            audience_type = offer_data.get('audience_type', '') or ''
+            category = offer_data.get('category', '') or ''
+            
+            desc_parts = []
+            if category:
+                desc_parts.append(f"Category: {category}")
+            if audience_type:
+                desc_parts.append(f"Audience: {audience_type}")
+            if loi:
+                desc_parts.append(f"LOI: {loi} min")
+            if ir:
+                desc_parts.append(f"IR: {ir}%")
+            if target_spec:
+                # Clean HTML from target_spec
+                clean_spec = target_spec.replace('<br>', ' ').replace('<br/>', ' ').replace('<br />', ' ')
+                clean_spec = clean_spec.replace('-', '').strip()
+                if clean_spec:
+                    desc_parts.append(clean_spec)
+            elif description:
+                desc_parts.append(description)
+            
+            description = ' | '.join(desc_parts) if desc_parts else f"Survey project {survey_id}"
+            
+            # Payout from cpi (cost per interview)
+            payout = 0.0
+            cpi = offer_data.get('cpi', 0) or offer_data.get('cost_per_interview', 0) or 0
+            try:
+                payout = float(cpi)
+            except (ValueError, TypeError):
+                payout = 0.0
+            
+            # Currency
+            currency = str(offer_data.get('currency', '') or offer_data.get('survey_currency', '') or 'USD')
+            
+            # Country — real response uses "country" field with full name
+            country_name = str(offer_data.get('country', '') or offer_data.get('survey_country', '') or '')
+            countries = []
+            if country_name:
+                code = self.COUNTRY_NAME_TO_CODE.get(country_name)
+                if code:
+                    countries.append(code)
+                elif len(country_name) == 2:
+                    countries.append(country_name.upper())
+                else:
+                    # Try partial match
+                    for full_name, iso_code in self.COUNTRY_NAME_TO_CODE.items():
+                        if full_name.lower() in country_name.lower() or country_name.lower() in full_name.lower():
+                            countries.append(iso_code)
+                            break
+            if not countries:
+                countries = ['WW']
+            
+            # Target URL — live_url is the actual survey link
+            entry_url = str(
+                offer_data.get('live_url', '') or 
+                offer_data.get('entry_live_url', '') or 
+                offer_data.get('entry_url', '') or 
+                offer_data.get('url', '') or ''
+            )
+            if entry_url:
+                entry_url = entry_url.replace('[identifier]', '{click_id}')
+                entry_url = entry_url.replace('[IDENTIFIER]', '{click_id}')
+                entry_url = entry_url.replace('{identifier}', '{click_id}')
+            
+            # If still no URL, log and construct placeholder
+            if not entry_url and survey_id:
+                logger.warning(f"MarketXcel project {survey_id} has no live_url — keys: {list(offer_data.keys())}")
+                entry_url = f"https://cluster.marketxcel.co.in/survey/{survey_id}"
+            
+            # If campaign_id is empty, log for debugging
+            if not survey_id:
+                logger.error(f"MarketXcel offer missing project_id! Keys: {list(offer_data.keys())}")
+                logger.error(f"Raw data sample: {dict(list(offer_data.items())[:5])}")
+            
+            # Device targeting
+            device_type = str(offer_data.get('device_type', 'all') or 'all')
+            device_lower = device_type.lower()
+            if 'desktop' in device_lower and 'mobile' in device_lower and 'tablet' in device_lower:
+                device_targeting = 'all'
+            elif 'mobile' in device_lower and 'tablet' in device_lower:
+                device_targeting = 'mobile'
+            elif 'desktop' in device_lower:
+                device_targeting = 'desktop'
+            elif 'mobile' in device_lower:
+                device_targeting = 'mobile'
+            else:
+                device_targeting = 'all'
+            
+            # Status mapping — real response uses "Live", "Paused", etc.
+            raw_status = str(offer_data.get('status', '') or offer_data.get('survey_status', '') or '').lower()
+            status_map = {
+                'live': 'active',
+                'active': 'active',
+                'paused': 'paused',
+                'closed': 'inactive',
+                'completed': 'inactive',
+            }
+            status = status_map.get(raw_status, 'active')
+            
+            # Daily cap from quota
+            daily_cap = 0
+            quota = offer_data.get('quota', 0) or offer_data.get('complete_needed', 0) or 0
+            try:
+                daily_cap = int(quota)
+            except (ValueError, TypeError):
+                daily_cap = 0
+            
+            # Expiration date from project_end_date
+            end_date = str(offer_data.get('project_end_date', '') or offer_data.get('survey_end_date', '') or '')
+            if not end_date or end_date in ['', '0000-00-00', 'None']:
+                from datetime import timedelta
+                end_date = (datetime.utcnow() + timedelta(days=30)).strftime('%Y-%m-%d')
+            
+            # Build mapped offer
+            mapped_offer = {
+                'campaign_id': survey_id,
+                'name': format_offer_name(name),
+                'description': clean_html_description(description) if description else '',
+                'target_url': entry_url,
+                'preview_url': 'https://www.marketxcel.co.in',
+                'image_url': '',  # MarketXcel doesn't provide images
+                'payout': payout,
+                'currency': currency.upper(),
+                'countries': countries,
+                'vertical': 'SURVEY',
+                'category': 'SURVEY',
+                'device_targeting': device_targeting,
+                'network': 'MarketXcel',
+                'network_type': 'marketxcel',
+                'status': status,
+                'incentive_type': 'Incent',
+                'offer_type': 'CPL',
+                'payout_model': 'CPL',
+                'daily_cap': daily_cap,
+                'expiration_date': end_date,
+                'affiliates': 'all',
+                'revenue_share_percent': 0,
+                'show_in_offerwall': True,
+                'created_at': datetime.utcnow(),
+                'updated_at': datetime.utcnow(),
+                'source': 'api_import',
+                'import_source': 'marketxcel',
+                # MarketXcel-specific metadata
+                'survey_code': survey_code,
+                'survey_language': offer_data.get('survey_language', ''),
+                'incidence_rate': ir,
+                'length_of_interview': loi,
+                'audience_type': offer_data.get('audience_type', ''),
+                'level_payouts': {'enabled': False, 'levels': []},
+                'geo_payouts': [],
+                'allowed_traffic_sources': [],
+                'blocked_traffic_sources': [],
+                'tracking_protocol': '',
+                'conversion_flow': '',
+                'conversion_window': None,
+                'creative_requirements': '',
+                'affiliate_terms': '',
+                'restrictions': '',
+                'terms_notes': '',
+                'allowed_countries': countries,
+                'blocked_countries': [],
+                'os_requirements': [],
+                'browser_requirements': [],
+                'carrier_requirements': [],
+                'connection_type': '',
+                'language_requirements': [],
+                'age_restrictions': '',
+                'gender_targeting': '',
+                'monthly_cap': 0,
+                'kpi': '',
+                'conversion_type': 'Survey Complete',
+                'traffic_type': '',
+            }
+            
+            return mapped_offer
+            
+        except Exception as e:
+            logger.error(f"Error mapping MarketXcel offer: {str(e)}", exc_info=True)
             return {}
     
     def _map_cj_offer(self, offer_data: Dict, network_id: str = None) -> Dict[str, Any]:

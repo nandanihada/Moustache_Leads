@@ -116,6 +116,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
     if (networkType === 'everflow') return apiUrl || 'https://api.eflow.team';
     if (networkType === 'mobplus') return apiUrl || 'http://mob.mobplus.net';
     if (networkType === 'adscendmedia') return networkId;
+    if (networkType === 'marketxcel') return networkId;
     return networkId;
   };
 
@@ -137,7 +138,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
   const handleTestConnection = async () => {
     const effectiveId = getEffectiveNetworkId();
     if (!effectiveId || !apiKey) {
-      toast({ title: 'Error', description: networkType === 'everflow' || networkType === 'mobplus' ? 'Please enter API URL and API Key' : 'Please enter Network ID/Publisher ID and API Key', variant: 'destructive' });
+      toast({ title: 'Error', description: networkType === 'everflow' || networkType === 'mobplus' ? 'Please enter API URL and API Key' : networkType === 'marketxcel' ? 'Please enter Supplier ID and Salt|Hashing Key' : 'Please enter Network ID/Publisher ID and API Key', variant: 'destructive' });
       return;
     }
     setTesting(true);
@@ -534,6 +535,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
                   <SelectItem value="everflow">Everflow</SelectItem>
                   <SelectItem value="mobplus">MobPlus</SelectItem>
                   <SelectItem value="adscendmedia">Adscend Media</SelectItem>
+                  <SelectItem value="marketxcel">MarketXcel (Surveys)</SelectItem>
                   <SelectItem value="cj" disabled>Commission Junction (Coming Soon)</SelectItem>
                   <SelectItem value="shareasale" disabled>ShareASale (Coming Soon)</SelectItem>
                 </SelectContent>
@@ -555,6 +557,14 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
               </div>
             )}
             
+            {networkType === 'marketxcel' && (
+              <div className="space-y-2">
+                <Label>Supplier ID *</Label>
+                <Input placeholder="e.g., 18c3bc911a7ea7070de8de15848315f6" value={networkId} onChange={(e) => setNetworkId(e.target.value)} />
+                <p className="text-xs text-muted-foreground">Your Supplier ID from MarketXcel (found in the API documentation/dashboard)</p>
+              </div>
+            )}
+            
             {networkType === 'everflow' && (
               <div className="space-y-2">
                 <Label>API URL / Endpoint *</Label>
@@ -572,13 +582,16 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
             )}
             
             <div className="space-y-2">
-              <Label>API Key *</Label>
+              <Label>{networkType === 'marketxcel' ? 'Salt | Hashing Key *' : 'API Key *'}</Label>
               <div className="relative">
-                <Input type={showApiKey ? 'text' : 'password'} placeholder={networkType === 'everflow' ? 'Enter your x-eflow-api-key' : networkType === 'mobplus' ? 'Enter your MobPlus Authorization token' : networkType === 'adscendmedia' ? 'Enter your AdscendMedia API Key' : 'Enter your API key'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="pr-10" />
+                <Input type={showApiKey ? 'text' : 'password'} placeholder={networkType === 'everflow' ? 'Enter your x-eflow-api-key' : networkType === 'mobplus' ? 'Enter your MobPlus Authorization token' : networkType === 'adscendmedia' ? 'Enter your AdscendMedia API Key' : networkType === 'marketxcel' ? 'Paste your token (salt value)' : 'Enter your API key'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="pr-10" />
                 <Button type="button" variant="ghost" size="sm" className="absolute right-0 top-0 h-full px-3" onClick={() => setShowApiKey(!showApiKey)}>
                   {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
               </div>
+              {networkType === 'marketxcel' && (
+                <p className="text-xs text-muted-foreground">Paste your API token directly (the salt value from MarketXcel). You can also enter <code className="bg-muted px-1 rounded">salt|hashing_key</code> if you need auto-generation.</p>
+              )}
             </div>
             
             <div className="space-y-2">
@@ -605,7 +618,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
               </div>
             )}
             
-            <Button onClick={handleTestConnection} disabled={testing || (networkType === 'hasoffers' || networkType === 'adscendmedia' ? !networkId : !apiUrl) || !apiKey}>
+            <Button onClick={handleTestConnection} disabled={testing || (networkType === 'hasoffers' || networkType === 'adscendmedia' || networkType === 'marketxcel' ? !networkId : !apiUrl) || !apiKey}>
               {testing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Test Connection
             </Button>
             
@@ -618,7 +631,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
             
             <div className="flex justify-end gap-2 pt-4">
               <Button variant="outline" onClick={handleClose}>Cancel</Button>
-              <Button onClick={handleFetchFullPreview} disabled={loading || (networkType === 'hasoffers' || networkType === 'adscendmedia' ? !networkId : !apiUrl) || !apiKey}>
+              <Button onClick={handleFetchFullPreview} disabled={loading || (networkType === 'hasoffers' || networkType === 'adscendmedia' || networkType === 'marketxcel' ? !networkId : !apiUrl) || !apiKey}>
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Next: Fetch & Preview Offers
               </Button>
             </div>

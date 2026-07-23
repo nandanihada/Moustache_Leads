@@ -461,6 +461,39 @@ def receive_postback(unique_key, event_type):
                 {'_id': result.inserted_id},
                 {'$set': {'status': f'logged_{event_type}', 'is_non_conversion': True}}
             )
+            
+            # 🔄 MarketXcel S2S callback for non-conversion events (terminate, quotafull, security)
+            try:
+                # Try to find the offer to check if it's MarketXcel
+                click_id_for_mxcel = (post_data.get('click_id') or params.get('click_id', [''])[0] 
+                                      if isinstance(params.get('click_id'), list) else params.get('click_id', ''))
+                offer_id_for_mxcel = (post_data.get('offer_id') or post_data.get('survey_id') or 
+                                      params.get('offer_id', [''])[0] if isinstance(params.get('offer_id'), list) else params.get('offer_id', ''))
+                
+                if click_id_for_mxcel or offer_id_for_mxcel:
+                    offers_col_mxcel = get_collection('offers')
+                    offer_check = None
+                    if offer_id_for_mxcel and offers_col_mxcel:
+                        offer_check = offers_col_mxcel.find_one({'offer_id': offer_id_for_mxcel})
+                    if not offer_check and click_id_for_mxcel and offers_col_mxcel:
+                        clicks_col_mxcel = get_collection('clicks')
+                        if clicks_col_mxcel:
+                            click_for_mxcel = clicks_col_mxcel.find_one({'click_id': click_id_for_mxcel})
+                            if click_for_mxcel and click_for_mxcel.get('offer_id'):
+                                offer_check = offers_col_mxcel.find_one({'offer_id': click_for_mxcel['offer_id']})
+                    
+                    if offer_check and offer_check.get('network', '').lower() in ['marketxcel', 'market_xcel']:
+                        from services.marketxcel_callback_service import fire_marketxcel_callback
+                        respondent_id = click_id_for_mxcel
+                        mxcel_status = 2  # Default: Terminate
+                        et_lower = event_type.lower()
+                        if et_lower in ['quotafull', 'quota_full', 'overquota']:
+                            mxcel_status = 3
+                        elif et_lower in ['security', 'security_term']:
+                            mxcel_status = 4
+                        fire_marketxcel_callback(respondent_id, mxcel_status)
+            except Exception as mxcel_nc_err:
+                logger.warning(f"⚠️ MarketXcel non-conversion callback failed (non-critical): {mxcel_nc_err}")
         else:
             try:
                 from routes.postback_processor import process_single_postback
@@ -785,6 +818,25 @@ def receive_postback(unique_key, event_type):
                             pass
                     except Exception as pts_err:
                         logger.error(f"❌ Error updating points: {pts_err}")
+
+                # 🔄 NETWORK S2S CALLBACK: MarketXcel respondent status update
+                if offer_for_calc and offer_for_calc.get('network', '').lower() in ['marketxcel', 'market_xcel']:
+                    try:
+                        from services.marketxcel_callback_service import fire_marketxcel_callback
+                        respondent_id = click_id  # Our click_id is passed as [identifier] in their URL
+                        # Determine status based on event_type
+                        mxcel_status = 1  # 1=Complete (default for successful conversion)
+                        if event_type:
+                            et_lower = event_type.lower()
+                            if et_lower in ['terminate', 'terminated']:
+                                mxcel_status = 2
+                            elif et_lower in ['quotafull', 'quota_full', 'overquota']:
+                                mxcel_status = 3
+                            elif et_lower in ['security', 'security_term']:
+                                mxcel_status = 4
+                        fire_marketxcel_callback(respondent_id, mxcel_status)
+                    except Exception as mxcel_err:
+                        logger.warning(f"⚠️ MarketXcel S2S callback failed (non-critical): {mxcel_err}")
 
             except Exception as forward_error:
                 logger.error(f"❌ Error in forwarding logic: {forward_error}")

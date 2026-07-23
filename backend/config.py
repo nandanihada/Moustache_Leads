@@ -57,3 +57,6 @@ class Config:
     # Geekflare API (link health checking)
     GEEKFLARE_API_KEY = os.getenv('GEEKFLARE_API_KEY', '')
 
+    # MarketXcel API key for S2S callback (respondent status updates)
+    MARKETXCEL_API_KEY = os.getenv('MARKETXCEL_API_KEY', '')
+
