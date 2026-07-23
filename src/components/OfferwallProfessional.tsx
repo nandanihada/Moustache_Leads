@@ -1009,10 +1009,10 @@ export const OfferwallProfessional: React.FC<Props> = ({
         )}
 
         {/* ===== GRID VIEW ===== */}
-        {filteredOffers.length > 0 && viewMode === 'grid' && (
+        {(filteredOffers.length > 0 || subWalls.some(w => !search || w.name?.toLowerCase().includes(search.toLowerCase()) || w.description?.toLowerCase().includes(search.toLowerCase()) || w.slug?.toLowerCase().includes(search.toLowerCase()))) && viewMode === 'grid' && (
           <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 md:gap-5 px-1 sm:px-2">
             {/* Sub-walls */}
-            {!search && subWalls.map(w => (
+            {subWalls.filter(w => !search || w.name?.toLowerCase().includes(search.toLowerCase()) || w.description?.toLowerCase().includes(search.toLowerCase()) || w.slug?.toLowerCase().includes(search.toLowerCase())).map(w => (
               <div key={`sw-${w._id}`} onClick={() => window.open(`https://walls.moustacheleads.com/wall/${w.slug}`, '_blank')} className="ow-card group cursor-pointer">
                 <div className="relative h-44 overflow-hidden rounded-t-2xl">{w.image_url ? <img src={w.image_url} alt={w.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" /> : <div className="w-full h-full bg-gradient-to-br from-purple-100 to-indigo-100 flex items-center justify-center"><Award className="h-10 w-10 text-purple-300" /></div>}<div className="absolute top-3 right-3 bg-white/95 px-2.5 py-1 rounded-full shadow-sm text-xs font-bold text-[#340075]">{w.offer_count} offers</div></div>
                 <div className="p-4 flex flex-col flex-grow"><p className="text-[9px] font-bold tracking-wider uppercase text-teal-700 mb-1">Collection</p><h3 className="font-bold text-gray-900 text-sm mb-1">{w.heading_text || w.name}</h3><p className="text-gray-500 text-xs line-clamp-2 mb-3">{w.description}</p><button className="ow-btn w-full mt-auto">View Collection</button></div>
