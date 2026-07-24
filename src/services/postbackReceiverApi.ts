@@ -155,6 +155,42 @@ class PostbackReceiverApi {
       throw new Error(error.response?.data?.error || 'Failed to test postback receiver');
     }
   }
+
+  async getS2SCallbackLogs(params?: {
+    page?: number;
+    page_size?: number;
+    partner_id?: string;
+  }): Promise<{
+    logs: S2SCallbackLog[];
+    total: number;
+    page: number;
+    page_size: number;
+    total_pages: number;
+  }> {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/s2s-callback-logs`, {
+        headers: this.getAuthHeaders(),
+        params
+      });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to fetch S2S callback logs');
+    }
+  }
+}
+
+export interface S2SCallbackLog {
+  _id: string;
+  partner_id: string;
+  partner_name: string;
+  callback_url: string;
+  request_payload: Record<string, any>;
+  response_status: number;
+  response_body: string;
+  event_type: string;
+  postback_log_id: string;
+  success: boolean;
+  timestamp: string;
 }
 
 export const postbackReceiverApi = new PostbackReceiverApi();

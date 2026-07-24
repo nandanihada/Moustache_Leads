@@ -1036,6 +1036,72 @@ def receive_postback(unique_key, event_type):
         # If event_type came from URL path, it's likely a browser redirect from survey platform
         if event_type and is_redirect_mode:
             from flask import render_template_string
+            
+            # 🔄 S2S CALLBACK: If partner has s2s_callback_url configured, fire outbound API call
+            if partner and isinstance(partner, dict):
+                s2s_url = partner.get('s2s_callback_url', '').strip()
+                s2s_key = partner.get('s2s_api_key', '').strip()
+                if s2s_url and s2s_key:
+                    try:
+                        import requests as req_lib
+                        import threading
+                        
+                        # Map event_type to status code
+                        status_map = {'complete': 1, 'terminate': 2, 'quotafull': 3, 'security': 4}
+                        status_code = status_map.get(event_type, 1)
+                        
+                        # Get respondentId from sub1 param
+                        respondent_id = _get_param('sub1') or _get_param('respondentId') or _get_param('uid') or ''
+                        
+                        s2s_payload = {
+                            'respondentId': respondent_id,
+                            'status': status_code
+                        }
+                        s2s_headers = {
+                            'X-Api-Key': s2s_key,
+                            'Content-Type': 'application/json'
+                        }
+                        
+                        # Fire async so user doesn't wait
+                        def fire_s2s():
+                            try:
+                                resp = req_lib.post(s2s_url, json=s2s_payload, headers=s2s_headers, timeout=10)
+                                # Log the S2S callback
+                                s2s_logs_col = get_collection('s2s_callback_logs')
+                                if s2s_logs_col is not None:
+                                    s2s_logs_col.insert_one({
+                                        'partner_id': partner_id,
+                                        'partner_name': partner_name,
+                                        'callback_url': s2s_url,
+                                        'request_payload': s2s_payload,
+                                        'response_status': resp.status_code,
+                                        'response_body': resp.text[:500],
+                                        'event_type': event_type,
+                                        'postback_log_id': str(result.inserted_id),
+                                        'success': resp.status_code == 200,
+                                        'timestamp': datetime.utcnow()
+                                    })
+                                logger.info(f"📤 S2S callback sent to {s2s_url}: respondentId={respondent_id}, status={status_code}, response={resp.status_code}")
+                            except Exception as s2s_err:
+                                logger.error(f"❌ S2S callback failed: {s2s_err}")
+                                s2s_logs_col = get_collection('s2s_callback_logs')
+                                if s2s_logs_col is not None:
+                                    s2s_logs_col.insert_one({
+                                        'partner_id': partner_id,
+                                        'partner_name': partner_name,
+                                        'callback_url': s2s_url,
+                                        'request_payload': s2s_payload,
+                                        'response_status': 0,
+                                        'response_body': str(s2s_err)[:500],
+                                        'event_type': event_type,
+                                        'postback_log_id': str(result.inserted_id),
+                                        'success': False,
+                                        'timestamp': datetime.utcnow()
+                                    })
+                        
+                        threading.Thread(target=fire_s2s, daemon=True).start()
+                    except Exception as s2s_setup_err:
+                        logger.error(f"❌ S2S callback setup error: {s2s_setup_err}")
             # Determine message based on event type (CSS animated SVG icons)
             # Checkmark circle
             svg_complete = '<svg viewBox="0 0 52 52"><circle class="circle" cx="26" cy="26" r="25"/><path class="icon-path" d="M14.1 27.2l7.1 7.2 16.7-16.8"/></svg>'
@@ -1065,7 +1131,7 @@ def receive_postback(unique_key, event_type):
                     'title': 'Quota Reached',
                     'subtitle': 'This survey has already collected enough responses for your demographic. Please try another survey.',
                     'badge': 'Quota Full',
-                    'color': '#8b5cf6',
+                    'color': '#06b6d4',
                     'icon_svg': svg_quota
                 },
                 'security': {
@@ -1805,3 +1871,68 @@ def _update_survey_router_session(unique_key, params, post_data, get_param_fn):
         )
 
     logger.info(f"🔀 Survey router session updated: {session.get('session_id')} → {status} (payout: {payout})")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# S2S CALLBACK LOGS - View outbound API calls made to partners
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@postback_receiver_bp.route('/api/admin/s2s-callback-logs', methods=['GET'])
+@token_required
+@admin_required
+def get_s2s_callback_logs():
+    """
+    Get paginated S2S callback logs (outbound calls to partners like MarketXcel)
+    Query params: page, page_size, partner_id
+    """
+    try:
+        page = int(request.args.get('page', 1))
+        page_size = int(request.args.get('page_size', 20))
+        partner_id = request.args.get('partner_id', '').strip()
+
+        # Validate
+        if page < 1:
+            page = 1
+        if page_size < 1 or page_size > 100:
+            page_size = 20
+
+        collection = get_collection('s2s_callback_logs')
+        if collection is None:
+            return jsonify({'error': 'Database not connected'}), 503
+
+        # Build filter
+        query = {}
+        if partner_id:
+            query['partner_id'] = partner_id
+
+        # Get total count
+        total = collection.count_documents(query)
+
+        # Get paginated logs sorted by timestamp desc
+        skip = (page - 1) * page_size
+        logs = list(
+            collection.find(query)
+            .sort('timestamp', -1)
+            .skip(skip)
+            .limit(page_size)
+        )
+
+        # Serialize ObjectId and datetime fields
+        for log in logs:
+            log['_id'] = str(log['_id'])
+            if 'timestamp' in log and hasattr(log['timestamp'], 'isoformat'):
+                log['timestamp'] = log['timestamp'].isoformat() + 'Z'
+            if 'postback_log_id' in log:
+                log['postback_log_id'] = str(log['postback_log_id'])
+
+        return jsonify({
+            'logs': logs,
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': (total + page_size - 1) // page_size
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error fetching S2S callback logs: {e}")
+        return jsonify({'error': 'Failed to fetch S2S callback logs'}), 500

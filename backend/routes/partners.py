@@ -78,6 +78,8 @@ def create_partner():
         # Check if redirect mode is requested
         redirect_mode = data.get('redirect_mode', False)
         redirect_url = data.get('redirect_url', '').strip()
+        s2s_callback_url = data.get('s2s_callback_url', '').strip()
+        s2s_api_key = data.get('s2s_api_key', '').strip()
         
         # Create partner document
         partner_doc = {
@@ -96,6 +98,8 @@ def create_partner():
             'network_domain': network_domain,        # NEW: domain for auto-detection
             'redirect_mode': redirect_mode,
             'redirect_url': redirect_url,
+            's2s_callback_url': s2s_callback_url,
+            's2s_api_key': s2s_api_key,
             'created_by': str(request.current_user['_id']),
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow()
@@ -199,7 +203,7 @@ def update_partner(partner_id):
         # Update allowed fields
         allowed_fields = ['partner_name', 'postback_url', 'method', 'status', 'description',
                           'parameter_mapping', 'offer_url_params', 'offer_watch_params', 'network_domain',
-                          'redirect_mode', 'redirect_url']
+                          'redirect_mode', 'redirect_url', 's2s_callback_url', 's2s_api_key']
         for field in allowed_fields:
             if field in data:
                 if field in ('parameter_mapping', 'offer_url_params', 'offer_watch_params'):
@@ -209,6 +213,8 @@ def update_partner(partner_id):
                 elif field == 'redirect_mode':
                     update_doc[field] = bool(data[field])
                 elif field == 'redirect_url':
+                    update_doc[field] = data[field].strip() if isinstance(data[field], str) else ''
+                elif field in ('s2s_callback_url', 's2s_api_key'):
                     update_doc[field] = data[field].strip() if isinstance(data[field], str) else ''
                 else:
                     update_doc[field] = data[field].strip() if isinstance(data[field], str) else data[field]

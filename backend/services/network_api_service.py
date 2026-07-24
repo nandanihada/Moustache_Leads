@@ -752,60 +752,27 @@ class NetworkAPIService:
     def _generate_marketxcel_token(self, supplier_id: str, salt: str, hashing_key: str) -> str:
         """
         Generate authentication token for MarketXcel API.
-        
-        Tries multiple token generation strategies:
-        1. HMAC-SHA256(hashing_key, supplier_id + salt)
-        2. MD5(supplier_id + salt + hashing_key)
-        3. SHA256(supplier_id + salt + hashing_key)
-        4. HMAC-MD5(hashing_key, supplier_id + salt)
-        
-        Returns the first strategy result (caller should try if it fails).
-        Since we can't know which works without testing, we return the HMAC-SHA256 version.
+        Formula confirmed by MarketXcel: token = MD5(API_Supplier_ID + API_Supplier_Salt + API_Hashing_Key)
+        The token is static — same token for all requests unless credentials change.
         """
         import hashlib
-        import hmac
-        message = supplier_id + salt
-        token = hmac.new(
-            hashing_key.encode('utf-8'),
-            message.encode('utf-8'),
-            hashlib.sha256
-        ).hexdigest()
+        concatenated = supplier_id + salt + hashing_key
+        token = hashlib.md5(concatenated.encode('utf-8')).hexdigest()
         return token
     
     def _generate_marketxcel_token_variants(self, supplier_id: str, salt: str, hashing_key: str) -> list:
         """
-        Generate all possible token variants for MarketXcel API authentication.
-        Returns list of tokens to try in order.
+        Generate token for MarketXcel. Primary method is MD5(supplier_id + salt + hashing_key).
+        Also includes the salt itself as fallback (for users who paste the token directly).
         """
         import hashlib
-        import hmac
         
         tokens = []
         
-        # Strategy 1: HMAC-SHA256(hashing_key, supplier_id + salt)
-        msg1 = (supplier_id + salt).encode('utf-8')
-        tokens.append(hmac.new(hashing_key.encode('utf-8'), msg1, hashlib.sha256).hexdigest())
-        
-        # Strategy 2: MD5(supplier_id + salt + hashing_key)
+        # Primary: MD5(API_Supplier_ID + API_Supplier_Salt + API_Hashing_Key) — confirmed by MarketXcel
         tokens.append(hashlib.md5((supplier_id + salt + hashing_key).encode('utf-8')).hexdigest())
         
-        # Strategy 3: HMAC-SHA256(salt, supplier_id + hashing_key)
-        msg3 = (supplier_id + hashing_key).encode('utf-8')
-        tokens.append(hmac.new(salt.encode('utf-8'), msg3, hashlib.sha256).hexdigest())
-        
-        # Strategy 4: MD5(salt + hashing_key)
-        tokens.append(hashlib.md5((salt + hashing_key).encode('utf-8')).hexdigest())
-        
-        # Strategy 5: SHA256(supplier_id + salt + hashing_key)
-        tokens.append(hashlib.sha256((supplier_id + salt + hashing_key).encode('utf-8')).hexdigest())
-        
-        # Strategy 6: HMAC-MD5(hashing_key, supplier_id + salt)
-        tokens.append(hmac.new(hashing_key.encode('utf-8'), msg1, hashlib.md5).hexdigest())
-        
-        # Strategy 7: HMAC-SHA256(salt, hashing_key) — token from just salt and key
-        tokens.append(hmac.new(salt.encode('utf-8'), hashing_key.encode('utf-8'), hashlib.sha256).hexdigest())
-        
-        # Strategy 8: Direct use — if the "salt" IS the token (user might paste the pre-generated token)
+        # Fallback: salt itself as token (in case user pastes pre-generated token in salt field)
         tokens.append(salt)
         
         return tokens

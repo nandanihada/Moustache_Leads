@@ -31,6 +31,9 @@ export interface Partner {
   // Redirect mode for survey partners
   redirect_mode?: boolean;
   redirect_url?: string;
+  // S2S callback for outbound API calls
+  s2s_callback_url?: string;
+  s2s_api_key?: string;
 }
 
 export interface CreatePartnerData {

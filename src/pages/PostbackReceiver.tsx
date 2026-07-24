@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { postbackReceiverApi, ReceivedPostback } from '@/services/postbackReceiverApi';
+import { postbackReceiverApi, ReceivedPostback, S2SCallbackLog } from '@/services/postbackReceiverApi';
 import { partnerApi, Partner } from '@/services/partnerApi';
 import { forwardedPostbackApi, ForwardedPostback } from '@/services/forwardedPostbackApi';
 import {
@@ -124,6 +124,14 @@ const PostbackReceiver: React.FC = () => {
   const [forwardedDateTo, setForwardedDateTo] = useState('');
   const [forwardedPageSize, setForwardedPageSize] = useState(20);
 
+  // S2S Callback Logs state
+  const [s2sLogs, setS2sLogs] = useState<S2SCallbackLog[]>([]);
+  const [s2sPage, setS2sPage] = useState(1);
+  const [s2sTotalPages, setS2sTotalPages] = useState(1);
+  const [selectedS2sLog, setSelectedS2sLog] = useState<string | null>(null);
+  const [s2sTotal, setS2sTotal] = useState(0);
+  const [s2sLoading, setS2sLoading] = useState(false);
+
   // Predefined parameters
   const predefinedParameters = [
     { key: 'username', label: 'Username', placeholder: '{username}' },
@@ -164,6 +172,28 @@ const PostbackReceiver: React.FC = () => {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadS2sLogs = async (page = 1) => {
+    try {
+      setS2sLoading(true);
+      const data = await postbackReceiverApi.getS2SCallbackLogs({
+        page,
+        page_size: 20
+      });
+      setS2sLogs(data.logs);
+      setS2sTotal(data.total);
+      setS2sTotalPages(data.total_pages);
+      setS2sPage(data.page);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to load S2S logs',
+        variant: 'destructive'
+      });
+    } finally {
+      setS2sLoading(false);
     }
   };
 
@@ -520,6 +550,7 @@ const PostbackReceiver: React.FC = () => {
         <TabsList>
           <TabsTrigger value="received">Received Postbacks</TabsTrigger>
           <TabsTrigger value="forwarded">Forwarded Postbacks</TabsTrigger>
+          <TabsTrigger value="s2s" onClick={() => { if (s2sLogs.length === 0) loadS2sLogs(); }}>S2S Logs</TabsTrigger>
           <TabsTrigger value="generate">Generate URLs</TabsTrigger>
         </TabsList>
 
@@ -796,6 +827,149 @@ const PostbackReceiver: React.FC = () => {
                   When the partner sends a postback, it will appear in the "Received Postbacks" tab with all parameters logged.
                 </p>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* S2S Callback Logs Tab */}
+        <TabsContent value="s2s" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex justify-between items-center">
+                <div>
+                  <CardTitle>S2S Callback Logs ({s2sTotal})</CardTitle>
+                  <CardDescription>Outbound API calls made to partners when postbacks are received</CardDescription>
+                </div>
+                <Button onClick={() => loadS2sLogs(s2sPage)} variant="outline" size="sm">
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Refresh
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {s2sLoading ? (
+                <div className="flex justify-center items-center h-32">
+                  <Loader2 className="h-8 w-8 animate-spin" />
+                </div>
+              ) : s2sLogs.length === 0 ? (
+                <div className="text-center text-gray-500 py-8">
+                  No S2S callback logs found
+                </div>
+              ) : (
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Time</TableHead>
+                        <TableHead>Partner</TableHead>
+                        <TableHead>Event Type</TableHead>
+                        <TableHead>Respondent ID</TableHead>
+                        <TableHead>Status Code</TableHead>
+                        <TableHead>Response</TableHead>
+                        <TableHead>Success</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {s2sLogs.map((log) => (
+                        <React.Fragment key={log._id}>
+                        <TableRow className="cursor-pointer hover:bg-gray-50" onClick={() => setSelectedS2sLog(selectedS2sLog === log._id ? null : log._id)}>
+                          <TableCell className="text-sm whitespace-nowrap">
+                            {formatTimestamp(log.timestamp)}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {log.partner_name}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{log.event_type || '-'}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <code className="text-xs bg-gray-100 px-2 py-1 rounded">
+                              {log.request_payload?.respondentId || '-'}
+                            </code>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={log.response_status >= 200 && log.response_status < 300 ? 'default' : 'destructive'}>
+                              {log.response_status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="max-w-[200px] truncate text-xs text-gray-600">
+                            {log.response_body || '-'}
+                          </TableCell>
+                          <TableCell>
+                            {log.success ? (
+                              <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
+                                <CheckCircle className="h-3 w-3 mr-1" />
+                                Success
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-red-100 text-red-800 hover:bg-red-100">
+                                <XCircle className="h-3 w-3 mr-1" />
+                                Failed
+                              </Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                        {selectedS2sLog === log._id && (
+                          <TableRow>
+                            <TableCell colSpan={7} className="bg-gray-50 p-4">
+                              <div className="grid grid-cols-2 gap-4 text-sm">
+                                <div>
+                                  <p className="font-semibold text-gray-700 mb-1">Request Sent</p>
+                                  <pre className="bg-white border rounded p-3 text-xs overflow-x-auto">
+{JSON.stringify(log.request_payload, null, 2)}
+                                  </pre>
+                                </div>
+                                <div>
+                                  <p className="font-semibold text-gray-700 mb-1">Response Received</p>
+                                  <pre className="bg-white border rounded p-3 text-xs overflow-x-auto">
+{log.response_body || 'No response body'}
+                                  </pre>
+                                </div>
+                                <div>
+                                  <p className="font-semibold text-gray-700 mb-1">Callback URL</p>
+                                  <code className="text-xs bg-white border px-2 py-1 rounded block break-all">{log.callback_url}</code>
+                                </div>
+                                <div>
+                                  <p className="font-semibold text-gray-700 mb-1">Status Code</p>
+                                  <span className="text-xs">{log.response_status} • {log.success ? 'Delivered' : 'Failed'}</span>
+                                </div>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        </React.Fragment>
+                      ))}
+                    </TableBody>
+                  </Table>
+
+                  {/* Pagination */}
+                  {s2sTotalPages > 1 && (
+                    <div className="flex justify-between items-center mt-4">
+                      <span className="text-sm text-gray-600">
+                        Page {s2sPage} of {s2sTotalPages} ({s2sTotal} total)
+                      </span>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={s2sPage <= 1}
+                          onClick={() => loadS2sLogs(s2sPage - 1)}
+                        >
+                          Previous
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={s2sPage >= s2sTotalPages}
+                          onClick={() => loadS2sLogs(s2sPage + 1)}
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

@@ -31,7 +31,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { partnerApi, Partner, CreatePartnerData } from '@/services/partnerApi';
-import { Plus, Edit, Trash2, TestTube, Copy, CheckCircle, XCircle, Loader2, Ban, CheckCheck, Settings, ArrowRight, Search } from 'lucide-react';
+import { Plus, Edit, Trash2, TestTube, Copy, CheckCircle, XCircle, Loader2, Ban, CheckCheck, Settings, ArrowRight, Search, Eye } from 'lucide-react';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import {
   AlertDialog,
@@ -293,7 +293,9 @@ const Partners: React.FC = () => {
         offer_url_params: validOfferUrlParams,
         offer_watch_params: offerWatchParams.filter(p => p.our_field && p.their_param),
         network_domain: networkDomain.trim(),
-        redirect_mode: selectedPartner.redirect_mode || false
+        redirect_mode: selectedPartner.redirect_mode || false,
+        s2s_callback_url: (selectedPartner as any).s2s_callback_url || '',
+        s2s_api_key: (selectedPartner as any).s2s_api_key || ''
       };
 
       await partnerApi.updatePartner(selectedPartner.partner_id, updateData);
@@ -1341,6 +1343,51 @@ const Partners: React.FC = () => {
                 }}
                 className="h-4 w-4 rounded border-gray-300"
               />
+            </div>
+          </div>
+
+          {/* S2S Callback Config */}
+          <div className="border-t pt-4 mt-4 space-y-3">
+            <Label className="text-sm font-medium">S2S Callback (Outbound API)</Label>
+            <p className="text-xs text-muted-foreground">Send respondent status updates to partner's API when postback is received</p>
+            <div>
+              <Label className="text-xs text-gray-500">Callback URL</Label>
+              <Input
+                placeholder="https://api.partner.com/callback/updateStatus"
+                value={(selectedPartner as any)?.s2s_callback_url || ''}
+                onChange={(e) => {
+                  if (selectedPartner) setSelectedPartner({ ...selectedPartner, s2s_callback_url: e.target.value } as any);
+                }}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-xs text-gray-500">API Key</Label>
+              <div className="relative mt-1">
+                <Input
+                  type={(selectedPartner as any)?._showApiKey ? 'text' : 'password'}
+                  placeholder="Partner's API key"
+                  value={(selectedPartner as any)?.s2s_api_key || ''}
+                  onChange={(e) => {
+                    if (selectedPartner) setSelectedPartner({ ...selectedPartner, s2s_api_key: e.target.value } as any);
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                  onClick={() => {
+                    if (selectedPartner) setSelectedPartner({ ...selectedPartner, _showApiKey: !(selectedPartner as any)?._showApiKey } as any);
+                  }}
+                >
+                  {(selectedPartner as any)?._showApiKey ? (
+                    <XCircle className="h-4 w-4 text-gray-400" />
+                  ) : (
+                    <Eye className="h-4 w-4 text-gray-400" />
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
 
