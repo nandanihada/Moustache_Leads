@@ -935,6 +935,26 @@ export const OfferwallProfessional: React.FC<Props> = ({
               <span>Offer</span><span className="text-center">Reward</span><span className="text-center">QR</span><span className="text-right">Action</span>
             </div>
             <div className="flex flex-col gap-2.5">
+              {/* Sub-walls in table view */}
+              {subWalls.filter(w => !search || w.name?.toLowerCase().includes(search.toLowerCase()) || w.description?.toLowerCase().includes(search.toLowerCase()) || w.slug?.toLowerCase().includes(search.toLowerCase())).map(w => (
+                <div key={`sw-t-${w._id}`} onClick={() => window.open(`https://walls.moustacheleads.com/wall/${w.slug}`, '_blank')} className="bg-white rounded-xl border-2 border-purple-200 hover:border-purple-400 hover:shadow-md px-4 py-3 cursor-pointer transition-all group grid grid-cols-[1fr_auto] md:grid-cols-[1fr_140px_80px_120px] items-center gap-2 md:gap-0">
+                  <div className="flex items-center gap-3 min-w-0 overflow-hidden">
+                    <div className="w-20 h-20 rounded-xl bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-100 flex-shrink-0 flex items-center justify-center overflow-hidden">
+                      {w.image_url ? <img src={w.image_url} alt={w.name} className="w-full h-full object-cover rounded-xl" /> : <Award className="h-8 w-8 text-purple-400" />}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-[9px] font-bold tracking-wider uppercase text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded">Collection</span>
+                      </div>
+                      <p className="font-semibold text-gray-900 text-sm truncate group-hover:text-[#340075] transition-colors">{w.heading_text || w.name}</p>
+                      {w.description && <p className="text-[11px] text-gray-500 truncate mt-0.5">{w.description}</p>}
+                    </div>
+                  </div>
+                  <div className="hidden md:block md:text-center"></div>
+                  <div className="hidden md:block md:text-center"></div>
+                  <div className="text-right flex-shrink-0"><button className="text-xs font-semibold text-white bg-[#340075] hover:bg-[#4c1d95] px-4 py-2 rounded-lg transition-all hover:shadow-md whitespace-nowrap">View Collection</button></div>
+                </div>
+              ))}
               {visibleOffers.map(offer => {
                 const pts = Math.round(offer.reward_amount || 0);
                 const realId = offer.id.replace(/__cat\d+$/, '');
@@ -1014,7 +1034,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
             {/* Sub-walls */}
             {subWalls.filter(w => !search || w.name?.toLowerCase().includes(search.toLowerCase()) || w.description?.toLowerCase().includes(search.toLowerCase()) || w.slug?.toLowerCase().includes(search.toLowerCase())).map(w => (
               <div key={`sw-${w._id}`} onClick={() => window.open(`https://walls.moustacheleads.com/wall/${w.slug}`, '_blank')} className="ow-card group cursor-pointer">
-                <div className="relative h-44 overflow-hidden rounded-t-2xl">{w.image_url ? <img src={w.image_url} alt={w.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" /> : <div className="w-full h-full bg-gradient-to-br from-purple-100 to-indigo-100 flex items-center justify-center"><Award className="h-10 w-10 text-purple-300" /></div>}<div className="absolute top-3 right-3 bg-white/95 px-2.5 py-1 rounded-full shadow-sm text-xs font-bold text-[#340075]">{w.offer_count} offers</div></div>
+                <div className="relative h-44 overflow-hidden rounded-t-2xl">{w.image_url ? <img src={w.image_url} alt={w.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" /> : <div className="w-full h-full bg-gradient-to-br from-purple-100 to-indigo-100 flex items-center justify-center"><Award className="h-10 w-10 text-purple-300" /></div>}</div>
                 <div className="p-4 flex flex-col flex-grow"><p className="text-[9px] font-bold tracking-wider uppercase text-teal-700 mb-1">Collection</p><h3 className="font-bold text-gray-900 text-sm mb-1">{w.heading_text || w.name}</h3><p className="text-gray-500 text-xs line-clamp-2 mb-3">{w.description}</p><button className="ow-btn w-full mt-auto">View Collection</button></div>
               </div>
             ))}

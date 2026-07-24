@@ -220,7 +220,7 @@ export default function AdminSubWalls() {
     setOfferSearchLoading(true);
     try {
       const token = getAuthToken();
-      const res = await fetch(`${getApiBaseUrl()}/api/admin/offers?search=${encodeURIComponent(query)}&per_page=10`, {
+      const res = await fetch(`${getApiBaseUrl()}/api/admin/offers?search=${encodeURIComponent(query)}&per_page=100`, {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
@@ -482,21 +482,38 @@ export default function AdminSubWalls() {
               </div>
               {/* Search results */}
               {offerResults.length > 0 && (
-                <div className="border rounded max-h-32 overflow-y-auto">
-                  {offerResults.map((offer) => (
-                    <div
-                      key={offer.offer_id || offer._id}
-                      className="flex items-center justify-between px-3 py-1.5 hover:bg-muted cursor-pointer text-sm"
-                      onClick={() => addOffer(offer.offer_id || offer._id)}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-muted-foreground">{offerResults.length} results</span>
+                    <button
+                      type="button"
+                      className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                      onClick={() => {
+                        const newIds = offerResults
+                          .map(o => o.offer_id || o._id)
+                          .filter((id: string) => !formOfferIds.includes(id));
+                        if (newIds.length > 0) setFormOfferIds([...formOfferIds, ...newIds]);
+                      }}
                     >
-                      <span>{offer.offer_id} - {offer.name}</span>
-                      {formOfferIds.includes(offer.offer_id || offer._id) ? (
-                        <Badge variant="outline" className="text-xs">Added</Badge>
-                      ) : (
-                        <Plus className="h-3 w-3 text-green-600" />
-                      )}
-                    </div>
-                  ))}
+                      + Add All ({offerResults.filter(o => !formOfferIds.includes(o.offer_id || o._id)).length})
+                    </button>
+                  </div>
+                  <div className="border rounded max-h-32 overflow-y-auto">
+                    {offerResults.map((offer) => (
+                      <div
+                        key={offer.offer_id || offer._id}
+                        className="flex items-center justify-between px-3 py-1.5 hover:bg-muted cursor-pointer text-sm"
+                        onClick={() => addOffer(offer.offer_id || offer._id)}
+                      >
+                        <span>{offer.offer_id} - {offer.name}</span>
+                        {formOfferIds.includes(offer.offer_id || offer._id) ? (
+                          <Badge variant="outline" className="text-xs">Added</Badge>
+                        ) : (
+                          <Plus className="h-3 w-3 text-green-600" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
               {offerSearchLoading && <div className="text-xs text-muted-foreground">Searching...</div>}
