@@ -316,6 +316,13 @@ class BulkOfferProcessor:
                          if k not in ['_id', 'offer_id', 'created_at', 'created_by']}
             update_data['updated_at'] = datetime.utcnow()
             
+            # Don't overwrite image_url/thumbnail_url with empty values
+            # (network APIs often don't return images on re-fetch)
+            if not update_data.get('image_url'):
+                update_data.pop('image_url', None)
+            if not update_data.get('thumbnail_url'):
+                update_data.pop('thumbnail_url', None)
+            
             result = self.offers_collection.update_one(
                 {'$or': [{'_id': ObjectId(offer_id)}, {'offer_id': offer_id}]},
                 {'$set': update_data}

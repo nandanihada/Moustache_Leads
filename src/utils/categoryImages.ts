@@ -124,7 +124,6 @@ export function getOfferImage(offer: { image_url?: string; thumbnail_url?: strin
     if (!url || url.trim() === '') return true;
     const lowerUrl = url.toLowerCase();
     return (
-      lowerUrl.includes('unsplash.com') ||
       lowerUrl.includes('/assets/category-images/') ||  // Old incorrect path
       lowerUrl.includes('placeholder') ||
       lowerUrl.includes('via.placeholder') ||

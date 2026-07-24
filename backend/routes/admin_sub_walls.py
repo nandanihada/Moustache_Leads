@@ -397,8 +397,20 @@ def get_public_sub_wall(slug):
             }
             
             offers_cursor = offers_collection.find(query_filter)
+            
+            # Country-based filtering
+            user_country = request.args.get('country', '').strip().upper()
+            
             for offer in offers_cursor:
                 offer['_id'] = str(offer['_id'])
+                
+                # Filter by user country if provided
+                if user_country:
+                    offer_countries = [c.upper() for c in (offer.get('countries') or [])]
+                    if offer_countries and 'WW' not in offer_countries and 'GLOBAL' not in offer_countries and 'ALL' not in offer_countries and 'WORLDWIDE' not in offer_countries:
+                        if user_country not in offer_countries:
+                            continue  # Skip offers not targeting user's country
+                
                 # Build a clean click URL by replacing macros in target_url
                 target_url = offer.get('target_url', '')
                 if target_url:

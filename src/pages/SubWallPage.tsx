@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { getApiBaseUrl } from '@/services/apiConfig';
-import { Search, X, LayoutGrid, List, ChevronRight, Globe } from 'lucide-react';
+import { Search, X, LayoutGrid, List, ChevronRight } from 'lucide-react';
 import { OfferModal } from '@/components/OfferModal';
 
 interface Offer {
@@ -21,6 +21,7 @@ interface Offer {
   preview_url?: string;
   status?: string;
   device_targeting?: string[];
+  length_of_interview?: string;
 }
 
 interface SubWallData {
@@ -68,20 +69,49 @@ const SubWallPage: React.FC = () => {
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('default');
-  const [device, setDevice] = useState('all');
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [userCountry, setUserCountry] = useState('');
+
+  const isAdmin = new URLSearchParams(window.location.search).get('admin') === 'true';
 
   const API_BASE = getApiBaseUrl();
 
   useEffect(() => {
     if (slug) fetchSubWall();
-  }, [slug]);
+  }, [slug, userCountry]);
+
+  // Detect user country
+  useEffect(() => {
+    const urlCountry = new URLSearchParams(window.location.search).get('country');
+    if (urlCountry) { setUserCountry(urlCountry.toUpperCase()); return; }
+    detectCountry();
+  }, []);
+
+  const detectCountry = async () => {
+    try {
+      const sources = [
+        `${getApiBaseUrl()}/api/geo/detect`,
+        'https://ipapi.co/json/',
+      ];
+      for (const url of sources) {
+        try {
+          const r = await fetch(url, { signal: AbortSignal.timeout(3000) });
+          if (r.ok) {
+            const d = await r.json();
+            const code = d.country_code || d.countryCode || d.country || '';
+            if (code && code.length === 2) { setUserCountry(code.toUpperCase()); return; }
+          }
+        } catch { continue; }
+      }
+    } catch {}
+  };
 
   const fetchSubWall = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/api/admin/sub-walls/public/${slug}`);
+      const countryParam = userCountry ? `?country=${userCountry}` : '';
+      const res = await fetch(`${API_BASE}/api/admin/sub-walls/public/${slug}${countryParam}`);
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || 'Sub-wall not found');
@@ -198,6 +228,17 @@ const SubWallPage: React.FC = () => {
     if (!subWall) return [];
     let offers = [...subWall.offers];
 
+    // Country filter — only show offers targeting the user's country (or global offers)
+    if (userCountry && !isAdmin) {
+      offers = offers.filter(o => {
+        const countries = o.countries || [];
+        if (countries.length === 0) return true; // No geo restriction = show to everyone
+        const upper = countries.map(c => c.toUpperCase());
+        if (upper.includes('WW') || upper.includes('GLOBAL') || upper.includes('ALL') || upper.includes('WORLDWIDE')) return true;
+        return upper.includes(userCountry);
+      });
+    }
+
     // Search filter
     if (search) {
       const s = search.toLowerCase();
@@ -209,18 +250,13 @@ const SubWallPage: React.FC = () => {
       );
     }
 
-    // Device filter
-    if (device !== 'all') {
-      offers = offers.filter(o => {
-        const dt = Array.isArray(o.device_targeting) ? o.device_targeting : [];
-        if (dt.length === 0) return true;
-        return dt.some(d => d.toLowerCase().includes(device.toLowerCase()));
-      });
-    }
-
     // Sort
     if (sort === 'highest') offers.sort((a, b) => (b.payout || 0) - (a.payout || 0));
     else if (sort === 'lowest') offers.sort((a, b) => (a.payout || 0) - (b.payout || 0));
+    else if (sort === 'time_high') offers.sort((a, b) => (parseInt(b.length_of_interview || '0') || 0) - (parseInt(a.length_of_interview || '0') || 0));
+    else if (sort === 'time_low') offers.sort((a, b) => (parseInt(a.length_of_interview || '0') || 0) - (parseInt(b.length_of_interview || '0') || 0));
+    else if (sort === 'newest') offers.reverse();
+    else if (sort === 'oldest') { /* default order is oldest first */ }
 
     return offers;
   };
@@ -420,19 +456,15 @@ const SubWallPage: React.FC = () => {
       {/* ===== CONTROLS BAR ===== */}
       <div className="bg-gray-50 border-b border-gray-100">
         <div className="max-w-[1300px] mx-auto px-3 sm:px-4 md:px-6 py-2 sm:py-2.5 flex flex-wrap items-center gap-1.5 sm:gap-2">
-          <div className="relative flex items-center">
-            <Globe className="absolute left-2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-            <select value={device} onChange={e => setDevice(e.target.value)} className="sw-select sw-select-icon">
-              <option value="all">All Devices</option>
-              <option value="android">Android</option>
-              <option value="ios">iOS</option>
-              <option value="desktop">Desktop</option>
-            </select>
-          </div>
+          <span className="text-xs text-gray-500 font-medium">Sort by</span>
           <select value={sort} onChange={e => setSort(e.target.value)} className="sw-select">
-            <option value="default">Default Order</option>
-            <option value="highest">Highest Payout</option>
-            <option value="lowest">Lowest Payout</option>
+            <option value="default">Recommended</option>
+            <option value="highest">Payout: High to Low</option>
+            <option value="lowest">Payout: Low to High</option>
+            <option value="time_high">Time: High to Low</option>
+            <option value="time_low">Time: Low to High</option>
+            <option value="newest">Newest</option>
+            <option value="oldest">Oldest</option>
           </select>
           <div className="ml-auto flex items-center bg-white border border-gray-200 rounded-lg overflow-hidden">
             <button onClick={() => setViewMode('grid')} className={`p-2 transition-colors ${viewMode === 'grid' ? 'text-white' : 'text-gray-500 hover:text-gray-700'}`}
@@ -469,7 +501,7 @@ const SubWallPage: React.FC = () => {
             <div className="text-5xl mb-4">🔍</div>
             <h3 className="text-gray-700 text-lg font-bold mb-2">No offers found</h3>
             <p className="text-gray-500 text-sm mb-4">Try adjusting your search or filters</p>
-            <button onClick={() => { setSearch(''); setDevice('all'); }}
+            <button onClick={() => { setSearch(''); }}
               className="sw-btn px-6 py-2" style={{ background: themeColor }}>Clear Filters</button>
           </div>
         )}
@@ -501,24 +533,26 @@ const SubWallPage: React.FC = () => {
                       {offer.refined_description?.event_flow && (
                         <p className="text-[11px] font-medium truncate mt-0.5" style={{ color: themeColor }}>{offer.refined_description.event_flow}</p>
                       )}
-                      {offer.description && !offer.refined_description?.event_flow && (
+                      {isAdmin && offer.description && !offer.refined_description?.event_flow && (
                         <p className="text-[11px] text-gray-500 truncate mt-0.5">{offer.description}</p>
                       )}
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        {offer.category && (
-                          <span className="inline-flex items-center text-[10px] font-medium text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full">{offer.category}</span>
-                        )}
-                        <span className="inline-flex items-center text-[10px] font-medium text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full">{getDeviceLabel(offer)}</span>
                         {/* Mobile payout */}
                         <span className="md:hidden inline-flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ color: themeColor, background: `${themeColor}15` }}>
-                          ${(offer.payout || 0).toFixed(2)} {offer.payout_type || 'CPA'}
+                          ${(offer.payout || 0).toFixed(2)}
                         </span>
+                        {offer.length_of_interview && (
+                          <span className="md:hidden inline-flex items-center gap-0.5 text-[10px] font-medium text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded-full">⏱ {offer.length_of_interview} min</span>
+                        )}
                       </div>
                     </div>
                   </div>
                   {/* Payout */}
-                  <div className="hidden md:block md:text-center">
-                    <span className="font-bold text-sm" style={{ color: themeColor }}>${(offer.payout || 0).toFixed(2)} {offer.payout_type || 'CPA'}</span>
+                  <div className="hidden md:flex md:flex-col md:items-center md:gap-1">
+                    <span className="font-bold text-sm" style={{ color: themeColor }}>${(offer.payout || 0).toFixed(2)}</span>
+                    {offer.length_of_interview && (
+                      <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded-full">⏱ {offer.length_of_interview} min</span>
+                    )}
                   </div>
                   {/* Countries */}
                   <div className="hidden md:block md:text-center">
@@ -588,8 +622,14 @@ const SubWallPage: React.FC = () => {
                   )}
                   {/* Payout badge */}
                   <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm px-2.5 py-1 rounded-full shadow-sm">
-                    <span className="font-bold text-xs" style={{ color: themeColor }}>${(offer.payout || 0).toFixed(2)} {offer.payout_type || 'CPA'}</span>
+                    <span className="font-bold text-xs" style={{ color: themeColor }}>${(offer.payout || 0).toFixed(2)}</span>
                   </div>
+                  {/* Timing badge */}
+                  {offer.length_of_interview && (
+                    <div className="absolute top-3 left-3 bg-white/95 backdrop-blur-sm px-2 py-1 rounded-full shadow-sm">
+                      <span className="text-[10px] font-semibold text-orange-600">⏱ {offer.length_of_interview} min</span>
+                    </div>
+                  )}
                 </div>
                 {/* Content */}
                 <div className="p-4 flex flex-col flex-grow">
@@ -597,18 +637,9 @@ const SubWallPage: React.FC = () => {
                   {offer.refined_description?.event_flow && (
                     <p className="text-[11px] font-medium truncate mb-2" style={{ color: themeColor }}>{offer.refined_description.event_flow}</p>
                   )}
-                  {offer.description && !offer.refined_description?.event_flow && (
+                  {isAdmin && offer.description && !offer.refined_description?.event_flow && (
                     <p className="text-[11px] text-gray-500 line-clamp-2 mb-2">{offer.description}</p>
                   )}
-                  <div className="flex items-center gap-1.5 flex-wrap mb-3">
-                    {offer.category && (
-                      <span className="inline-flex items-center text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{offer.category}</span>
-                    )}
-                    <span className="inline-flex items-center text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{getDeviceLabel(offer)}</span>
-                    {offer.countries && offer.countries.length > 0 && (
-                      <span className="inline-flex items-center text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{offer.countries.slice(0, 2).join(', ')}</span>
-                    )}
-                  </div>
                   <button className="sw-btn w-full mt-auto" style={{ background: themeColor }}>
                     <span>{buttonText}</span><ChevronRight className="w-4 h-4 opacity-60" />
                   </button>

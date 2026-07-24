@@ -5566,6 +5566,8 @@ def assign_random_images():
             return jsonify({'error': 'Database connection not available'}), 500
         
         # Find offers without images
+        # IMPORTANT: Only match offers where image_url is TRULY empty/missing
+        # Do NOT match based on thumbnail_url alone — that would hit ALL offers
         query = {
             '$and': [
                 {'$or': [
@@ -5575,10 +5577,7 @@ def assign_random_images():
                 {'$or': [
                     {'image_url': {'$exists': False}},
                     {'image_url': None},
-                    {'image_url': ''},
-                    {'thumbnail_url': {'$exists': False}},
-                    {'thumbnail_url': None},
-                    {'thumbnail_url': ''}
+                    {'image_url': ''}
                 ]}
             ]
         }
