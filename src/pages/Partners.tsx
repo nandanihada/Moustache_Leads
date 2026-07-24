@@ -292,7 +292,8 @@ const Partners: React.FC = () => {
         parameter_mapping: paramMapping,
         offer_url_params: validOfferUrlParams,
         offer_watch_params: offerWatchParams.filter(p => p.our_field && p.their_param),
-        network_domain: networkDomain.trim()
+        network_domain: networkDomain.trim(),
+        redirect_mode: selectedPartner.redirect_mode || false
       };
 
       await partnerApi.updatePartner(selectedPartner.partner_id, updateData);
@@ -1163,7 +1164,7 @@ const Partners: React.FC = () => {
 
       {/* Edit Partner Modal */}
       <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Partner</DialogTitle>
             <DialogDescription>Update partner details and their parameter names.</DialogDescription>
@@ -1319,6 +1320,27 @@ const Partners: React.FC = () => {
                   <SelectItem value="inactive">Inactive</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+
+          {/* Survey Redirect Mode */}
+          <div className="border-t pt-4 mt-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-sm font-medium">Survey Redirect Mode</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">Show thank-you page on event postback URLs (/complete, /terminate, etc.)</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={selectedPartner?.redirect_mode || false}
+                onChange={(e) => {
+                  if (selectedPartner) {
+                    setSelectedPartner({ ...selectedPartner, redirect_mode: e.target.checked });
+                    setFormData({ ...formData, redirect_mode: e.target.checked } as any);
+                  }
+                }}
+                className="h-4 w-4 rounded border-gray-300"
+              />
             </div>
           </div>
 

@@ -13,6 +13,188 @@ from utils.auth import token_required
 postback_receiver_bp = Blueprint('postback_receiver', __name__)
 logger = logging.getLogger(__name__)
 
+# Thank You page template — Creative animated design with CSS animations
+THANK_YOU_PAGE_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - Moustache Leads</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #09090b;
+            color: #fff;
+            overflow: hidden;
+        }
+        .bg-glow {
+            position: fixed;
+            width: 500px;
+            height: 500px;
+            border-radius: 50%;
+            filter: blur(150px);
+            opacity: 0.12;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: {{ color }};
+            animation: breathe 5s ease-in-out infinite;
+        }
+        .bg-glow-2 {
+            position: fixed;
+            width: 300px;
+            height: 300px;
+            border-radius: 50%;
+            filter: blur(100px);
+            opacity: 0.08;
+            top: 30%;
+            left: 30%;
+            background: {{ color }};
+            animation: drift 8s ease-in-out infinite;
+        }
+        @keyframes breathe {
+            0%, 100% { opacity: 0.1; transform: translate(-50%, -50%) scale(1); }
+            50% { opacity: 0.18; transform: translate(-50%, -50%) scale(1.15); }
+        }
+        @keyframes drift {
+            0%, 100% { transform: translate(0, 0); }
+            50% { transform: translate(40px, -30px); }
+        }
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(25px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes scaleIn {
+            from { opacity: 0; transform: scale(0.5); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        @keyframes drawCircle {
+            from { stroke-dashoffset: 166; }
+            to { stroke-dashoffset: 0; }
+        }
+        @keyframes drawCheck {
+            from { stroke-dashoffset: 30; }
+            to { stroke-dashoffset: 0; }
+        }
+        @keyframes drawX {
+            from { stroke-dashoffset: 20; }
+            to { stroke-dashoffset: 0; }
+        }
+        .container {
+            text-align: center;
+            padding: 2rem;
+            max-width: 460px;
+            width: 100%;
+            position: relative;
+            z-index: 1;
+        }
+        .anim-icon {
+            width: 100px;
+            height: 100px;
+            margin: 0 auto 2rem;
+            animation: scaleIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) 0.2s both;
+        }
+        .anim-icon svg {
+            width: 100%;
+            height: 100%;
+        }
+        .anim-icon .circle {
+            fill: none;
+            stroke: {{ color }};
+            stroke-width: 3;
+            stroke-dasharray: 166;
+            stroke-dashoffset: 166;
+            animation: drawCircle 0.8s ease 0.3s forwards;
+        }
+        .anim-icon .icon-path {
+            fill: none;
+            stroke: {{ color }};
+            stroke-width: 3;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            stroke-dasharray: 30;
+            stroke-dashoffset: 30;
+            animation: drawCheck 0.4s ease 0.9s forwards;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 0.4rem 1.2rem;
+            border-radius: 100px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            background: {{ color }}15;
+            color: {{ color }};
+            border: 1px solid {{ color }}30;
+            margin-bottom: 1.5rem;
+            animation: fadeUp 0.5s ease 0.6s both;
+        }
+        h1 {
+            font-size: 1.8rem;
+            font-weight: 800;
+            margin-bottom: 1rem;
+            color: #fafafa;
+            animation: fadeUp 0.5s ease 0.7s both;
+        }
+        p {
+            font-size: 0.9rem;
+            color: #71717a;
+            line-height: 1.8;
+            max-width: 380px;
+            margin: 0 auto;
+            animation: fadeUp 0.5s ease 0.8s both;
+        }
+        .footer {
+            position: fixed;
+            bottom: 2rem;
+            left: 0;
+            right: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.7rem;
+            font-size: 0.9rem;
+            color: #e4e4e7;
+            animation: fadeUp 0.5s ease 1.2s both;
+        }
+        .footer img {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.4)) drop-shadow(0 0 24px rgba(139, 92, 246, 0.5));
+            animation: logoGlow 3s ease-in-out infinite;
+        }
+        @keyframes logoGlow {
+            0%, 100% { filter: drop-shadow(0 0 8px rgba(255,255,255,0.3)) drop-shadow(0 0 16px rgba(139,92,246,0.4)); }
+            50% { filter: drop-shadow(0 0 14px rgba(255,255,255,0.5)) drop-shadow(0 0 28px rgba(139,92,246,0.7)); }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-glow"></div>
+    <div class="bg-glow-2"></div>
+    <div class="container">
+        <div class="anim-icon">{{ icon_svg|safe }}</div>
+        <div class="status-badge">{{ badge }}</div>
+        <h1>{{ title }}</h1>
+        <p>{{ subtitle }}</p>
+    </div>
+    <div class="footer">
+        <img src="https://moustacheleads.com/logo.png" alt="Moustache Leads" />
+        Powered by Moustache Leads
+    </div>
+</body>
+</html>
+"""
+
 def admin_required(f):
     """Decorator to require admin role"""
     from functools import wraps
@@ -844,7 +1026,7 @@ def receive_postback(unique_key, event_type):
                 logger.error(traceback.format_exc())
 
         # Return success response
-        # If partner has redirect_mode enabled OR event_type came from URL path, redirect user to offerwall
+        # If partner has redirect_mode enabled OR event_type came from URL path, show thank you page
         is_redirect_mode = False
         redirect_url = None
         if partner and isinstance(partner, dict):
@@ -853,9 +1035,52 @@ def receive_postback(unique_key, event_type):
         
         # If event_type came from URL path, it's likely a browser redirect from survey platform
         if event_type and is_redirect_mode:
-            target = redirect_url or 'https://offerwall.moustacheleads.com'
-            logger.info(f"🔀 Redirect mode: sending user to {target} (event_type={event_type})")
-            return flask_redirect(target)
+            from flask import render_template_string
+            # Determine message based on event type (CSS animated SVG icons)
+            # Checkmark circle
+            svg_complete = '<svg viewBox="0 0 52 52"><circle class="circle" cx="26" cy="26" r="25"/><path class="icon-path" d="M14.1 27.2l7.1 7.2 16.7-16.8"/></svg>'
+            # X circle
+            svg_terminate = '<svg viewBox="0 0 52 52"><circle class="circle" cx="26" cy="26" r="25"/><path class="icon-path" d="M16 16 36 36M36 16 16 36"/></svg>'
+            # Pause/stop bars
+            svg_quota = '<svg viewBox="0 0 52 52"><circle class="circle" cx="26" cy="26" r="25"/><path class="icon-path" d="M20 18v16M32 18v16"/></svg>'
+            # Shield/lock
+            svg_security = '<svg viewBox="0 0 52 52"><circle class="circle" cx="26" cy="26" r="25"/><path class="icon-path" d="M26 16v8M22 24h8v8H22z"/></svg>'
+            
+            messages = {
+                'complete': {
+                    'title': 'Survey Completed!',
+                    'subtitle': 'Your response has been recorded successfully. Thank you for taking the time to participate.',
+                    'badge': 'Completed',
+                    'color': '#8b5cf6',
+                    'icon_svg': svg_complete
+                },
+                'terminate': {
+                    'title': 'Terminated',
+                    'subtitle': 'You did not qualify for this survey based on your responses. This is normal — not every survey is a match.',
+                    'badge': 'Disqualified',
+                    'color': '#f59e0b',
+                    'icon_svg': svg_terminate
+                },
+                'quotafull': {
+                    'title': 'Quota Reached',
+                    'subtitle': 'This survey has already collected enough responses for your demographic. Please try another survey.',
+                    'badge': 'Quota Full',
+                    'color': '#8b5cf6',
+                    'icon_svg': svg_quota
+                },
+                'security': {
+                    'title': 'Security Check Failed',
+                    'subtitle': 'Your session was flagged by our security system. If you believe this is an error, please contact support.',
+                    'badge': 'Security Terminated',
+                    'color': '#ef4444',
+                    'icon_svg': svg_security
+                },
+            }
+            msg = messages.get(event_type, messages['complete'])
+            logger.info(f"🔀 Redirect mode: showing thank you page (event_type={event_type})")
+            return render_template_string(THANK_YOU_PAGE_TEMPLATE, 
+                title=msg['title'], subtitle=msg['subtitle'], badge=msg['badge'],
+                color=msg['color'], icon_svg=msg['icon_svg'])
         
         return jsonify({
             'status': 'success',
