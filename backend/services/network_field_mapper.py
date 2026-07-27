@@ -137,6 +137,8 @@ class NetworkFieldMapper:
                 return self._map_marketxcel_offer(offer_data, network_id)
             elif network_type == 'lootably':
                 return self._map_lootably_offer(offer_data, network_id)
+            elif network_type == 'voqall':
+                return self._map_voqall_offer(offer_data, network_id)
             elif network_type == 'cj':
                 return self._map_cj_offer(offer_data, network_id)
             elif network_type == 'shareasale':
@@ -1951,6 +1953,150 @@ class NetworkFieldMapper:
         
         return ''
     
+    # ==================== Voqall Mapper ====================
+
+    def _map_voqall_offer(self, offer_data: Dict, network_id: str = None) -> Dict[str, Any]:
+        """
+        Map a Voqall survey dict (from GET /surveys) to the platform offer schema.
+
+        Voqall survey fields:
+            SurveyId, Name, Revenue (float), IncidentRate (float), LengthOfInterview (float),
+            StudyTypeId, Completes, LanguageId, SurveyUrl, DesktopAllowed, MobileAllowed,
+            TabletAllowed, LastUpdatedOnUTC, Has_Qualifications, Has_Quotas, Has_Survey_Groups,
+            IndustryId, CollectPii, BuyerId, StartDate, EndDate,
+            Qual_LastUpdatedOnUTC, Quota_LastUpdatedOnUTC,
+            Cpi (deprecated string), Ir (deprecated string), Loi (deprecated string)
+        """
+        try:
+            survey_id = str(offer_data.get('SurveyId', '') or '')
+            name = str(offer_data.get('Name', '') or f'Voqall Survey {survey_id}').strip()
+
+            # Payout — prefer new numeric Revenue field; fall back to deprecated Cpi string
+            try:
+                payout = float(offer_data.get('Revenue') or offer_data.get('Cpi') or 0)
+            except (ValueError, TypeError):
+                payout = 0.0
+
+            # Incidence rate & LOI — prefer numeric fields
+            try:
+                ir = float(offer_data.get('IncidentRate') or offer_data.get('Ir') or 0)
+            except (ValueError, TypeError):
+                ir = 0.0
+            try:
+                loi = float(offer_data.get('LengthOfInterview') or offer_data.get('Loi') or 0)
+            except (ValueError, TypeError):
+                loi = 0.0
+
+            # Build description
+            desc_parts = []
+            if loi:
+                desc_parts.append(f"LOI: {loi:.0f} min")
+            if ir:
+                desc_parts.append(f"IR: {ir:.0f}%")
+            completes = offer_data.get('Completes')
+            if completes:
+                desc_parts.append(f"Completes needed: {completes}")
+            description = ' | '.join(desc_parts) if desc_parts else f"Voqall survey {survey_id}"
+
+            # Target URL — append our tracking macros
+            raw_url = str(offer_data.get('SurveyUrl', '') or '').strip()
+            # Voqall uses {respondentId} placeholder — map to our {click_id}
+            target_url = raw_url.replace('{respondentId}', '{click_id}')
+            if not target_url:
+                target_url = f'https://partner-api2.voqall.com/survey/{survey_id}'
+
+            # Device targeting
+            desktop = bool(offer_data.get('DesktopAllowed', True))
+            mobile  = bool(offer_data.get('MobileAllowed', True))
+            tablet  = bool(offer_data.get('TabletAllowed', True))
+            if desktop and mobile and tablet:
+                device_targeting = 'all'
+            elif mobile and tablet:
+                device_targeting = 'mobile'
+            elif desktop and not mobile and not tablet:
+                device_targeting = 'desktop'
+            else:
+                device_targeting = 'all'
+
+            # Dates
+            start_date = str(offer_data.get('StartDate', '') or '').split('T')[0]
+            end_date   = str(offer_data.get('EndDate', '') or '').split('T')[0]
+            if not end_date or end_date in ('', '0000-00-00', 'None', 'null'):
+                from datetime import timedelta
+                end_date = (datetime.utcnow() + timedelta(days=30)).strftime('%Y-%m-%d')
+
+            # Daily cap from Completes
+            try:
+                daily_cap = int(completes or 0)
+            except (ValueError, TypeError):
+                daily_cap = 0
+
+            mapped_offer = {
+                'campaign_id': survey_id,
+                'name': format_offer_name(name) if name else f'Voqall Survey {survey_id}',
+                'description': description,
+                'target_url': target_url,
+                'preview_url': 'https://voqall.com',
+                'image_url': '',
+                'payout': round(payout, 4),
+                'currency': 'USD',
+                'countries': ['WW'],           # Voqall survey list doesn't include country per-survey
+                'allowed_countries': ['WW'],
+                'vertical': 'SURVEY',
+                'category': 'SURVEY',
+                'device_targeting': device_targeting,
+                'network': 'voqall',
+                'network_type': 'voqall',
+                'status': 'active',
+                'incentive_type': 'Incent',
+                'offer_type': 'CPL',
+                'payout_model': 'CPL',
+                'daily_cap': daily_cap,
+                'expiration_date': end_date,
+                'start_date': start_date,
+                'affiliates': 'all',
+                'revenue_share_percent': 0,
+                'show_in_offerwall': True,
+                'source': 'api_import',
+                'import_source': 'voqall',
+                # Voqall-specific metadata stored for reference
+                'voqall_survey_id': survey_id,
+                'voqall_ir': ir,
+                'voqall_loi': loi,
+                'voqall_completes': completes,
+                'voqall_has_qualifications': bool(offer_data.get('Has_Qualifications', False)),
+                'voqall_has_quotas': bool(offer_data.get('Has_Quotas', False)),
+                'voqall_study_type_id': offer_data.get('StudyTypeId'),
+                'conversion_type': 'Survey Complete',
+                'level_payouts': {'enabled': False, 'levels': []},
+                'geo_payouts': [],
+                'allowed_traffic_sources': [],
+                'blocked_traffic_sources': [],
+                'tracking_protocol': '',
+                'conversion_flow': '',
+                'conversion_window': None,
+                'creative_requirements': '',
+                'affiliate_terms': '',
+                'restrictions': '',
+                'terms_notes': '',
+                'blocked_countries': [],
+                'os_requirements': [],
+                'browser_requirements': [],
+                'carrier_requirements': [],
+                'connection_type': '',
+                'language_requirements': [],
+                'monthly_cap': 0,
+                'kpi': '',
+                'traffic_type': '',
+                'created_at': datetime.utcnow(),
+                'updated_at': datetime.utcnow(),
+            }
+            return mapped_offer
+
+        except Exception as e:
+            logger.error(f"Error mapping Voqall offer: {e}", exc_info=True)
+            return {}
+
     def _map_cj_offer(self, offer_data: Dict, network_id: str = None) -> Dict[str, Any]:
         """Map CJ offer to database format"""
         # TODO: Implement CJ mapping

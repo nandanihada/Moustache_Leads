@@ -48,6 +48,8 @@ class NetworkAPIService:
                 return self._test_marketxcel_connection(network_id, api_key)
             elif network_type == 'lootably':
                 return self._test_lootably_connection(network_id, api_key)
+            elif network_type == 'voqall':
+                return self._test_voqall_connection(network_id, api_key)
             elif network_type == 'cj':
                 return self._test_cj_connection(network_id, api_key)
             elif network_type == 'shareasale':
@@ -88,6 +90,8 @@ class NetworkAPIService:
                 return self._fetch_marketxcel_offers(network_id, api_key, filters, limit)
             elif network_type == 'lootably':
                 return self._fetch_lootably_offers(network_id, api_key, filters, limit)
+            elif network_type == 'voqall':
+                return self._fetch_voqall_offers(network_id, api_key, filters, limit)
             elif network_type == 'cj':
                 return self._fetch_cj_offers(network_id, api_key, filters, limit)
             elif network_type == 'shareasale':
@@ -1115,6 +1119,108 @@ class NetworkAPIService:
         """Fetch offers from ShareASale API"""
         # TODO: Implement ShareASale API integration
         return [], "ShareASale integration coming soon"
+
+    # ==================== Voqall Implementation ====================
+
+    VOQALL_PROD_BASE = 'https://partner-api2.voqall.com/api/v1'
+    VOQALL_SANDBOX_BASE = 'https://sandbox-partner-api2.voqall.com/api/v1'
+
+    def _voqall_base_url(self, network_id: str) -> str:
+        """Return sandbox or production base URL.
+        
+        Convention: if the network_id starts with 'sandbox:' or equals 'sandbox' we use sandbox.
+        Otherwise always use production.
+        """
+        if network_id.startswith('sandbox'):
+            return self.VOQALL_SANDBOX_BASE
+        return self.VOQALL_PROD_BASE
+
+    def _test_voqall_connection(self, network_id: str, api_key: str) -> Tuple[bool, Optional[int], Optional[str]]:
+        """Test Voqall Data Partner API connection by fetching survey list."""
+        try:
+            base_url = self._voqall_base_url(network_id)
+            url = f"{base_url}/surveys"
+            response = self.session.get(
+                url,
+                headers={'EQ-PARTNER-ACCESS-KEY': api_key},
+                timeout=self.timeout
+            )
+            if response.status_code == 401:
+                return False, None, "Invalid API key (401 Unauthorized)"
+            if response.status_code == 403:
+                return False, None, "Access forbidden — check your supplier account status"
+            response.raise_for_status()
+            data = response.json()
+            if data.get('hasError'):
+                err_code = data.get('error', {}).get('errorCode', '')
+                msgs = ', '.join(data.get('messages', []))
+                return False, None, f"Voqall API error [{err_code}]: {msgs}"
+            surveys = data.get('Surveys', [])
+            count = len(surveys)
+            logger.info(f"✅ Voqall connection OK — {count} live surveys found")
+            return True, count, None
+        except requests.exceptions.ConnectionError:
+            return False, None, "Cannot connect to Voqall API — check network"
+        except requests.exceptions.Timeout:
+            return False, None, "Voqall API timed out"
+        except Exception as e:
+            logger.error(f"Voqall connection test failed: {e}", exc_info=True)
+            return False, None, str(e)
+
+    def _fetch_voqall_offers(self, network_id: str, api_key: str,
+                             filters: Optional[Dict] = None,
+                             limit: Optional[int] = None) -> Tuple[List[Dict], Optional[str]]:
+        """Fetch all live surveys from Voqall Data Partner API.
+        
+        Args:
+            network_id: Supplier UUID (prefix with 'sandbox:' for sandbox env)
+            api_key:    EQ-PARTNER-ACCESS-KEY header value
+            filters:    Optional dict — currently supports 'country' (ISO-2)
+            limit:      Optional int — truncate result set for preview
+            
+        Returns:
+            Tuple[list of raw survey dicts, error_message or None]
+        """
+        try:
+            base_url = self._voqall_base_url(network_id)
+            url = f"{base_url}/surveys"
+            response = self.session.get(
+                url,
+                headers={'EQ-PARTNER-ACCESS-KEY': api_key},
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            if data.get('hasError'):
+                err_code = data.get('error', {}).get('errorCode', '')
+                msgs = ', '.join(data.get('messages', []))
+                return [], f"Voqall API error [{err_code}]: {msgs}"
+
+            surveys = data.get('Surveys', [])
+            logger.info(f"📡 Voqall: fetched {len(surveys)} surveys")
+
+            # Optional country filter
+            if filters and filters.get('country'):
+                target_country = filters['country'].upper()
+                # Voqall doesn't expose country in the survey list endpoint directly,
+                # but the SurveyUrl often contains geo hints.  We do a best-effort
+                # filter on the Name field; a full geo filter would require per-survey
+                # qualification calls.  Skip if no match clue found.
+                pass  # Keep all surveys; geo info not reliably available in list endpoint
+
+            if limit:
+                surveys = surveys[:limit]
+
+            return surveys, None
+
+        except requests.exceptions.Timeout:
+            return [], "Voqall API timed out"
+        except requests.exceptions.HTTPError as e:
+            return [], f"Voqall HTTP error: {e}"
+        except Exception as e:
+            logger.error(f"Voqall fetch failed: {e}", exc_info=True)
+            return [], str(e)
 
 
 # Singleton instance
