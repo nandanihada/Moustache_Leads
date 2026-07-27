@@ -46,6 +46,8 @@ class NetworkAPIService:
                 return self._test_adscendmedia_connection(network_id, api_key)
             elif network_type == 'marketxcel':
                 return self._test_marketxcel_connection(network_id, api_key)
+            elif network_type == 'lootably':
+                return self._test_lootably_connection(network_id, api_key)
             elif network_type == 'cj':
                 return self._test_cj_connection(network_id, api_key)
             elif network_type == 'shareasale':
@@ -84,6 +86,8 @@ class NetworkAPIService:
                 return self._fetch_adscendmedia_offers(network_id, api_key, filters, limit)
             elif network_type == 'marketxcel':
                 return self._fetch_marketxcel_offers(network_id, api_key, filters, limit)
+            elif network_type == 'lootably':
+                return self._fetch_lootably_offers(network_id, api_key, filters, limit)
             elif network_type == 'cj':
                 return self._fetch_cj_offers(network_id, api_key, filters, limit)
             elif network_type == 'shareasale':
@@ -946,6 +950,143 @@ class NetworkAPIService:
         except Exception as e:
             logger.error(f"MarketXcel fetch error: {str(e)}", exc_info=True)
             return [], f"Failed to fetch surveys: {str(e)}"
+    
+    # ==================== Lootably Implementation ====================
+    
+    def _test_lootably_connection(self, placement_id: str, api_key: str) -> Tuple[bool, Optional[int], Optional[str]]:
+        """
+        Test Lootably Catalogue API connection.
+        
+        Args:
+            placement_id: The placement ID from Lootably dashboard
+            api_key: The API key from Lootably dashboard
+            
+        Returns:
+            Tuple of (success, offer_count, error_message)
+        """
+        try:
+            url = "https://api.lootably.com/api/v2/offers/get"
+            
+            logger.info(f"Testing Lootably connection for placement {placement_id}")
+            
+            payload = {
+                'apiKey': api_key,
+                'placementID': placement_id,
+            }
+            
+            headers = {
+                'Content-Type': 'application/json'
+            }
+            
+            response = self.session.post(url, json=payload, headers=headers, timeout=self.timeout)
+            
+            if response.status_code == 401:
+                return False, None, "Invalid API key. Please check your Lootably API key."
+            elif response.status_code == 403:
+                return False, None, "Access denied. Check your API key and placement ID."
+            elif response.status_code == 400:
+                try:
+                    err_data = response.json()
+                    return False, None, f"Bad request: {err_data.get('message', response.text[:200])}"
+                except:
+                    return False, None, f"Bad request: {response.text[:200]}"
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            if isinstance(data, dict) and data.get('success'):
+                offers = data.get('data', {}).get('offers', [])
+                offer_count = len(offers)
+                logger.info(f"Lootably connection successful: {offer_count} offers found")
+                return True, offer_count, None
+            elif isinstance(data, dict) and not data.get('success'):
+                error_msg = data.get('message', 'Unknown error')
+                return False, None, f"Lootably API error: {error_msg}"
+            else:
+                return False, None, "Unexpected response format from Lootably API"
+                
+        except requests.exceptions.Timeout:
+            return False, None, "Connection timeout. Please try again."
+        except requests.exceptions.ConnectionError:
+            return False, None, "Unable to connect to Lootably API."
+        except requests.exceptions.HTTPError as e:
+            return False, None, f"HTTP Error: {e.response.status_code}"
+        except Exception as e:
+            return False, None, f"Error: {str(e)}"
+    
+    def _fetch_lootably_offers(self, placement_id: str, api_key: str,
+                               filters: Optional[Dict] = None,
+                               limit: Optional[int] = None) -> Tuple[List[Dict], Optional[str]]:
+        """
+        Fetch offers from Lootably Catalogue API.
+        Uses POST to https://api.lootably.com/api/v2/offers/get with body params.
+        Returns all active offers (Catalogue mode, no userData needed).
+        """
+        try:
+            url = "https://api.lootably.com/api/v2/offers/get"
+            
+            payload = {
+                'apiKey': api_key,
+                'placementID': placement_id,
+            }
+            
+            # Apply filters if provided
+            if filters:
+                if filters.get('categories'):
+                    # categories can be comma-separated string or list
+                    cats = filters['categories']
+                    if isinstance(cats, str):
+                        cats = [c.strip() for c in cats.split(',')]
+                    payload['categories'] = cats
+                if filters.get('countries'):
+                    countries = filters['countries']
+                    if isinstance(countries, str):
+                        countries = [c.strip() for c in countries.split(',')]
+                    payload['countries'] = countries
+                if filters.get('devices'):
+                    devices = filters['devices']
+                    if isinstance(devices, str):
+                        devices = [d.strip() for d in devices.split(',')]
+                    payload['devices'] = devices
+            
+            headers = {
+                'Content-Type': 'application/json'
+            }
+            
+            logger.info(f"Fetching Lootably offers for placement {placement_id}")
+            
+            response = self.session.post(url, json=payload, headers=headers, timeout=60)
+            
+            if response.status_code == 401:
+                return [], "Invalid API key"
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            if isinstance(data, dict) and data.get('success'):
+                offers = data.get('data', {}).get('offers', [])
+                logger.info(f"Fetched {len(offers)} offers from Lootably")
+                
+                # Apply limit if specified
+                if limit and len(offers) > limit:
+                    offers = offers[:limit]
+                
+                return offers, None
+            elif isinstance(data, dict) and not data.get('success'):
+                error_msg = data.get('message', 'Unknown error')
+                return [], f"Lootably API error: {error_msg}"
+            else:
+                return [], "Unexpected response format from Lootably API"
+                
+        except requests.exceptions.Timeout:
+            return [], "Connection timeout. Lootably API may be slow — try again."
+        except requests.exceptions.ConnectionError:
+            return [], "Unable to connect to Lootably API."
+        except requests.exceptions.HTTPError as e:
+            return [], f"HTTP Error: {e.response.status_code}"
+        except Exception as e:
+            logger.error(f"Error fetching Lootably offers: {str(e)}", exc_info=True)
+            return [], f"Error: {str(e)}"
     
     # ==================== CJ Implementation ====================
     

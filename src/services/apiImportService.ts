@@ -131,6 +131,33 @@ export interface StaleOffer {
   image_url: string;
 }
 
+export interface ReactivatableOffer {
+  offer_id: string;
+  campaign_id: string;
+  name: string;
+  current_status: string;
+  payout: number;
+  api_payout: number | null;
+  countries: string[];
+  api_countries: string[] | null;
+  vertical: string;
+  image_url: string;
+  api_description: string;
+  api_target_url?: string;
+}
+
+export interface NetworkPreset {
+  id: string;
+  display_name: string;
+  network_type: string;
+  network_id: string;
+  api_key: string;
+  api_url: string;
+  fetch_mode: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface ImportResponse {
   success: boolean;
   summary?: ImportSummary;
@@ -138,6 +165,7 @@ export interface ImportResponse {
   skipped_offers?: Array<{ name: string; reason: string }>;
   errors?: Array<{ offer_name: string; error: string }>;
   stale_offers?: StaleOffer[];
+  reactivatable_offers?: ReactivatableOffer[];
   error?: string;
 }
 
@@ -297,6 +325,128 @@ class ApiImportService {
       console.error('Update stale offers status error:', error);
       if (error instanceof TypeError && error.message === 'Failed to fetch') {
         throw new Error('Cannot connect to server. Please check if the backend is running and CORS is configured.');
+      }
+      throw error;
+    }
+  }
+
+  // ==================== Network Presets ====================
+
+  async getNetworkPresets(): Promise<{ success: boolean; presets: NetworkPreset[] }> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/offers/network-presets`, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({ error: 'Network error' }));
+        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Get network presets error:', error);
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        throw new Error('Cannot connect to server.');
+      }
+      throw error;
+    }
+  }
+
+  async createNetworkPreset(preset: Omit<NetworkPreset, 'id' | 'created_at' | 'updated_at'>): Promise<{ success: boolean; message: string; preset: NetworkPreset }> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/offers/network-presets`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(preset),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({ error: 'Network error' }));
+        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Create network preset error:', error);
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        throw new Error('Cannot connect to server.');
+      }
+      throw error;
+    }
+  }
+
+  async updateNetworkPreset(presetId: string, data: Partial<NetworkPreset>): Promise<{ success: boolean; message: string }> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/offers/network-presets/${presetId}`, {
+        method: 'PUT',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(data),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const data2 = await response.json().catch(() => ({ error: 'Network error' }));
+        throw new Error(data2.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Update network preset error:', error);
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        throw new Error('Cannot connect to server.');
+      }
+      throw error;
+    }
+  }
+
+  async deleteNetworkPreset(presetId: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/offers/network-presets/${presetId}`, {
+        method: 'DELETE',
+        headers: this.getAuthHeaders(),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({ error: 'Network error' }));
+        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Delete network preset error:', error);
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        throw new Error('Cannot connect to server.');
+      }
+      throw error;
+    }
+  }
+
+  // ==================== Reactivate Expired Offers ====================
+
+  async reactivateOffers(offerIds: string[], updates?: Record<string, { payout?: number; description?: string; countries?: string[]; target_url?: string }>): Promise<{ success: boolean; reactivated: number; errors: any[]; message: string }> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/offers/api-import/reactivate`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ offer_ids: offerIds, updates: updates || {} }),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({ error: 'Network error' }));
+        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Reactivate offers error:', error);
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        throw new Error('Cannot connect to server.');
       }
       throw error;
     }

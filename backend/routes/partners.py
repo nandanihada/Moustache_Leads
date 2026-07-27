@@ -75,6 +75,16 @@ def create_partner():
             else:
                 event_postback_urls[evt] = evt_base
         
+        # Build redirect URLs (browser-facing, for survey partners like Voqall)
+        # These show the user an animated page — NO conversion processing here.
+        # Give these to partners as "Redirection URLs".
+        # Uses postback.moustacheleads.com because that domain points to the Flask backend.
+        redirect_base = f"https://postback.moustacheleads.com/redirect/{unique_key}"
+        redirect_event_types = ['complete', 'overquota', 'terminate', 'security']
+        redirect_urls = {}
+        for evt in redirect_event_types:
+            redirect_urls[evt] = f"{redirect_base}/{evt}"
+        
         # Check if redirect mode is requested
         redirect_mode = data.get('redirect_mode', False)
         redirect_url = data.get('redirect_url', '').strip()
@@ -92,6 +102,7 @@ def create_partner():
             'unique_postback_key': unique_key,
             'postback_receiver_url': postback_receiver_url,
             'event_postback_urls': event_postback_urls,
+            'redirect_urls': redirect_urls,
             'parameter_mapping': parameter_mapping,
             'offer_url_params': offer_url_params,   # NEW: params to append to offer URLs
             'offer_watch_params': offer_watch_params,  # Offer status watch webhook params
@@ -243,7 +254,11 @@ def update_partner(partner_id):
                     else:
                         event_postback_urls[evt] = evt_base
                 update_doc['event_postback_urls'] = event_postback_urls
-        
+
+                # Regenerate redirect URLs (browser-facing, no conversion processing)
+                redirect_base = f"https://postback.moustacheleads.com/redirect/{unique_key}"
+                redirect_urls = {evt: f"{redirect_base}/{evt}" for evt in ['complete', 'overquota', 'terminate', 'security']}
+                update_doc['redirect_urls'] = redirect_urls        
         # Update in database
         partners_collection.update_one(
             {'partner_id': partner_id},

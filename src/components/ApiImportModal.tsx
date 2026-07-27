@@ -10,9 +10,9 @@ import { Progress } from '@/components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { apiImportService, PreviewOffer, ImportSummary, FullPreviewOffer, StaleOffer } from '@/services/apiImportService';
+import { apiImportService, PreviewOffer, ImportSummary, FullPreviewOffer, StaleOffer, ReactivatableOffer, NetworkPreset } from '@/services/apiImportService';
 import { adminOfferApi } from '@/services/adminOfferApi';
-import { Loader2, Eye, EyeOff, CheckCircle2, XCircle, AlertCircle, Download, Filter, Image, FileText, Globe, DollarSign, Link2, Copy, Search, Pencil, X, Check, ChevronDown, ChevronUp, Sparkles, Wand2, ImagePlus, Link } from 'lucide-react';
+import { Loader2, Eye, EyeOff, CheckCircle2, XCircle, AlertCircle, Download, Filter, Image, FileText, Globe, DollarSign, Link2, Copy, Search, Pencil, X, Check, ChevronDown, ChevronUp, Sparkles, Wand2, ImagePlus, Link, Save, Trash2, RotateCcw } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
 
 interface ApiImportModalProps {
@@ -94,18 +94,124 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
       setLoadingPublishers(false);
     }
   };
+
+  // Load network presets on mount
+  const fetchNetworkPresets = async () => {
+    setLoadingPresets(true);
+    try {
+      const res = await apiImportService.getNetworkPresets();
+      if (res.success) {
+        setNetworkPresets(res.presets);
+      }
+    } catch { /* ignore */ } finally {
+      setLoadingPresets(false);
+    }
+  };
+
+  const handleSelectPreset = (presetId: string) => {
+    setSelectedPresetId(presetId);
+    if (!presetId) return;
+    
+    const preset = networkPresets.find(p => p.id === presetId);
+    if (preset) {
+      setNetworkType(preset.network_type);
+      setNetworkId(preset.network_id);
+      setApiKey(preset.api_key);
+      setApiUrl(preset.api_url);
+      setNetworkName(preset.display_name);
+      setFetchMode(preset.fetch_mode as 'my_offers' | 'all_offers');
+      setTotalAvailable(0);
+    }
+  };
+
+  const handleSavePreset = async () => {
+    if (!presetDisplayName.trim()) return;
+    try {
+      const res = await apiImportService.createNetworkPreset({
+        display_name: presetDisplayName.trim(),
+        network_type: networkType,
+        network_id: networkId,
+        api_key: apiKey,
+        api_url: apiUrl,
+        fetch_mode: fetchMode,
+      });
+      if (res.success) {
+        toast({ title: 'Preset Saved', description: `"${presetDisplayName}" saved successfully` });
+        setShowSavePreset(false);
+        setPresetDisplayName('');
+        fetchNetworkPresets();
+      }
+    } catch (err: any) {
+      toast({ title: 'Save Failed', description: err.message, variant: 'destructive' });
+    }
+  };
+
+  const handleDeletePreset = async (presetId: string) => {
+    try {
+      const res = await apiImportService.deleteNetworkPreset(presetId);
+      if (res.success) {
+        toast({ title: 'Preset Deleted' });
+        setNetworkPresets(prev => prev.filter(p => p.id !== presetId));
+        if (selectedPresetId === presetId) setSelectedPresetId('');
+      }
+    } catch (err: any) {
+      toast({ title: 'Delete Failed', description: err.message, variant: 'destructive' });
+    }
+  };
+
+  const handleReactivateOffers = async () => {
+    if (reactivatableOffers.length === 0) return;
+    setReactivating(true);
+    try {
+      const offerIds = reactivatableOffers.map(o => o.offer_id);
+      const updates: Record<string, any> = {};
+      for (const offer of reactivatableOffers) {
+        const u: any = {};
+        if (offer.api_payout && offer.api_payout !== offer.payout) u.payout = offer.api_payout;
+        if (offer.api_countries) u.countries = offer.api_countries;
+        if (offer.api_description) u.description = offer.api_description;
+        if (Object.keys(u).length > 0) updates[offer.offer_id] = u;
+      }
+      
+      const res = await apiImportService.reactivateOffers(offerIds, updates);
+      if (res.success) {
+        toast({ title: 'Offers Reactivated', description: `${res.reactivated} offers set back to active` });
+        setReactivatableOffers([]);
+      }
+    } catch (err: any) {
+      toast({ title: 'Reactivation Failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setReactivating(false);
+    }
+  };
   
   // Import progress
   const [importProgress, setImportProgress] = useState(0);
   const [importStep, setImportStep] = useState<string>('');
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
   const [importErrors, setImportErrors] = useState<Array<{ offer_name: string; error: string }>>([]);
+  const [skippedOffers, setSkippedOffers] = useState<Array<{ name: string; reason: string; existing_offer_id?: string }>>([]);
   
   // Stale offers state
   const [staleOffers, setStaleOffers] = useState<StaleOffer[]>([]);
   const [staleAction, setStaleAction] = useState<'pending' | 'kept' | 'deleted' | 'status_changed'>('pending');
   const [deletingStale, setDeletingStale] = useState(false);
   const [staleStatusTarget, setStaleStatusTarget] = useState<string>('');
+  
+  // Network presets state (Feature 1)
+  const [networkPresets, setNetworkPresets] = useState<NetworkPreset[]>([]);
+  const [selectedPresetId, setSelectedPresetId] = useState<string>('');
+  const [showSavePreset, setShowSavePreset] = useState(false);
+  const [presetDisplayName, setPresetDisplayName] = useState('');
+  const [loadingPresets, setLoadingPresets] = useState(false);
+  const [managingPresets, setManagingPresets] = useState(false);
+  
+  // Auto-expire stale offers option (Feature 2)
+  const [autoExpireStale, setAutoExpireStale] = useState(true);
+  
+  // Reactivatable offers state (Feature 3)
+  const [reactivatableOffers, setReactivatableOffers] = useState<ReactivatableOffer[]>([]);
+  const [reactivating, setReactivating] = useState(false);
   
   // Loading states
   const [testing, setTesting] = useState(false);
@@ -117,6 +223,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
     if (networkType === 'mobplus') return apiUrl || 'http://mob.mobplus.net';
     if (networkType === 'adscendmedia') return networkId;
     if (networkType === 'marketxcel') return networkId;
+    if (networkType === 'lootably') return networkId;
     return networkId;
   };
 
@@ -138,7 +245,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
   const handleTestConnection = async () => {
     const effectiveId = getEffectiveNetworkId();
     if (!effectiveId || !apiKey) {
-      toast({ title: 'Error', description: networkType === 'everflow' || networkType === 'mobplus' ? 'Please enter API URL and API Key' : networkType === 'marketxcel' ? 'Please enter Supplier ID and Salt|Hashing Key' : 'Please enter Network ID/Publisher ID and API Key', variant: 'destructive' });
+      toast({ title: 'Error', description: networkType === 'everflow' || networkType === 'mobplus' ? 'Please enter API URL and API Key' : networkType === 'marketxcel' ? 'Please enter Supplier ID and Salt|Hashing Key' : networkType === 'lootably' ? 'Please enter Placement ID and API Key' : 'Please enter Network ID/Publisher ID and API Key', variant: 'destructive' });
       return;
     }
     setTesting(true);
@@ -216,6 +323,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
           email_schedule_time: emailScheduleTime,
           offers_per_email: offersPerEmail,
           selected_user_ids: emailRecipients === 'specific_users' ? selectedUserIds : [],
+          auto_expire_stale: autoExpireStale,
         },
       });
       
@@ -226,7 +334,9 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
       if (response.summary) {
         setImportSummary(response.summary);
         setImportErrors(response.errors || []);
+        setSkippedOffers((response as any).skipped_offers || []);
         setStaleOffers(response.stale_offers || []);
+        setReactivatableOffers((response as any).reactivatable_offers || []);
         setStaleAction('pending');
         setCurrentStep('complete');
         const imported = response.summary.imported || 0;
@@ -249,8 +359,10 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
     setFetchMode('my_offers');
     setFullPreviewOffers([]); setAuditSummary(null); setAuditFilter('all');
     setSelectedOfferIds(new Set()); setEditedOffers({}); setEditingOfferId(null);
-    setImportSummary(null); setImportErrors([]); setImportStep(''); setTotalAvailable(0);
+    setImportSummary(null); setImportErrors([]); setSkippedOffers([]); setImportStep(''); setTotalAvailable(0);
     setStaleOffers([]); setStaleAction('pending'); setDeletingStale(false); setStaleStatusTarget('');
+    setReactivatableOffers([]); setReactivating(false);
+    setSelectedPresetId(''); setShowSavePreset(false); setPresetDisplayName('');
     onOpenChange(false);
   };
 
@@ -526,6 +638,57 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
         {/* Step 1: Credentials */}
         {currentStep === 'credentials' && (
           <div className="space-y-4">
+            {/* Network Presets Dropdown (Feature 1) */}
+            <div className="space-y-2 p-3 bg-blue-50/50 border border-blue-200 rounded-lg">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">🔖 Select Network Preset</Label>
+                <div className="flex gap-1">
+                  {(networkId || apiKey) && (
+                    <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" onClick={() => setShowSavePreset(!showSavePreset)}>
+                      <Save className="h-3 w-3" /> Save as Preset
+                    </Button>
+                  )}
+                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setManagingPresets(!managingPresets); if (!managingPresets && networkPresets.length === 0) fetchNetworkPresets(); }}>
+                    ⚙️ Manage
+                  </Button>
+                </div>
+              </div>
+              <Select value={selectedPresetId} onValueChange={handleSelectPreset} onOpenChange={(open) => { if (open && networkPresets.length === 0) fetchNetworkPresets(); }}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder={loadingPresets ? 'Loading presets...' : 'Choose a saved network...'} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manual">✏️ Enter Manually</SelectItem>
+                  {networkPresets.map(p => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.display_name} ({p.network_type})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              
+              {showSavePreset && (
+                <div className="flex gap-2 mt-2">
+                  <Input placeholder="Preset name (e.g. CPA Merchant)" value={presetDisplayName} onChange={(e) => setPresetDisplayName(e.target.value)} className="h-8 text-sm flex-1" />
+                  <Button size="sm" className="h-8" onClick={handleSavePreset} disabled={!presetDisplayName.trim()}>Save</Button>
+                  <Button size="sm" variant="ghost" className="h-8" onClick={() => setShowSavePreset(false)}>Cancel</Button>
+                </div>
+              )}
+              
+              {managingPresets && networkPresets.length > 0 && (
+                <div className="mt-2 space-y-1 max-h-32 overflow-y-auto border rounded p-2 bg-white">
+                  {networkPresets.map(p => (
+                    <div key={p.id} className="flex items-center justify-between text-xs py-1 px-2 hover:bg-gray-50 rounded">
+                      <span className="font-medium">{p.display_name} <span className="text-muted-foreground">({p.network_type})</span></span>
+                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-500 hover:text-red-700" onClick={() => handleDeletePreset(p.id)}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
             <div className="space-y-2">
               <Label>Network Type *</Label>
               <Select value={networkType} onValueChange={(v) => { setNetworkType(v); setTotalAvailable(0); }}>
@@ -536,6 +699,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
                   <SelectItem value="mobplus">MobPlus</SelectItem>
                   <SelectItem value="adscendmedia">Adscend Media</SelectItem>
                   <SelectItem value="marketxcel">MarketXcel (Surveys)</SelectItem>
+                  <SelectItem value="lootably">Lootably</SelectItem>
                   <SelectItem value="cj" disabled>Commission Junction (Coming Soon)</SelectItem>
                   <SelectItem value="shareasale" disabled>ShareASale (Coming Soon)</SelectItem>
                 </SelectContent>
@@ -565,6 +729,14 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
               </div>
             )}
             
+            {networkType === 'lootably' && (
+              <div className="space-y-2">
+                <Label>Placement ID *</Label>
+                <Input placeholder="e.g., cmmfyeprm06nj01x0dcyjafos" value={networkId} onChange={(e) => setNetworkId(e.target.value)} />
+                <p className="text-xs text-muted-foreground">Your Placement ID from Lootably dashboard (API tab in placement settings)</p>
+              </div>
+            )}
+            
             {networkType === 'everflow' && (
               <div className="space-y-2">
                 <Label>API URL / Endpoint *</Label>
@@ -584,7 +756,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
             <div className="space-y-2">
               <Label>{networkType === 'marketxcel' ? 'Salt | Hashing Key *' : 'API Key *'}</Label>
               <div className="relative">
-                <Input type={showApiKey ? 'text' : 'password'} placeholder={networkType === 'everflow' ? 'Enter your x-eflow-api-key' : networkType === 'mobplus' ? 'Enter your MobPlus Authorization token' : networkType === 'adscendmedia' ? 'Enter your AdscendMedia API Key' : networkType === 'marketxcel' ? 'Paste your token (salt value)' : 'Enter your API key'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="pr-10" />
+                <Input type={showApiKey ? 'text' : 'password'} placeholder={networkType === 'everflow' ? 'Enter your x-eflow-api-key' : networkType === 'mobplus' ? 'Enter your MobPlus Authorization token' : networkType === 'adscendmedia' ? 'Enter your AdscendMedia API Key' : networkType === 'marketxcel' ? 'Paste your token (salt value)' : networkType === 'lootably' ? 'Enter your Lootably API Key' : 'Enter your API key'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="pr-10" />
                 <Button type="button" variant="ghost" size="sm" className="absolute right-0 top-0 h-full px-3" onClick={() => setShowApiKey(!showApiKey)}>
                   {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
@@ -618,7 +790,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
               </div>
             )}
             
-            <Button onClick={handleTestConnection} disabled={testing || (networkType === 'hasoffers' || networkType === 'adscendmedia' || networkType === 'marketxcel' ? !networkId : !apiUrl) || !apiKey}>
+            <Button onClick={handleTestConnection} disabled={testing || (networkType === 'hasoffers' || networkType === 'adscendmedia' || networkType === 'marketxcel' || networkType === 'lootably' ? !networkId : !apiUrl) || !apiKey}>
               {testing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Test Connection
             </Button>
             
@@ -631,7 +803,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
             
             <div className="flex justify-end gap-2 pt-4">
               <Button variant="outline" onClick={handleClose}>Cancel</Button>
-              <Button onClick={handleFetchFullPreview} disabled={loading || (networkType === 'hasoffers' || networkType === 'adscendmedia' || networkType === 'marketxcel' ? !networkId : !apiUrl) || !apiKey}>
+              <Button onClick={handleFetchFullPreview} disabled={loading || (networkType === 'hasoffers' || networkType === 'adscendmedia' || networkType === 'marketxcel' || networkType === 'lootably' ? !networkId : !apiUrl) || !apiKey}>
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Next: Fetch & Preview Offers
               </Button>
             </div>
@@ -778,6 +950,10 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
               <div className="flex items-center space-x-2">
                 <Checkbox id="update-existing" checked={updateExisting} onCheckedChange={(c) => setUpdateExisting(c as boolean)} disabled={skipDuplicates} />
                 <label htmlFor="update-existing" className="text-sm cursor-pointer">Update existing offers with new data</label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox id="auto-expire-stale" checked={autoExpireStale} onCheckedChange={(c) => setAutoExpireStale(c as boolean)} />
+                <label htmlFor="auto-expire-stale" className="text-sm cursor-pointer">🔄 Auto-expire offers not found in API (mark as expired automatically)</label>
               </div>
               <div className="flex items-center space-x-2">
                 <Checkbox id="auto-activate" checked={autoActivate} onCheckedChange={(c) => setAutoActivate(c as boolean)} />
@@ -952,17 +1128,37 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
               </div>
               <div className="p-4 bg-green-50 border border-green-200 rounded-md">
                 <div className="text-2xl font-bold text-green-600">{importSummary.imported}</div>
-                <div className="text-sm text-green-800">Imported</div>
+                <div className="text-sm text-green-800">Imported (New)</div>
               </div>
               <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-md">
                 <div className="text-2xl font-bold text-yellow-600">{importSummary.skipped}</div>
-                <div className="text-sm text-yellow-800">Skipped</div>
+                <div className="text-sm text-yellow-800">Skipped (Duplicates)</div>
               </div>
               <div className="p-4 bg-red-50 border border-red-200 rounded-md">
                 <div className="text-2xl font-bold text-red-600">{importSummary.errors}</div>
                 <div className="text-sm text-red-800">Errors</div>
               </div>
             </div>
+            
+            {/* Skipped Offers Breakdown */}
+            {skippedOffers.length > 0 && (
+              <div className="border border-yellow-200 rounded-md bg-yellow-50/50 p-3 space-y-2">
+                <h4 className="text-sm font-semibold text-yellow-900">📋 Skipped Offers Breakdown ({skippedOffers.length})</h4>
+                <div className="max-h-40 overflow-y-auto space-y-1">
+                  {skippedOffers.map((skip, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs py-1 px-2 bg-white rounded border border-yellow-100">
+                      <span className="font-medium truncate max-w-[250px]">{skip.name}</span>
+                      <Badge variant="outline" className="text-[9px] shrink-0">
+                        {skip.reason === 'duplicate' ? '🔁 Duplicate' : skip.reason === 'updated_existing' ? '✏️ Updated' : skip.reason}
+                      </Badge>
+                      {skip.existing_offer_id && (
+                        <span className="text-[10px] text-muted-foreground ml-auto font-mono">{skip.existing_offer_id}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {importErrors.length > 0 && (
               <div className="max-h-40 overflow-y-auto border rounded-md p-3 bg-red-50">
                 {importErrors.map((error, i) => (
@@ -1103,6 +1299,83 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
               <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-md">
                 <CheckCircle2 className="h-5 w-5 text-green-600" />
                 <span className="text-sm text-green-800">Sync Check: All existing offers for this network are still active in the API. No stale offers found.</span>
+              </div>
+            )}
+            
+            {/* Auto-Expired Count (Feature 2) */}
+            {autoExpireStale && (importSummary as any)?.auto_expired_count > 0 && (
+              <div className="flex items-center gap-2 p-3 bg-purple-50 border border-purple-200 rounded-md">
+                <AlertCircle className="h-5 w-5 text-purple-600" />
+                <span className="text-sm text-purple-800">
+                  🔄 Auto-expired {(importSummary as any).auto_expired_count} offers that were not found in the API response.
+                </span>
+              </div>
+            )}
+            
+            {/* Reactivatable Offers Section (Feature 3) */}
+            {reactivatableOffers.length > 0 && (
+              <div className="border border-emerald-200 rounded-md bg-emerald-50 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <RotateCcw className="h-5 w-5 text-emerald-600" />
+                  <h4 className="font-semibold text-emerald-900">
+                    {reactivatableOffers.length} Expired Offer{reactivatableOffers.length > 1 ? 's' : ''} Found Back in API
+                  </h4>
+                </div>
+                <p className="text-sm text-emerald-800">
+                  These offers were previously expired in your system but are now available again in the network API. You can bulk-reactivate them with updated data.
+                </p>
+                
+                <div className="max-h-48 overflow-y-auto border border-emerald-200 rounded bg-white">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-xs">Offer ID</TableHead>
+                        <TableHead className="text-xs">Name</TableHead>
+                        <TableHead className="text-xs">Status</TableHead>
+                        <TableHead className="text-xs">Your Payout</TableHead>
+                        <TableHead className="text-xs">API Payout</TableHead>
+                        <TableHead className="text-xs">Countries</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {reactivatableOffers.map((offer, i) => (
+                        <TableRow key={i} className="text-xs">
+                          <TableCell className="font-mono text-muted-foreground text-[10px]">{offer.offer_id}</TableCell>
+                          <TableCell className="font-medium max-w-[180px] truncate">{offer.name}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700">{offer.current_status}</Badge>
+                          </TableCell>
+                          <TableCell>${offer.payout?.toFixed(2)}</TableCell>
+                          <TableCell className={offer.api_payout && offer.api_payout !== offer.payout ? 'text-emerald-600 font-medium' : ''}>
+                            {offer.api_payout ? `$${offer.api_payout.toFixed(2)}` : '-'}
+                            {offer.api_payout && offer.api_payout !== offer.payout && ' ↑'}
+                          </TableCell>
+                          <TableCell>{(offer.countries || []).slice(0, 3).join(', ')}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                
+                <div className="flex gap-2 pt-2">
+                  <Button
+                    size="sm"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    disabled={reactivating}
+                    onClick={handleReactivateOffers}
+                  >
+                    {reactivating ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-1" />}
+                    Reactivate All ({reactivatableOffers.length})
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setReactivatableOffers([])}
+                    className="text-muted-foreground"
+                  >
+                    Skip
+                  </Button>
+                </div>
               </div>
             )}
             

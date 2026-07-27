@@ -135,6 +135,8 @@ class NetworkFieldMapper:
                 return self._map_adscendmedia_offer(offer_data, network_id)
             elif network_type == 'marketxcel':
                 return self._map_marketxcel_offer(offer_data, network_id)
+            elif network_type == 'lootably':
+                return self._map_lootably_offer(offer_data, network_id)
             elif network_type == 'cj':
                 return self._map_cj_offer(offer_data, network_id)
             elif network_type == 'shareasale':
@@ -1784,6 +1786,170 @@ class NetworkFieldMapper:
         except Exception as e:
             logger.error(f"Error mapping MarketXcel offer: {str(e)}", exc_info=True)
             return {}
+    
+    def _map_lootably_offer(self, offer_data: Dict, network_id: str = None) -> Dict[str, Any]:
+        """Map Lootably offer to database format.
+        
+        Lootably offers have structure:
+        - type: "singlestep" or "multistep"
+        - name, description, image, countries, offerID, categories, devices
+        - link (tracking URL with {userID} placeholder)
+        - revenue (number or 'variable'), currencyReward
+        - paymentModel: CPA, CPE, CPI, CPS, CPL, etc.
+        - goals (for multistep offers)
+        - conversionRate, previewURL
+        """
+        try:
+            network_name = network_id if network_id else 'lootably'
+            
+            offer_id = offer_data.get('offerID', '')
+            name = offer_data.get('name', '')
+            description = offer_data.get('description', '')
+            image_url = offer_data.get('image', '')
+            
+            # Handle revenue — can be number or 'variable'
+            revenue = offer_data.get('revenue', 0)
+            if isinstance(revenue, str) and revenue.lower() == 'variable':
+                payout = 0  # Variable payout — will be handled by level_payouts
+            else:
+                payout = float(revenue) if revenue else 0
+            
+            # Countries — array of ISO codes or ['*'] for worldwide
+            countries = offer_data.get('countries', [])
+            if countries == ['*'] or '*' in countries:
+                countries = ['WW']
+            elif not countries:
+                countries = ['WW']
+            
+            # Categories → vertical mapping
+            categories = offer_data.get('categories', [])
+            vertical = self._lootably_categories_to_vertical(categories)
+            
+            # Devices
+            devices = offer_data.get('devices', [])
+            device_targeting = 'all'
+            if devices and devices != ['*']:
+                if 'android' in devices and 'iphone' not in devices and 'ipad' not in devices:
+                    device_targeting = 'android'
+                elif ('iphone' in devices or 'ipad' in devices) and 'android' not in devices:
+                    device_targeting = 'ios'
+                elif 'windows' in devices or 'macos' in devices:
+                    device_targeting = 'desktop'
+            
+            # Tracking link
+            target_url = offer_data.get('link', '')
+            preview_url = offer_data.get('previewURL', '') or ''
+            
+            # Payment model
+            payment_model = (offer_data.get('paymentModel', '') or 'CPA').upper()
+            
+            # Build mapped offer
+            mapped = {
+                'campaign_id': str(offer_id),
+                'name': name,
+                'description': description,
+                'image_url': image_url,
+                'payout': payout,
+                'currency': 'USD',
+                'countries': countries,
+                'status': 'active',
+                'network': network_name,
+                'target_url': target_url,
+                'preview_url': preview_url,
+                'vertical': vertical,
+                'category': vertical,
+                'offer_type': payment_model,
+                'payout_model': payment_model,
+                'device_targeting': device_targeting,
+                'incentive_type': 'Incent',  # Lootably is an offerwall platform — all incent
+                'affiliates': 'all',
+                'daily_cap': 0,
+                'monthly_cap': 0,
+                'conversion_type': '',
+                'restrictions': '',
+            }
+            
+            # Handle multistep offers — map goals to level_payouts
+            offer_type = offer_data.get('type', 'singlestep')
+            level_payouts = {'enabled': False, 'levels': []}
+            
+            if offer_type == 'multistep':
+                goals = offer_data.get('goals', [])
+                if goals:
+                    level_payouts['enabled'] = True
+                    total_payout = 0
+                    for idx, goal in enumerate(goals):
+                        goal_revenue = goal.get('revenue', 0)
+                        if isinstance(goal_revenue, str):
+                            goal_revenue = 0
+                        goal_revenue = float(goal_revenue)
+                        total_payout += goal_revenue
+                        level_payouts['levels'].append({
+                            'level': idx + 1,
+                            'name': goal.get('description', f'Goal {idx + 1}'),
+                            'payout': goal_revenue,
+                            'type': payment_model,
+                            'goal_id': goal.get('goalID', ''),
+                            'is_optional': goal.get('isOptional', False),
+                        })
+                    # Use total payout across all goals if main payout is 0 or variable
+                    if not mapped['payout'] and total_payout > 0:
+                        mapped['payout'] = total_payout
+            
+            mapped['level_payouts'] = level_payouts
+            mapped['geo_payouts'] = []
+            
+            # Singlestep-specific fields
+            if offer_type == 'singlestep':
+                multiple_conversions = offer_data.get('multipleConversionsAllowed', False)
+                mapped['multiple_conversions_allowed'] = multiple_conversions
+                minutes_expiration = offer_data.get('minutesUntilExpiration', 0)
+                if minutes_expiration:
+                    mapped['conversion_window'] = int(minutes_expiration)
+            
+            # Expiration date — default 90 days
+            mapped['expiration_date'] = (datetime.utcnow() + timedelta(days=90)).strftime('%Y-%m-%d')
+            
+            # Stats
+            conversion_rate = offer_data.get('conversionRate', 0)
+            if conversion_rate:
+                mapped['conversion_rate'] = float(conversion_rate)
+            
+            return mapped
+            
+        except Exception as e:
+            logger.error(f"Error mapping Lootably offer: {str(e)}", exc_info=True)
+            return {}
+    
+    def _lootably_categories_to_vertical(self, categories: List[str]) -> str:
+        """Map Lootably categories to our vertical system"""
+        if not categories:
+            return ''
+        
+        # Priority-based mapping
+        category_map = {
+            'survey': 'SURVEY',
+            'game': 'GAMES_INSTALL',
+            'mobilegame': 'GAMES_INSTALL',
+            'desktopgame': 'GAMES_INSTALL',
+            'app': 'INSTALLS',
+            'signup': 'FREE_TRIAL',
+            'freetrial': 'FREE_TRIAL',
+            'deposit': 'FINANCE',
+            'creditcard': 'FINANCE',
+            'shopping': 'SHOPPING',
+            'video': 'ENTERTAINMENT',
+            'quiz': 'SURVEY',
+            'chromeextension': 'INSTALLS',
+            'oneclick': 'SWEEPSTAKES',
+        }
+        
+        for cat in categories:
+            cat_lower = cat.lower()
+            if cat_lower in category_map:
+                return category_map[cat_lower]
+        
+        return ''
     
     def _map_cj_offer(self, offer_data: Dict, network_id: str = None) -> Dict[str, Any]:
         """Map CJ offer to database format"""

@@ -31,7 +31,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { partnerApi, Partner, CreatePartnerData } from '@/services/partnerApi';
-import { Plus, Edit, Trash2, TestTube, Copy, CheckCircle, XCircle, Loader2, Ban, CheckCheck, Settings, ArrowRight, Search, Eye } from 'lucide-react';
+import { Plus, Edit, Trash2, TestTube, Copy, CheckCircle, XCircle, Loader2, Ban, CheckCheck, Settings, ArrowRight, Search, Eye, ChevronDown, ChevronUp } from 'lucide-react';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import {
   AlertDialog,
@@ -55,6 +55,116 @@ interface RegisteredUser {
   is_blocked?: boolean;
   blocked_reason?: string;
 }
+
+// ─── Compact collapsible URL dropdown for a partner row ───────────────────────
+const PartnerUrlDropdown: React.FC<{ partner: Partner; copyToClipboard: (t: string) => void }> = ({ partner, copyToClipboard }) => {
+  const [s2sOpen, setS2sOpen] = useState(false);
+  const [redirectOpen, setRedirectOpen] = useState(false);
+
+  const conversionUrl = partner.postback_receiver_url || partner.postback_url || '';
+
+  const s2sEntries = partner.event_postback_urls ? Object.entries(partner.event_postback_urls) : [];
+  const redirectEntries = partner.redirect_urls ? Object.entries(partner.redirect_urls) : [];
+
+  const offerWatchUrl = (() => {
+    if (!partner.unique_postback_key) return '';
+    const base = `https://postback.moustacheleads.com/offer-status/${partner.unique_postback_key}`;
+    const wp = partner.offer_watch_params || [];
+    if (wp.length === 0) return base;
+    return `${base}?${wp.map((p: any) => `${p.our_field}=${p.their_param}`).join('&')}`;
+  })();
+
+  const evtLabel = (evt: string, type: 's2s' | 'redirect') => {
+    const icons: Record<string, string> = { complete: '✅', overquota: '🚫', quotafull: '🚫', terminate: '❌', security: '⚠️' };
+    const names: Record<string, string> = { complete: 'Complete', overquota: 'Overquota', quotafull: 'Quota Full', terminate: 'Terminate', security: 'Security' };
+    return `${icons[evt] ?? '•'} ${names[evt] ?? evt}`;
+  };
+
+  const evtColor = (evt: string) =>
+    evt === 'complete' ? 'text-green-600' :
+    evt === 'quotafull' || evt === 'overquota' ? 'text-yellow-600' :
+    evt === 'terminate' ? 'text-red-600' : 'text-purple-600';
+
+  return (
+    <div className="space-y-1 min-w-0">
+      {/* Conversion URL — always visible */}
+      <div className="flex items-center gap-1.5 min-w-0">
+        <span className="text-[10px] text-gray-500 font-medium shrink-0">Conversion:</span>
+        <code className="text-[10px] bg-gray-100 px-1.5 py-0.5 rounded truncate max-w-[260px]" title={conversionUrl}>
+          {conversionUrl || '—'}
+        </code>
+        {conversionUrl && (
+          <Button variant="ghost" size="sm" className="h-5 w-5 p-0 shrink-0" onClick={() => copyToClipboard(conversionUrl)}>
+            <Copy className="h-2.5 w-2.5" />
+          </Button>
+        )}
+      </div>
+
+      {/* S2S Postback URLs — collapsible */}
+      {s2sEntries.length > 0 && (
+        <div>
+          <button
+            onClick={() => setS2sOpen(o => !o)}
+            className="flex items-center gap-1 text-[10px] font-semibold text-blue-700 hover:text-blue-900 transition-colors"
+          >
+            {s2sOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            S2S Postback URLs (4)
+          </button>
+          {s2sOpen && (
+            <div className="mt-0.5 pl-2 border-l-2 border-blue-200 space-y-0.5">
+              {s2sEntries.map(([evt, url]) => (
+                <div key={evt} className="flex items-center gap-1.5 min-w-0">
+                  <span className={`text-[10px] font-medium shrink-0 ${evtColor(evt)}`}>{evtLabel(evt, 's2s')}:</span>
+                  <code className="text-[10px] bg-gray-50 px-1 py-0.5 rounded truncate max-w-[260px]" title={url}>{url}</code>
+                  <Button variant="ghost" size="sm" className="h-4 w-4 p-0 shrink-0" onClick={() => copyToClipboard(url)}>
+                    <Copy className="h-2.5 w-2.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Offer Watch URL — always visible, single line */}
+      {offerWatchUrl && (
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-[10px] text-orange-600 font-medium shrink-0">Offer Watch:</span>
+          <code className="text-[10px] bg-orange-50 px-1.5 py-0.5 rounded truncate max-w-[260px]" title={offerWatchUrl}>{offerWatchUrl}</code>
+          <Button variant="ghost" size="sm" className="h-5 w-5 p-0 shrink-0" onClick={() => copyToClipboard(offerWatchUrl)}>
+            <Copy className="h-2.5 w-2.5" />
+          </Button>
+        </div>
+      )}
+
+      {/* Redirect URLs — collapsible */}
+      {redirectEntries.length > 0 && (
+        <div>
+          <button
+            onClick={() => setRedirectOpen(o => !o)}
+            className="flex items-center gap-1 text-[10px] font-semibold text-indigo-700 hover:text-indigo-900 transition-colors"
+          >
+            {redirectOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            ↩ Redirect URLs (4) <span className="font-normal text-gray-400 ml-1">browser-facing</span>
+          </button>
+          {redirectOpen && (
+            <div className="mt-0.5 pl-2 border-l-2 border-indigo-200 space-y-0.5">
+              {redirectEntries.map(([evt, url]) => (
+                <div key={evt} className="flex items-center gap-1.5 min-w-0">
+                  <span className={`text-[10px] font-medium shrink-0 ${evtColor(evt)}`}>{evtLabel(evt, 'redirect')}:</span>
+                  <code className="text-[10px] bg-indigo-50 px-1 py-0.5 rounded truncate max-w-[260px]" title={url as string}>{url as string}</code>
+                  <Button variant="ghost" size="sm" className="h-4 w-4 p-0 shrink-0" onClick={() => copyToClipboard(url as string)}>
+                    <Copy className="h-2.5 w-2.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const Partners: React.FC = () => {
   const { toast } = useToast();
@@ -607,74 +717,7 @@ const Partners: React.FC = () => {
                             )}
                           </TableCell>
                           <TableCell>
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <span className="text-[10px] text-muted-foreground font-medium">Conversion:</span>
-                                <code className="text-xs bg-gray-100 px-2 py-1 rounded max-w-[450px] truncate" title={partner.postback_receiver_url || partner.postback_url}>
-                                  {partner.postback_receiver_url || partner.postback_url || 'Not generated'}
-                                </code>
-                                {(partner.postback_receiver_url || partner.postback_url) && (
-                                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => copyToClipboard(partner.postback_receiver_url || partner.postback_url)}>
-                                    <Copy className="h-3 w-3" />
-                                  </Button>
-                                )}
-                              </div>
-                              {/* Event-typed postback URLs (Complete, Terminate, Quota Full, Security) */}
-                              {partner.event_postback_urls && Object.keys(partner.event_postback_urls).length > 0 && (
-                                <div className="space-y-0.5 mt-1 pl-2 border-l-2 border-blue-200">
-                                  {Object.entries(partner.event_postback_urls).map(([evt, url]) => (
-                                    <div key={evt} className="flex items-center gap-2">
-                                      <span className={`text-[10px] font-medium ${
-                                        evt === 'complete' ? 'text-green-600' :
-                                        evt === 'terminate' ? 'text-red-600' :
-                                        evt === 'quotafull' ? 'text-yellow-600' :
-                                        'text-purple-600'
-                                      }`}>
-                                        {evt === 'complete' ? '✅ Complete:' :
-                                         evt === 'terminate' ? '❌ Terminate:' :
-                                         evt === 'quotafull' ? '🚫 Quota Full:' :
-                                         '⚠️ Security:'}
-                                      </span>
-                                      <code className="text-[10px] bg-gray-50 px-1.5 py-0.5 rounded max-w-[450px] truncate" title={url}>
-                                        {url}
-                                      </code>
-                                      <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => copyToClipboard(url)}>
-                                        <Copy className="h-2.5 w-2.5" />
-                                      </Button>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                              {partner.unique_postback_key && (
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[10px] text-orange-600 font-medium">Offer Watch:</span>
-                                  <code className="text-xs bg-orange-50 px-2 py-1 rounded max-w-[450px] truncate" title={(() => {
-                                    const base = `https://postback.moustacheleads.com/offer-status/${partner.unique_postback_key}`;
-                                    const watchParams = partner.offer_watch_params || [];
-                                    if (watchParams.length === 0) return base;
-                                    const qs = watchParams.map((p: any) => `${p.our_field}=${p.their_param}`).join('&');
-                                    return `${base}?${qs}`;
-                                  })()}>
-                                    {(() => {
-                                      const base = `https://postback.moustacheleads.com/offer-status/${partner.unique_postback_key}`;
-                                      const watchParams = partner.offer_watch_params || [];
-                                      if (watchParams.length === 0) return `${base} (no params configured)`;
-                                      const qs = watchParams.map((p: any) => `${p.our_field}=${p.their_param}`).join('&');
-                                      return `${base}?${qs}`;
-                                    })()}
-                                  </code>
-                                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => {
-                                    const base = `https://postback.moustacheleads.com/offer-status/${partner.unique_postback_key}`;
-                                    const watchParams = partner.offer_watch_params || [];
-                                    if (watchParams.length === 0) { copyToClipboard(base); return; }
-                                    const qs = watchParams.map((p: any) => `${p.our_field}=${p.their_param}`).join('&');
-                                    copyToClipboard(`${base}?${qs}`);
-                                  }}>
-                                    <Copy className="h-3 w-3" />
-                                  </Button>
-                                </div>
-                              )}
-                            </div>
+                            <PartnerUrlDropdown partner={partner} copyToClipboard={copyToClipboard} />
                           </TableCell>
                           <TableCell>
                             <Badge variant={partner.status === 'active' ? 'default' : 'secondary'}>

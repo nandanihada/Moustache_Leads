@@ -23,6 +23,8 @@ export interface Partner {
   postback_receiver_url?: string;
   event_postback_urls?: Record<string, string>;
   parameter_mapping?: Record<string, string>;
+  // Redirect URLs (browser-facing, for survey partners like Voqall)
+  redirect_urls?: Record<string, string>;
   // NEW: Offer URL auto-param injection
   offer_url_params?: OfferUrlParam[];
   network_domain?: string;

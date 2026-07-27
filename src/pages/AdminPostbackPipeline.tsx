@@ -9,6 +9,141 @@ import { RefreshCw, ArrowRight, AlertTriangle, CheckCircle, XCircle, Trash2, Eye
 import { toast } from 'sonner';
 import { postbackPipelineApi } from '@/services/postbackPipelineApi';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
+import { getApiBaseUrl } from '@/services/apiConfig';
+import { getAuthToken } from '@/utils/cookies';
+
+// ─── Redirect Logs Tab ────────────────────────────────────────────────────────
+interface RedirectLog {
+  _id: string;
+  partner_name: string;
+  partner_id: string;
+  event_type: string;
+  query_params: Record<string, string>;
+  ip_address: string;
+  user_agent: string;
+  timestamp: string;
+  unique_key: string;
+}
+
+function RedirectLogsTab() {
+  const [logs, setLogs] = useState<RedirectLog[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [skip, setSkip] = useState(0);
+  const [eventFilter, setEventFilter] = useState('');
+  const limit = 50;
+
+  const fetchLogs = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: String(limit), skip: String(skip) });
+      if (eventFilter) params.set('event_type', eventFilter);
+      const res = await fetch(`${getApiBaseUrl()}/api/admin/redirect-logs?${params}`, {
+        headers: { Authorization: `Bearer ${getAuthToken()}` }
+      });
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setLogs(data.logs || []);
+      setTotal(data.total || 0);
+    } catch {
+      toast.error('Failed to load redirect logs');
+    } finally {
+      setLoading(false);
+    }
+  }, [skip, eventFilter]);
+
+  useEffect(() => { fetchLogs(); }, [fetchLogs]);
+
+  const evtBadge = (evt: string) => {
+    switch (evt) {
+      case 'complete':  return <Badge className="bg-green-100 text-green-700 border border-green-300 text-xs">Complete</Badge>;
+      case 'overquota': return <Badge className="bg-amber-100 text-amber-700 border border-amber-300 text-xs">Overquota</Badge>;
+      case 'terminate': return <Badge className="bg-red-100 text-red-700 border border-red-300 text-xs">Terminate</Badge>;
+      case 'security':  return <Badge className="bg-purple-100 text-purple-700 border border-purple-300 text-xs">Security</Badge>;
+      default: return <Badge variant="outline" className="text-xs">{evt || '—'}</Badge>;
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <Select value={eventFilter || 'all'} onValueChange={v => { setEventFilter(v === 'all' ? '' : v); setSkip(0); }}>
+          <SelectTrigger className="w-40"><SelectValue placeholder="All events" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All events</SelectItem>
+            <SelectItem value="complete">Complete</SelectItem>
+            <SelectItem value="overquota">Overquota</SelectItem>
+            <SelectItem value="terminate">Terminate</SelectItem>
+            <SelectItem value="security">Security</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button size="sm" variant="outline" onClick={() => { setSkip(0); fetchLogs(); }} disabled={loading}>
+          <RefreshCw className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} />Refresh
+        </Button>
+        <span className="text-sm text-muted-foreground ml-auto">{total} total redirects</span>
+      </div>
+
+      <Card>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Time</TableHead>
+                <TableHead>Partner</TableHead>
+                <TableHead>Event</TableHead>
+                <TableHead>IP Address</TableHead>
+                <TableHead>Query Params</TableHead>
+                <TableHead>Key</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {logs.map((log) => (
+                <TableRow key={log._id}>
+                  <TableCell className="text-xs whitespace-nowrap">
+                    {log.timestamp ? new Date(log.timestamp).toLocaleString() : '—'}
+                  </TableCell>
+                  <TableCell className="font-medium">{log.partner_name || '—'}</TableCell>
+                  <TableCell>{evtBadge(log.event_type)}</TableCell>
+                  <TableCell className="font-mono text-xs">{log.ip_address || '—'}</TableCell>
+                  <TableCell className="text-xs max-w-[260px] truncate" title={JSON.stringify(log.query_params)}>
+                    {Object.keys(log.query_params || {}).length > 0
+                      ? Object.entries(log.query_params).map(([k, v]) => `${k}=${v}`).join(' · ')
+                      : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">{log.unique_key?.slice(0, 10)}…</TableCell>
+                </TableRow>
+              ))}
+              {logs.length === 0 && !loading && (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-10">
+                    No redirect logs yet. Hits to /redirect/&#123;key&#125;/&#123;event&#125; will appear here.
+                  </TableCell>
+                </TableRow>
+              )}
+              {loading && (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-10">
+                    <RefreshCw className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+        {/* Pagination */}
+        {total > limit && (
+          <div className="flex items-center justify-between px-4 py-3 border-t text-sm">
+            <span className="text-muted-foreground">Showing {skip + 1}–{Math.min(skip + limit, total)} of {total}</span>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" disabled={skip === 0} onClick={() => setSkip(s => Math.max(0, s - limit))}>Prev</Button>
+              <Button size="sm" variant="outline" disabled={skip + limit >= total} onClick={() => setSkip(s => s + limit)}>Next</Button>
+            </div>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
 
 interface PipelineStats {
   pipeline: {
@@ -113,7 +248,7 @@ function AdminPostbackPipelineContent() {
               <PipelineArrow />
               <PipelineBox label="Forwarded to Publishers" value={p.forwarded.verified} color="green" sub={`${p.forwarded.fake_flagged} fake flagged`} />
               <PipelineArrow />
-              <PipelineBox label="Points Awarded" value={p.points.verified_transactions || p.points.total_transactions} color="blue" sub={`${p.points.fake_flagged} fake flagged`} />
+              <PipelineBox label="Points Awarded" value={p.points.total_transactions} color="blue" sub={`${p.points.fake_flagged} fake flagged`} />
             </div>
           </Card>
 
@@ -154,6 +289,7 @@ function AdminPostbackPipelineContent() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="overview">Recent Activity</TabsTrigger>
+          <TabsTrigger value="redirect-logs">Redirect Logs</TabsTrigger>
           <TabsTrigger value="cleanup">Data Cleanup</TabsTrigger>
         </TabsList>
 
@@ -244,6 +380,10 @@ function AdminPostbackPipelineContent() {
               </Table>
             </div>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="redirect-logs">
+          <RedirectLogsTab />
         </TabsContent>
 
         <TabsContent value="cleanup" className="space-y-4">

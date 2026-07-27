@@ -4948,9 +4948,11 @@ def import_api_offers():
         
         # Step 3: Detect stale offers (in DB but not in API response)
         # Find offers in our system from this network that were NOT returned by the API
+        # IMPORTANT: Only check ACTIVE offers for stale detection (don't flag already-expired ones)
         try:
             offers_collection = db_instance.get_collection('offers')
             # Get all campaign_ids from the fetched API offers
+            # Normalize all IDs to stripped strings for consistent comparison
             fetched_campaign_ids = set()
             for offer_data in offers:
                 # Different networks use different ID fields
@@ -4962,30 +4964,62 @@ def import_api_offers():
                     oid = str(offer_data.get('id', '') or offer_data.get('offer_id', ''))
                 elif network_type == 'marketxcel':
                     oid = str(offer_data.get('project_id', '') or offer_data.get('survey_id', '') or offer_data.get('id', ''))
+                elif network_type == 'lootably':
+                    oid = str(offer_data.get('offerID', '') or offer_data.get('offer_id', '') or offer_data.get('id', ''))
                 else:  # hasoffers — offers are wrapped: {"Offer": {"id": "2816", ...}}
                     if isinstance(offer_data, dict) and 'Offer' in offer_data:
                         oid = str(offer_data['Offer'].get('id', '') or offer_data['Offer'].get('offer_id', ''))
                     else:
                         oid = str(offer_data.get('id', '') or offer_data.get('offer_id', ''))
+                oid = oid.strip()
                 if oid:
                     fetched_campaign_ids.add(oid)
             
             logging.info(f"🔍 Stale detection: {len(fetched_campaign_ids)} unique offer IDs from API")
+            logging.info(f"🔍 Sample fetched IDs (first 10): {sorted(list(fetched_campaign_ids))[:10]}")
             
             # Query DB for offers from this same network that are active/running
             # Use admin-specified network_name for matching (case-insensitive)
             network_match_values = list(set([network_name, network_id]))
+            # Also add space/no-space variations to catch "cpa merchant" vs "cpamerchant"
+            for val in [network_name, network_id]:
+                no_space = val.replace(' ', '')
+                with_space = val  # already has space if it has one
+                if no_space != val:
+                    network_match_values.append(no_space)
+                # If no spaces, try common word breaks (e.g. "cpamerchant" -> "cpa merchant" won't be guessed,
+                # but the regex is case-insensitive so "CpaMerchant" matches "cpamerchant")
+            network_match_values = list(set(network_match_values))
             if network_type == 'adscendmedia':
                 network_match_values.append('adscendmedia')
             elif network_type == 'marketxcel':
                 network_match_values.append('marketxcel')
                 network_match_values.append('MarketXcel')
+            elif network_type == 'lootably':
+                network_match_values.append('lootably')
+                network_match_values.append('Lootably')
             
             # Build network regex for case-insensitive match
-            network_pattern = '|'.join([f'^{v}$' for v in network_match_values])
+            # Use alternation pattern that matches all variations (with/without spaces)
+            escaped_values = []
+            for v in network_match_values:
+                # Escape regex special chars, then replace spaces with optional space pattern
+                import re as re_mod
+                escaped = re_mod.escape(v)
+                # Allow optional spaces between characters where a space exists
+                escaped_values.append(f'^{escaped}$')
+                # Also add version without any spaces
+                no_space_version = re_mod.escape(v.replace(' ', ''))
+                if no_space_version != escaped:
+                    escaped_values.append(f'^{no_space_version}$')
             
+            network_pattern = '|'.join(escaped_values)
+            
+            # CRITICAL: Only query ACTIVE/RUNNING offers for stale detection
+            # Do NOT include expired/inactive offers — those are handled separately in Feature 3
             db_query = {
                 'network': {'$regex': network_pattern, '$options': 'i'},
+                'status': {'$in': ['active', 'running', 'paused', 'pending']},
                 '$or': [{'deleted': {'$exists': False}}, {'deleted': False}],
             }
             
@@ -4994,11 +5028,12 @@ def import_api_offers():
                 {'campaign_id': 1, 'network_offer_id': 1, 'name': 1, 'payout': 1, 'countries': 1, 'vertical': 1, 'offer_id': 1, 'status': 1, 'image_url': 1}
             ))
             
-            logging.info(f"🔍 Stale detection: {len(db_offers)} DB offers from network '{network_match_values}'")
+            logging.info(f"🔍 Stale detection: {len(db_offers)} ACTIVE DB offers from network '{network_match_values}'")
             
             # Find stale offers (in DB but not in API)
             # Compare campaign_id (the upward partner's offer ID) against fetched API IDs
             stale_offers = []
+            matched_count = 0
             for db_offer in db_offers:
                 db_campaign_id = str(db_offer.get('campaign_id', '')).strip()
                 db_network_offer_id = str(db_offer.get('network_offer_id', '')).strip()
@@ -5013,8 +5048,22 @@ def import_api_offers():
                 else:
                     check_id = db_campaign_id
                 
+                # Normalize the check_id for comparison (strip whitespace, remove leading zeros for numeric IDs)
+                check_id = check_id.strip()
+                
                 # Check if this offer's partner ID exists in the API response
-                if check_id not in fetched_campaign_ids:
+                # Try exact match first, then try numeric match (some networks return "2816" vs "02816")
+                found_in_api = check_id in fetched_campaign_ids
+                if not found_in_api and check_id.isdigit():
+                    # Try matching without leading zeros
+                    normalized = str(int(check_id))
+                    found_in_api = normalized in fetched_campaign_ids or any(
+                        cid.isdigit() and str(int(cid)) == normalized for cid in fetched_campaign_ids
+                    )
+                
+                if found_in_api:
+                    matched_count += 1
+                else:
                     stale_offers.append({
                         'offer_id': db_offer_id or str(db_offer.get('_id', '')),
                         'campaign_id': db_campaign_id,
@@ -5026,7 +5075,11 @@ def import_api_offers():
                         'image_url': db_offer.get('image_url', ''),
                     })
             
-            logging.info(f"🔍 Stale detection: {len(stale_offers)} stale, sample API IDs: {list(fetched_campaign_ids)[:3]}, sample DB campaign_ids: {[str(o.get('campaign_id','')) for o in db_offers[:3]]}")
+            logging.info(f"🔍 Stale detection result: {matched_count} matched (still in API), {len(stale_offers)} stale (NOT in API)")
+            if stale_offers:
+                logging.info(f"🔍 Sample stale campaign_ids: {[s['campaign_id'] for s in stale_offers[:5]]}")
+            if db_offers:
+                logging.info(f"🔍 Sample DB campaign_ids: {[str(o.get('campaign_id','')) for o in db_offers[:5]]}")
             
             response_data['stale_offers'] = stale_offers
             response_data['summary']['stale_count'] = len(stale_offers)
@@ -5034,11 +5087,122 @@ def import_api_offers():
                 logging.info(f"⚠️ Found {len(stale_offers)} stale offers (in DB but not in API)")
             else:
                 logging.info(f"✅ Sync check: All DB offers for this network are still in the API (0 stale)")
+            
+            # Feature 2: Auto-Expire Stale Offers
+            auto_expire_stale = options.get('auto_expire_stale', False)
+            auto_expired_count = 0
+            if auto_expire_stale and stale_offers:
+                try:
+                    stale_offer_ids = [s['offer_id'] for s in stale_offers if s.get('offer_id')]
+                    if stale_offer_ids:
+                        expire_result = offers_collection.update_many(
+                            {'offer_id': {'$in': stale_offer_ids}, 'status': {'$ne': 'expired'}},
+                            {'$set': {
+                                'status': 'expired',
+                                'is_active': False,
+                                'auto_expired_at': datetime.utcnow(),
+                                'auto_expired_reason': 'not_found_in_api',
+                                'updated_at': datetime.utcnow()
+                            }}
+                        )
+                        auto_expired_count = expire_result.modified_count
+                        logging.info(f"🔄 Auto-expired {auto_expired_count} stale offers")
+                except Exception as ae_err:
+                    logging.warning(f"Auto-expire error (non-critical): {ae_err}")
+            
+            response_data['summary']['auto_expired_count'] = auto_expired_count
+            
+            # Feature 3: Detect EXPIRED offers that are back in the API (reactivatable)
+            # NOTE: Only check 'expired' status — 'inactive' offers can still participate in rotation
+            # and get activated by the system, so they don't need manual reactivation
+            reactivatable_offers = []
+            try:
+                # Find offers in DB that are EXPIRED (not inactive!) but whose campaign_id IS in fetched API data
+                expired_query = {
+                    'network': {'$regex': network_pattern, '$options': 'i'},
+                    'status': 'expired',
+                    '$or': [{'deleted': {'$exists': False}}, {'deleted': False}],
+                }
+                expired_db_offers = list(offers_collection.find(
+                    expired_query,
+                    {'campaign_id': 1, 'network_offer_id': 1, 'name': 1, 'payout': 1, 
+                     'countries': 1, 'vertical': 1, 'offer_id': 1, 'status': 1, 
+                     'image_url': 1, 'description': 1, 'target_url': 1}
+                ))
+                
+                logging.info(f"🔍 Reactivation check: {len(expired_db_offers)} expired/inactive DB offers for this network")
+                
+                for db_offer in expired_db_offers:
+                    db_campaign_id = str(db_offer.get('campaign_id', '')).strip()
+                    db_network_offer_id = str(db_offer.get('network_offer_id', '')).strip()
+                    
+                    if db_campaign_id.startswith('ML-') or not db_campaign_id:
+                        if not db_network_offer_id or db_network_offer_id.startswith('ML-'):
+                            continue
+                        check_id = db_network_offer_id
+                    else:
+                        check_id = db_campaign_id
+                    
+                    check_id = check_id.strip()
+                    
+                    # If this expired offer IS in the API response, it can be reactivated
+                    # Use same normalized matching as stale detection
+                    found_in_api = check_id in fetched_campaign_ids
+                    if not found_in_api and check_id.isdigit():
+                        normalized = str(int(check_id))
+                        found_in_api = normalized in fetched_campaign_ids or any(
+                            cid.isdigit() and str(int(cid)) == normalized for cid in fetched_campaign_ids
+                        )
+                    
+                    if found_in_api:
+                        # Find matching API offer data to provide updated info
+                        api_payout = None
+                        api_description = None
+                        api_countries = None
+                        api_target_url = None
+                        
+                        for api_offer in mapped_offers:
+                            api_cid = str(api_offer.get('campaign_id', '')).strip()
+                            if api_cid == check_id or (api_cid.isdigit() and check_id.isdigit() and int(api_cid) == int(check_id)):
+                                api_payout = api_offer.get('payout')
+                                api_description = api_offer.get('description')
+                                api_countries = api_offer.get('countries')
+                                api_target_url = api_offer.get('target_url')
+                                break
+                        
+                        reactivatable_offers.append({
+                            'offer_id': db_offer.get('offer_id', str(db_offer.get('_id', ''))),
+                            'campaign_id': db_campaign_id,
+                            'name': db_offer.get('name', 'Unknown'),
+                            'current_status': db_offer.get('status', ''),
+                            'payout': db_offer.get('payout', 0),
+                            'api_payout': api_payout,
+                            'countries': db_offer.get('countries', [])[:5],
+                            'api_countries': api_countries[:5] if api_countries else None,
+                            'vertical': db_offer.get('vertical', ''),
+                            'image_url': db_offer.get('image_url', ''),
+                            'api_description': (api_description or '')[:100],
+                            'api_target_url': api_target_url or '',
+                        })
+                
+                if reactivatable_offers:
+                    logging.info(f"🔄 Found {len(reactivatable_offers)} expired offers that are back in API (reactivatable)")
+                    logging.info(f"🔄 Sample: {[r['name'][:30] for r in reactivatable_offers[:3]]}")
+                else:
+                    logging.info(f"✅ No expired offers found back in API")
+            except Exception as react_err:
+                logging.warning(f"Reactivatable detection error (non-critical): {react_err}")
+            
+            response_data['reactivatable_offers'] = reactivatable_offers
+            response_data['summary']['reactivatable_count'] = len(reactivatable_offers)
                 
         except Exception as stale_err:
             logging.warning(f"Stale offer detection error (non-critical): {stale_err}")
             response_data['stale_offers'] = []
             response_data['summary']['stale_count'] = 0
+            response_data['reactivatable_offers'] = []
+            response_data['summary']['reactivatable_count'] = 0
+            response_data['summary']['auto_expired_count'] = 0
         
         logging.info(f"✅ API Import complete: {result['stats']['created']} imported in {result['stats']['elapsed_seconds']}s")
         
@@ -5414,6 +5578,431 @@ def debug_api_response():
     except Exception as e:
         logging.error(f"Debug endpoint failed: {str(e)}", exc_info=True)
         return jsonify({'error': f'Debug failed: {str(e)}'}), 500
+
+
+# ==================== SYNC CHECK (DRY-RUN) ENDPOINT ====================
+
+@admin_offers_bp.route('/offers/api-import/sync-check', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def sync_check_offers():
+    """
+    Dry-run sync check: compares API offers vs DB offers WITHOUT importing or expiring anything.
+    Returns which offers are stale, which are reactivatable, and detailed ID matching logs.
+    Use this in Postman to verify stale detection accuracy before running a real import.
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        network_id = data.get('network_id')
+        api_key = data.get('api_key')
+        network_type = data.get('network_type', 'hasoffers')
+        network_name = (data.get('network_name', '').strip() or network_id).lower()
+        fetch_mode = data.get('fetch_mode', 'my_offers')
+        
+        if not network_id or not api_key:
+            return jsonify({'error': 'network_id and api_key are required'}), 400
+        
+        from services.network_api_service import network_api_service
+        
+        # Fetch offers from API
+        offers, error = network_api_service.fetch_offers(
+            network_id, api_key, network_type, {}, None, fetch_mode
+        )
+        
+        if error:
+            return jsonify({'success': False, 'error': error}), 400
+        
+        # Extract campaign IDs from API response
+        fetched_campaign_ids = set()
+        api_id_samples = []
+        for offer_data in offers:
+            if network_type == 'adscendmedia':
+                oid = str(offer_data.get('offer_id', ''))
+            elif network_type == 'everflow':
+                oid = str(offer_data.get('network_offer_id', '') or offer_data.get('offer_id', '') or offer_data.get('id', ''))
+            elif network_type == 'mobplus':
+                oid = str(offer_data.get('id', '') or offer_data.get('offer_id', ''))
+            elif network_type == 'marketxcel':
+                oid = str(offer_data.get('project_id', '') or offer_data.get('survey_id', '') or offer_data.get('id', ''))
+            elif network_type == 'lootably':
+                oid = str(offer_data.get('offerID', '') or offer_data.get('offer_id', '') or offer_data.get('id', ''))
+            else:
+                if isinstance(offer_data, dict) and 'Offer' in offer_data:
+                    oid = str(offer_data['Offer'].get('id', '') or offer_data['Offer'].get('offer_id', ''))
+                else:
+                    oid = str(offer_data.get('id', '') or offer_data.get('offer_id', ''))
+            oid = oid.strip()
+            if oid:
+                fetched_campaign_ids.add(oid)
+                if len(api_id_samples) < 20:
+                    api_id_samples.append(oid)
+        
+        # Query DB
+        offers_collection = db_instance.get_collection('offers')
+        network_match_values = list(set([network_name, network_id]))
+        # Add space/no-space variations
+        for val in [network_name, network_id]:
+            no_space = val.replace(' ', '')
+            if no_space != val:
+                network_match_values.append(no_space)
+        network_match_values = list(set(network_match_values))
+        if network_type == 'adscendmedia':
+            network_match_values.append('adscendmedia')
+        elif network_type == 'marketxcel':
+            network_match_values.extend(['marketxcel', 'MarketXcel'])
+        elif network_type == 'lootably':
+            network_match_values.extend(['lootably', 'Lootably'])
+        
+        network_pattern = '|'.join([f'^{v}$' for v in network_match_values])
+        
+        # Get ACTIVE offers
+        active_db_offers = list(offers_collection.find(
+            {
+                'network': {'$regex': network_pattern, '$options': 'i'},
+                'status': {'$in': ['active', 'running', 'paused', 'pending']},
+                '$or': [{'deleted': {'$exists': False}}, {'deleted': False}],
+            },
+            {'campaign_id': 1, 'network_offer_id': 1, 'name': 1, 'payout': 1, 'offer_id': 1, 'status': 1}
+        ))
+        
+        # Get EXPIRED offers only (inactive can still participate in rotation)
+        expired_db_offers = list(offers_collection.find(
+            {
+                'network': {'$regex': network_pattern, '$options': 'i'},
+                'status': 'expired',
+                '$or': [{'deleted': {'$exists': False}}, {'deleted': False}],
+            },
+            {'campaign_id': 1, 'network_offer_id': 1, 'name': 1, 'payout': 1, 'offer_id': 1, 'status': 1}
+        ))
+        
+        # Stale detection (dry run)
+        stale = []
+        matched = []
+        for db_offer in active_db_offers:
+            db_cid = str(db_offer.get('campaign_id', '')).strip()
+            if db_cid.startswith('ML-') or not db_cid:
+                db_cid = str(db_offer.get('network_offer_id', '')).strip()
+                if not db_cid or db_cid.startswith('ML-'):
+                    continue
+            
+            found = db_cid in fetched_campaign_ids
+            if not found and db_cid.isdigit():
+                normalized = str(int(db_cid))
+                found = normalized in fetched_campaign_ids
+            
+            entry = {
+                'offer_id': db_offer.get('offer_id', ''),
+                'campaign_id': db_cid,
+                'name': db_offer.get('name', ''),
+                'status': db_offer.get('status', ''),
+                'payout': db_offer.get('payout', 0),
+            }
+            if found:
+                matched.append(entry)
+            else:
+                stale.append(entry)
+        
+        # Reactivatable detection (dry run)
+        reactivatable = []
+        for db_offer in expired_db_offers:
+            db_cid = str(db_offer.get('campaign_id', '')).strip()
+            if db_cid.startswith('ML-') or not db_cid:
+                db_cid = str(db_offer.get('network_offer_id', '')).strip()
+                if not db_cid or db_cid.startswith('ML-'):
+                    continue
+            
+            found = db_cid in fetched_campaign_ids
+            if not found and db_cid.isdigit():
+                normalized = str(int(db_cid))
+                found = normalized in fetched_campaign_ids
+            
+            if found:
+                reactivatable.append({
+                    'offer_id': db_offer.get('offer_id', ''),
+                    'campaign_id': db_cid,
+                    'name': db_offer.get('name', ''),
+                    'status': db_offer.get('status', ''),
+                    'payout': db_offer.get('payout', 0),
+                })
+        
+        return jsonify({
+            'success': True,
+            'dry_run': True,
+            'message': 'This is a DRY RUN — no offers were modified',
+            'api_stats': {
+                'total_fetched': len(offers),
+                'unique_campaign_ids': len(fetched_campaign_ids),
+                'sample_api_ids': sorted(api_id_samples)[:20],
+            },
+            'db_stats': {
+                'active_offers_in_db': len(active_db_offers),
+                'expired_offers_in_db': len(expired_db_offers),
+                'network_pattern': network_pattern,
+            },
+            'stale_detection': {
+                'matched_count': len(matched),
+                'stale_count': len(stale),
+                'stale_offers': stale[:50],
+                'matched_offers_sample': matched[:10],
+            },
+            'reactivation_detection': {
+                'reactivatable_count': len(reactivatable),
+                'reactivatable_offers': reactivatable[:50],
+            },
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Sync check failed: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Sync check failed: {str(e)}'}), 500
+
+
+# ==================== NETWORK PRESETS ENDPOINTS ====================
+
+@admin_offers_bp.route('/offers/network-presets', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def get_network_presets():
+    """Get all saved network presets for API import credential auto-fill"""
+    try:
+        presets_col = db_instance.get_collection('network_presets')
+        if presets_col is None:
+            return jsonify({'success': True, 'presets': []}), 200
+        
+        presets = list(presets_col.find({}).sort('display_name', 1))
+        
+        # Serialize
+        result = []
+        for p in presets:
+            result.append({
+                'id': str(p['_id']),
+                'display_name': p.get('display_name', ''),
+                'network_type': p.get('network_type', 'hasoffers'),
+                'network_id': p.get('network_id', ''),
+                'api_key': p.get('api_key', ''),
+                'api_url': p.get('api_url', ''),
+                'fetch_mode': p.get('fetch_mode', 'my_offers'),
+                'created_at': p.get('created_at', ''),
+                'updated_at': p.get('updated_at', ''),
+            })
+        
+        return jsonify({'success': True, 'presets': result}), 200
+        
+    except Exception as e:
+        logging.error(f"Get network presets error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to get presets: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/network-presets', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def create_network_preset():
+    """Create a new network preset"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        display_name = (data.get('display_name') or '').strip()
+        network_type = data.get('network_type', 'hasoffers')
+        network_id = (data.get('network_id') or '').strip()
+        api_key = (data.get('api_key') or '').strip()
+        api_url = (data.get('api_url') or '').strip()
+        fetch_mode = data.get('fetch_mode', 'my_offers')
+        
+        if not display_name:
+            return jsonify({'error': 'display_name is required'}), 400
+        if not api_key:
+            return jsonify({'error': 'api_key is required'}), 400
+        
+        presets_col = db_instance.get_collection('network_presets')
+        if presets_col is None:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        # Check for duplicate name
+        existing = presets_col.find_one({'display_name': {'$regex': f'^{display_name}$', '$options': 'i'}})
+        if existing:
+            return jsonify({'error': f'Preset "{display_name}" already exists'}), 400
+        
+        preset_doc = {
+            'display_name': display_name,
+            'network_type': network_type,
+            'network_id': network_id,
+            'api_key': api_key,
+            'api_url': api_url,
+            'fetch_mode': fetch_mode,
+            'created_at': datetime.utcnow(),
+            'updated_at': datetime.utcnow(),
+            'created_by': str(request.current_user.get('_id', 'admin')),
+        }
+        
+        result = presets_col.insert_one(preset_doc)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Preset "{display_name}" created',
+            'preset': {
+                'id': str(result.inserted_id),
+                'display_name': display_name,
+                'network_type': network_type,
+                'network_id': network_id,
+                'api_key': api_key,
+                'api_url': api_url,
+                'fetch_mode': fetch_mode,
+            }
+        }), 201
+        
+    except Exception as e:
+        logging.error(f"Create network preset error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to create preset: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/network-presets/<preset_id>', methods=['PUT'])
+@token_required
+@subadmin_or_admin_required('offers')
+def update_network_preset(preset_id):
+    """Update an existing network preset"""
+    try:
+        from bson import ObjectId as ObjId
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        presets_col = db_instance.get_collection('network_presets')
+        if presets_col is None:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        # Build update fields
+        update_fields = {'updated_at': datetime.utcnow()}
+        for field in ['display_name', 'network_type', 'network_id', 'api_key', 'api_url', 'fetch_mode']:
+            if field in data:
+                update_fields[field] = data[field]
+        
+        result = presets_col.update_one(
+            {'_id': ObjId(preset_id)},
+            {'$set': update_fields}
+        )
+        
+        if result.matched_count == 0:
+            return jsonify({'error': 'Preset not found'}), 404
+        
+        return jsonify({'success': True, 'message': 'Preset updated'}), 200
+        
+    except Exception as e:
+        logging.error(f"Update network preset error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to update preset: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/network-presets/<preset_id>', methods=['DELETE'])
+@token_required
+@subadmin_or_admin_required('offers')
+def delete_network_preset(preset_id):
+    """Delete a network preset"""
+    try:
+        from bson import ObjectId as ObjId
+        
+        presets_col = db_instance.get_collection('network_presets')
+        if presets_col is None:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        result = presets_col.delete_one({'_id': ObjId(preset_id)})
+        
+        if result.deleted_count == 0:
+            return jsonify({'error': 'Preset not found'}), 404
+        
+        return jsonify({'success': True, 'message': 'Preset deleted'}), 200
+        
+    except Exception as e:
+        logging.error(f"Delete network preset error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to delete preset: {str(e)}'}), 500
+
+
+# ==================== REACTIVATE EXPIRED OFFERS ENDPOINT ====================
+
+@admin_offers_bp.route('/offers/api-import/reactivate', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def reactivate_expired_offers():
+    """Bulk reactivate offers that were expired but are now found back in API"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        offer_ids = data.get('offer_ids', [])
+        updates_map = data.get('updates', {})  # offer_id -> {payout, description, countries, ...}
+        
+        if not offer_ids:
+            return jsonify({'error': 'No offer_ids provided'}), 400
+        
+        offers_col = db_instance.get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        reactivated = 0
+        errors = []
+        
+        for oid in offer_ids:
+            try:
+                update_data = {
+                    'status': 'active',
+                    'is_active': True,
+                    'updated_at': datetime.utcnow(),
+                    'reactivated_at': datetime.utcnow(),
+                    'reactivated_by': str(request.current_user.get('_id', 'admin')),
+                }
+                
+                # Apply API data updates if provided
+                offer_updates = updates_map.get(oid, {})
+                if offer_updates.get('payout'):
+                    update_data['payout'] = float(offer_updates['payout'])
+                if offer_updates.get('description'):
+                    update_data['description'] = offer_updates['description']
+                if offer_updates.get('countries'):
+                    update_data['countries'] = offer_updates['countries']
+                if offer_updates.get('target_url'):
+                    update_data['target_url'] = offer_updates['target_url']
+                
+                result = offers_col.update_one(
+                    {'offer_id': oid},
+                    {'$set': update_data}
+                )
+                
+                if result.modified_count > 0:
+                    reactivated += 1
+                else:
+                    # Try by _id
+                    from bson import ObjectId as ObjId
+                    try:
+                        result = offers_col.update_one(
+                            {'_id': ObjId(oid)},
+                            {'$set': update_data}
+                        )
+                        if result.modified_count > 0:
+                            reactivated += 1
+                        else:
+                            errors.append({'offer_id': oid, 'error': 'Not found or already active'})
+                    except:
+                        errors.append({'offer_id': oid, 'error': 'Not found'})
+                        
+            except Exception as e:
+                errors.append({'offer_id': oid, 'error': str(e)})
+        
+        logging.info(f"✅ Reactivated {reactivated} expired offers, {len(errors)} errors")
+        
+        return jsonify({
+            'success': True,
+            'reactivated': reactivated,
+            'errors': errors[:10],
+            'message': f'Reactivated {reactivated} offers'
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Reactivate offers error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to reactivate offers: {str(e)}'}), 500
 
 
 # ==================== DUPLICATE REMOVAL ENDPOINTS ====================
