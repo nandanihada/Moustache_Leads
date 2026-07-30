@@ -33,6 +33,12 @@ export const SubdomainRouter: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
     
+    // Redirect dashboard subdomain root to /admin
+    if (subdomain === 'dashboard' && currentPath === '/') {
+      window.location.href = `https://dashboard.moustacheleads.com/admin`;
+      return;
+    }
+
     // Redirect offers subdomain to offers page
     if (subdomain === 'offers' && currentPath === '/') {
       window.location.href = `https://offers.moustacheleads.com/dashboard/offers`;
