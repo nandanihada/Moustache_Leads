@@ -1122,23 +1122,47 @@ class NetworkAPIService:
 
     # ==================== Voqall Implementation ====================
 
-    VOQALL_PROD_BASE = 'https://partner-api2.voqall.com/api/v1'
+    VOQALL_PROD_BASE = 'https://partner-api.voqall.com/api/v1'
     VOQALL_SANDBOX_BASE = 'https://sandbox-partner-api2.voqall.com/api/v1'
 
     def _voqall_base_url(self, network_id: str) -> str:
         """Return sandbox or production base URL.
         
-        Convention: if the network_id starts with 'sandbox:' or equals 'sandbox' we use sandbox.
-        Otherwise always use production.
+        Convention: if the network_id starts with 'sandbox' we use sandbox.
+        Otherwise use production.
         """
         if network_id.startswith('sandbox'):
             return self.VOQALL_SANDBOX_BASE
         return self.VOQALL_PROD_BASE
 
+    def _voqall_resolve_base_url(self, network_id: str, api_key: str) -> str:
+        """Resolve the correct Voqall base URL by probing both envs.
+        
+        If the explicit network_id hint resolves to prod but prod returns 401,
+        automatically fall back to sandbox.  This handles the common case where
+        a sandbox API key is stored without a 'sandbox' prefix in network_id.
+        """
+        if network_id.startswith('sandbox'):
+            return self.VOQALL_SANDBOX_BASE
+
+        # Try production first — if it fails with 401/403 try sandbox
+        try:
+            probe = self.session.get(
+                f"{self.VOQALL_PROD_BASE}/surveys",
+                headers={'EQ-PARTNER-ACCESS-KEY': api_key},
+                timeout=10
+            )
+            if probe.status_code not in (401, 403):
+                return self.VOQALL_PROD_BASE
+        except Exception:
+            pass
+
+        return self.VOQALL_SANDBOX_BASE
+
     def _test_voqall_connection(self, network_id: str, api_key: str) -> Tuple[bool, Optional[int], Optional[str]]:
         """Test Voqall Data Partner API connection by fetching survey list."""
         try:
-            base_url = self._voqall_base_url(network_id)
+            base_url = self._voqall_resolve_base_url(network_id, api_key)
             url = f"{base_url}/surveys"
             response = self.session.get(
                 url,
@@ -1146,7 +1170,7 @@ class NetworkAPIService:
                 timeout=self.timeout
             )
             if response.status_code == 401:
-                return False, None, "Invalid API key (401 Unauthorized)"
+                return False, None, "Invalid API key (401 Unauthorized) — check your EQ-PARTNER-ACCESS-KEY"
             if response.status_code == 403:
                 return False, None, "Access forbidden — check your supplier account status"
             response.raise_for_status()
@@ -1157,7 +1181,8 @@ class NetworkAPIService:
                 return False, None, f"Voqall API error [{err_code}]: {msgs}"
             surveys = data.get('Surveys', [])
             count = len(surveys)
-            logger.info(f"✅ Voqall connection OK — {count} live surveys found")
+            env = 'sandbox' if 'sandbox' in base_url else 'production'
+            logger.info(f"✅ Voqall connection OK ({env}) — {count} live surveys found")
             return True, count, None
         except requests.exceptions.ConnectionError:
             return False, None, "Cannot connect to Voqall API — check network"
@@ -1173,7 +1198,8 @@ class NetworkAPIService:
         """Fetch all live surveys from Voqall Data Partner API.
         
         Args:
-            network_id: Supplier UUID (prefix with 'sandbox:' for sandbox env)
+            network_id: Supplier UUID (prefix with 'sandbox' for sandbox env,
+                        or leave as 'voqall' — env is auto-detected from the key)
             api_key:    EQ-PARTNER-ACCESS-KEY header value
             filters:    Optional dict — currently supports 'country' (ISO-2)
             limit:      Optional int — truncate result set for preview
@@ -1182,7 +1208,7 @@ class NetworkAPIService:
             Tuple[list of raw survey dicts, error_message or None]
         """
         try:
-            base_url = self._voqall_base_url(network_id)
+            base_url = self._voqall_resolve_base_url(network_id, api_key)
             url = f"{base_url}/surveys"
             response = self.session.get(
                 url,

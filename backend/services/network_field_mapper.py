@@ -2000,10 +2000,16 @@ class NetworkFieldMapper:
 
             # Target URL — append our tracking macros
             raw_url = str(offer_data.get('SurveyUrl', '') or '').strip()
-            # Voqall uses {respondentId} placeholder — map to our {click_id}
-            target_url = raw_url.replace('{respondentId}', '{click_id}')
-            if not target_url:
-                target_url = f'https://partner-api2.voqall.com/survey/{survey_id}'
+            # Voqall survey URLs use these native placeholders:
+            #   [#vq_tid#]  — respondent transaction token → our {click_id}
+            #   [#vq_tuid#] — respondent user ID           → our {user_id}
+            # vq_sid and vq_vid are already auto-filled in the URL from the API.
+            if raw_url:
+                target_url = raw_url.replace('[#vq_tid#]', '{click_id}').replace('[#vq_tuid#]', '{user_id}')
+                # Also handle the old {respondentId} placeholder just in case
+                target_url = target_url.replace('{respondentId}', '{click_id}')
+            else:
+                target_url = f'https://rf.voqall.com/l?vq_sid={survey_id}&vq_token={{click_id}}&vq_uid={{user_id}}'
 
             # Device targeting
             desktop = bool(offer_data.get('DesktopAllowed', True))

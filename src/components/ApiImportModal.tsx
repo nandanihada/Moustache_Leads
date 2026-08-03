@@ -800,7 +800,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
               </div>
             )}
             
-            <Button onClick={handleTestConnection} disabled={testing || (networkType === 'hasoffers' || networkType === 'adscendmedia' || networkType === 'marketxcel' || networkType === 'lootably' ? !networkId : !apiUrl) || !apiKey}>
+            <Button onClick={handleTestConnection} disabled={testing || (networkType === 'voqall' ? false : networkType === 'hasoffers' || networkType === 'adscendmedia' || networkType === 'marketxcel' || networkType === 'lootably' ? !networkId : !apiUrl) || !apiKey}>
               {testing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Test Connection
             </Button>
             
@@ -813,7 +813,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
             
             <div className="flex justify-end gap-2 pt-4">
               <Button variant="outline" onClick={handleClose}>Cancel</Button>
-              <Button onClick={handleFetchFullPreview} disabled={loading || (networkType === 'hasoffers' || networkType === 'adscendmedia' || networkType === 'marketxcel' || networkType === 'lootably' ? !networkId : !apiUrl) || !apiKey}>
+              <Button onClick={handleFetchFullPreview} disabled={loading || (networkType === 'voqall' ? false : networkType === 'hasoffers' || networkType === 'adscendmedia' || networkType === 'marketxcel' || networkType === 'lootably' ? !networkId : !apiUrl) || !apiKey}>
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Next: Fetch & Preview Offers
               </Button>
             </div>

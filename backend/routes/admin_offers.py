@@ -4966,6 +4966,8 @@ def import_api_offers():
                     oid = str(offer_data.get('project_id', '') or offer_data.get('survey_id', '') or offer_data.get('id', ''))
                 elif network_type == 'lootably':
                     oid = str(offer_data.get('offerID', '') or offer_data.get('offer_id', '') or offer_data.get('id', ''))
+                elif network_type == 'voqall':
+                    oid = str(offer_data.get('SurveyId', '') or offer_data.get('survey_id', '') or offer_data.get('id', ''))
                 else:  # hasoffers — offers are wrapped: {"Offer": {"id": "2816", ...}}
                     if isinstance(offer_data, dict) and 'Offer' in offer_data:
                         oid = str(offer_data['Offer'].get('id', '') or offer_data['Offer'].get('offer_id', ''))
