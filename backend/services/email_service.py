@@ -21,66 +21,64 @@ class EmailService:
     """Service for sending email notifications via Hostinger SMTP"""
     
     def __init__(self):
-        # Hostinger SMTP configuration
+        # SMTP configuration — defaults to Hostinger
         self.smtp_host = os.getenv('SMTP_HOST', 'smtp.hostinger.com')
         self.smtp_port = int(os.getenv('SMTP_PORT', '465'))
         self.smtp_user = os.getenv('SMTP_USER')
         self.smtp_pass = os.getenv('SMTP_PASS')
         self.from_email = os.getenv('FROM_EMAIL', self.smtp_user)
         self.email_debug = os.getenv('EMAIL_DEBUG', 'false').lower() == 'true'
-        
-        # Debug: Log what we found
-        logger.info(f"📧 EmailService Config - Host: {self.smtp_host}, Port: {self.smtp_port}")
-        logger.info(f"📧 EmailService Config - User set: {bool(self.smtp_user)}, Pass set: {bool(self.smtp_pass)}, From: {self.from_email}")
-        
-        # Check if email is configured
+
+        # Prefer SSL 465 for Hostinger, STARTTLS 587 for Gmail
+        self._is_hostinger = 'hostinger' in self.smtp_host.lower()
+        self._preferred_ports = [(465, 'SSL'), (587, 'STARTTLS')] if self._is_hostinger else [(587, 'STARTTLS'), (465, 'SSL')]
+
+        logger.info(f"📧 EmailService — host={self.smtp_host} user={self.smtp_user or 'NOT SET'} pass_set={bool(self.smtp_pass)} from={self.from_email or 'NOT SET'}")
+
         self.is_configured = all([
             self.smtp_host,
             self.smtp_user,
             self.smtp_pass,
             self.from_email
         ])
-        
+
         if not self.is_configured:
-            logger.warning(f"⚠️ Email service not configured. Missing: host={bool(self.smtp_host)}, user={bool(self.smtp_user)}, pass={bool(self.smtp_pass)}, from={bool(self.from_email)}")
+            missing = [k for k, v in {'SMTP_HOST': self.smtp_host, 'SMTP_USER': self.smtp_user, 'SMTP_PASS': self.smtp_pass, 'FROM_EMAIL': self.from_email}.items() if not v]
+            logger.warning(f"⚠️ Email service not configured — missing: {missing}")
         else:
-            logger.info(f"✅ Email service ready: {self.smtp_host}:{self.smtp_port} from {self.from_email}")
+            logger.info(f"✅ Email service ready: {self.smtp_host} (user={self.smtp_user})")
     
     def _send_email_smtp(self, msg) -> bool:
         """
         Send email using SMTP.
-        Tries STARTTLS on port 587 first (works on Gmail, Hostinger, Render),
-        then falls back to SSL on port 465.
+        Port order is determined by host: Hostinger prefers SSL 465, Gmail prefers STARTTLS 587.
         """
         if not self.is_configured:
             logger.error("❌ SMTP not configured — cannot send email")
             return False
 
         ctx = ssl.create_default_context()
-        
-        # Try port 587 with STARTTLS first
-        try:
-            logger.info(f"📧 Trying SMTP STARTTLS on {self.smtp_host}:587...")
-            with smtplib.SMTP(self.smtp_host, 587, timeout=30) as server:
-                server.starttls(context=ctx)
-                server.login(self.smtp_user, self.smtp_pass)
-                server.send_message(msg)
-            logger.info(f"✅ Email sent via STARTTLS port 587")
-            return True
-        except Exception as e1:
-            logger.warning(f"⚠️ STARTTLS 587 failed: {e1}")
-            
-            # Fallback to port 465 with SSL
+
+        for port, method in self._preferred_ports:
             try:
-                logger.info(f"📧 Trying SMTP SSL on {self.smtp_host}:465...")
-                with smtplib.SMTP_SSL(self.smtp_host, 465, context=ctx, timeout=30) as server:
-                    server.login(self.smtp_user, self.smtp_pass)
-                    server.send_message(msg)
-                logger.info(f"✅ Email sent via SSL port 465")
+                if method == 'STARTTLS':
+                    logger.info(f"📧 Trying SMTP STARTTLS on {self.smtp_host}:{port}...")
+                    with smtplib.SMTP(self.smtp_host, port, timeout=30) as server:
+                        server.starttls(context=ctx)
+                        server.login(self.smtp_user, self.smtp_pass)
+                        server.send_message(msg)
+                else:
+                    logger.info(f"📧 Trying SMTP SSL on {self.smtp_host}:{port}...")
+                    with smtplib.SMTP_SSL(self.smtp_host, port, context=ctx, timeout=30) as server:
+                        server.login(self.smtp_user, self.smtp_pass)
+                        server.send_message(msg)
+                logger.info(f"✅ Email sent via {method} port {port}")
                 return True
-            except Exception as e2:
-                logger.error(f"❌ Both SMTP methods failed. STARTTLS: {e1}, SSL: {e2}")
-                return False
+            except Exception as e:
+                logger.warning(f"⚠️ {method} {port} failed: {e}")
+
+        logger.error(f"❌ All SMTP attempts failed. host={self.smtp_host}, user={self.smtp_user}")
+        return False
     
     def _send_email(self, to_email: str, subject: str, html_content: str) -> bool:
         """Send email using SMTP - creates connection, sends, closes immediately"""

@@ -19,6 +19,10 @@ URL format:
 from flask import Blueprint, request
 from datetime import datetime
 import logging
+import hashlib
+import hmac
+import os
+from urllib.parse import urlunparse, urlencode, parse_qs, urlparse
 from jinja2 import Template
 
 redirect_receiver_bp = Blueprint('redirect_receiver', __name__)
@@ -303,6 +307,52 @@ def receive_redirect(unique_key: str, event_type: str):
     Conversions are handled by the S2S /postback/{key}/{event} endpoint.
     """
     logger.info(f"🔀 REDIRECT received: key={unique_key}, event={event_type}")
+
+    # ── Voqall OutgoingEncryption hash verification ───────────────────────────
+    # Voqall appends ?hash=<SHA256> to the redirect URL when OutgoingEncryption
+    # is enabled on the supplier account.  We must verify it to avoid accepting
+    # tampered/spoofed redirects.
+    #
+    # Algorithm (from Voqall docs):
+    #   1. Take the full redirect URL *without* the &hash=... parameter
+    #   2. Compute SHA256(url_without_hash)
+    #   3. Compare to the received hash value
+    #
+    # Key: OutgoingEncryption.EncryptionKey from /supplier-account API
+    # ─────────────────────────────────────────────────────────────────────────
+    received_hash = request.args.get('hash', '')
+    voqall_enc_key = os.environ.get('VOQALL_OUTGOING_ENCRYPTION_KEY', '')
+
+    if received_hash and voqall_enc_key:
+        # Reconstruct URL without the hash param
+        parsed = urlparse(request.url)
+        qs = parse_qs(parsed.query, keep_blank_values=True)
+        qs.pop('hash', None)
+        # Rebuild query string preserving original param order (best-effort)
+        clean_query = '&'.join(
+            f"{k}={v[0]}" for k, v in qs.items()
+        )
+        url_without_hash = urlunparse((
+            parsed.scheme, parsed.netloc, parsed.path,
+            parsed.params, clean_query, ''
+        ))
+
+        expected_hash = hashlib.sha256(url_without_hash.encode('utf-8')).hexdigest()
+
+        if not hmac.compare_digest(expected_hash, received_hash.lower()):
+            logger.warning(
+                f"⚠️ Voqall hash mismatch on redirect key={unique_key} event={event_type} "
+                f"expected={expected_hash[:16]}... received={received_hash[:16]}..."
+            )
+            # Still show the page — don't expose internal errors to the browser —
+            # but log it so we can investigate
+        else:
+            logger.info(f"✅ Voqall hash verified for key={unique_key} event={event_type}")
+    elif received_hash and not voqall_enc_key:
+        logger.warning(
+            f"⚠️ Voqall sent hash param but VOQALL_OUTGOING_ENCRYPTION_KEY is not set — "
+            f"skipping verification. Add key to .env to enable."
+        )
 
     # Resolve partner (best-effort — page still shown even if key unknown)
     partner_name = 'Unknown'
