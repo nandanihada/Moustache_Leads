@@ -1790,10 +1790,17 @@ def _update_survey_router_session(unique_key, params, post_data, get_param_fn):
     attempt_id = get_param_fn('attempt_id')
     
     # Also try click_id as session_id (common mapping)
+    # Note: some partners (like PepperAds) send their OWN session_id UUID, not ours.
+    # Only use it if it looks like our SES- format
+    if session_id and not session_id.startswith('SES-'):
+        session_id = ''  # Discard non-matching session IDs
     if not session_id:
         session_id = get_param_fn('click_id')
     if not session_id:
         session_id = get_param_fn('aff_sub')
+    # Only use if SES- format
+    if session_id and not session_id.startswith('SES-'):
+        session_id = ''
     if not attempt_id:
         attempt_id = get_param_fn('sub1')
 
@@ -1835,7 +1842,7 @@ def _update_survey_router_session(unique_key, params, post_data, get_param_fn):
     except (ValueError, TypeError):
         payout = 0
 
-    if status_lower in ('complete', 'completed', 'success', '1', 'approved', 'qualified'):
+    if status_lower in ('complete', 'completed', 'success', '1', 'approved', 'qualified', 'pass'):
         status = 'completed'
     elif status_lower in ('fail', 'failed', 'disqualified', 'dq', 'screenout', '0', 'rejected', 'terminate', 'terminated'):
         status = 'failed'

@@ -335,7 +335,7 @@ def receive_survey_router_postback():
 
     # Normalize status
     status_lower = status.lower().strip()
-    if status_lower in ('complete', 'completed', 'success', '1'):
+    if status_lower in ('complete', 'completed', 'success', '1', 'pass'):
         status_normalized = 'completed'
     elif status_lower in ('fail', 'failed', 'disqualified', 'dq', 'screenout', '0'):
         status_normalized = 'failed'
