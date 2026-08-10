@@ -1828,6 +1828,21 @@ def _update_survey_router_session(unique_key, params, post_data, get_param_fn):
         logger.info(f"🔀 Survey router: no matching session found for key={unique_key}")
         return  # No matching survey router session
 
+    # ── Override user_id from postback if session has 'anonymous' ──────
+    # Pepperwahl sends publisher username in sub1 / aff_sub.
+    # If the session was created without a user_id, patch it now.
+    session_user_id = session.get('user_id', 'anonymous')
+    if not session_user_id or session_user_id == 'anonymous':
+        publisher_from_postback = (get_param_fn('sub1') or get_param_fn('aff_sub') or
+                                   get_param_fn('username') or '').strip()
+        if publisher_from_postback:
+            sessions_col.update_one(
+                {'_id': session['_id']},
+                {'$set': {'user_id': publisher_from_postback}}
+            )
+            session['user_id'] = publisher_from_postback
+            logger.info(f"🔀 Survey router: patched user_id from postback → {publisher_from_postback}")
+
     # Determine status from postback params
     status_raw = (get_param_fn('status') or get_param_fn('evaluation_result') or
                   get_param_fn('event_type') or get_param_fn('event') or '')
