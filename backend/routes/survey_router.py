@@ -214,12 +214,16 @@ def start_router_session():
     if next_step_index >= 0:
         quota_url += f"&next_step={next_step_index}"
 
-    # Append router params to the redirect URL so Pepperwahl knows about the session
+    # Append router params to the redirect URL so the partner knows about the session.
+    # We pass session_id as BOTH session_id AND aff_sub so PepperAds/any partner
+    # can echo it back via their {aff_sub} macro in the postback URL they fire.
     if redirect_url:
         separator = '&' if '?' in redirect_url else '?'
         redirect_url_with_params = (
             f"{redirect_url}{separator}"
             f"session_id={session_id}"
+            f"&aff_sub={session_id}"
+            f"&sub1={session_id}"
             f"&postback_url={urllib.parse.quote(postback_url, safe='')}"
             f"&success_url={urllib.parse.quote(success_url, safe='')}"
             f"&fail_url={urllib.parse.quote(fail_url, safe='')}"
@@ -619,8 +623,8 @@ def _credit_publisher_background(session, payout, postback_log_id=None, raw_para
     def _do_credit():
         try:
             user_id = session.get('user_id', '')
-            if not user_id or user_id == 'anonymous' or payout <= 0:
-                logger.info(f"Survey router: skipping credit (user_id={user_id}, payout={payout})")
+            if not user_id or user_id == 'anonymous':
+                logger.info(f"Survey router: skipping credit (user_id={user_id})")
                 return
 
             users_col = get_collection('users')

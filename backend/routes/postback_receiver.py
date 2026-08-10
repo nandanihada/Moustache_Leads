@@ -1881,7 +1881,9 @@ def _update_survey_router_session(unique_key, params, post_data, get_param_fn):
 
     # If completed, trigger the full credit pipeline for the publisher
     # Guard against double-credit: atomically set 'credited' flag on the session
-    if status == 'completed' and payout > 0:
+    # Note: payout may be 0 from the postback — _credit_publisher_background will
+    # use the funnel's display_payout instead, so we trigger on status alone.
+    if status == 'completed':
         try:
             mark_result = sessions_col.update_one(
                 {'_id': session['_id'], 'credited': {'$ne': True}},
