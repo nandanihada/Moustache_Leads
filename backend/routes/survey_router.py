@@ -20,6 +20,7 @@ import logging
 import secrets
 import urllib.parse
 import threading
+import requests as req_lib
 
 logger = logging.getLogger(__name__)
 
@@ -378,12 +379,11 @@ def receive_survey_router_postback():
                 '$set': {'status': 'completed', 'updated_at': now}
             }
         )
-        # Credit publisher (background)
-        _credit_publisher_background(session, payout)
 
-    # Log the postback
+    # Log the postback first so we can pass the log id to the credit pipeline
+    postback_log_id = None
     if postbacks_col is not None:
-        postbacks_col.insert_one({
+        pb_insert = postbacks_col.insert_one({
             'session_id': session_id,
             'attempt_id': attempt_id,
             'status': status_normalized,
@@ -394,6 +394,25 @@ def receive_survey_router_postback():
             'user_agent': request.headers.get('User-Agent', ''),
             'raw_params': dict(request.args),
         })
+        postback_log_id = pb_insert.inserted_id
+
+    # If completed, credit publisher with full pipeline (forwarding + conversion record)
+    # Guard against double-credit using atomic 'credited' flag
+    if status_normalized == 'completed':
+        mark_result = sessions_col.update_one(
+            {'session_id': session_id, 'credited': {'$ne': True}},
+            {'$set': {'credited': True}}
+        )
+        if mark_result.modified_count > 0:
+            _credit_publisher_background(
+                session,
+                payout,
+                postback_log_id=postback_log_id,
+                raw_params=dict(request.args),
+                funnel_id=session.get('funnel_id', '')
+            )
+        else:
+            logger.info(f"Survey router: session {session_id} already credited — skipping duplicate")
 
     return jsonify({'status': 'ok'}), 200
 
@@ -582,37 +601,191 @@ def get_router_stats():
 
 
 # ============================================================
-# HELPER: Credit publisher in background
+# HELPER: Credit publisher in background (full pipeline)
 # ============================================================
 
-def _credit_publisher_background(session, payout):
-    """Credit the publisher who sent this user. Runs in background thread."""
+def _credit_publisher_background(session, payout, postback_log_id=None, raw_params=None, funnel_id=None):
+    """
+    Full publisher credit pipeline — mirrors postback_receiver.py forwarding logic.
+    1. Looks up publisher from session user_id
+    2. Calculates payout using funnel's display_payout (admin-set) if available
+    3. Awards total_points to publisher
+    4. Records points_transaction
+    5. Forwards postback to publisher's configured postback URL
+    6. Records in forwarded_postbacks collection (shows in conversion report)
+    7. Handles referral P2 commission
+    Runs in background thread so response is not delayed.
+    """
     def _do_credit():
         try:
             user_id = session.get('user_id', '')
             if not user_id or user_id == 'anonymous' or payout <= 0:
+                logger.info(f"Survey router: skipping credit (user_id={user_id}, payout={payout})")
                 return
 
             users_col = get_collection('users')
             if users_col is None:
+                logger.error("Survey router credit: users collection unavailable")
                 return
 
-            # Try to find user and credit balance
-            from bson import ObjectId as ObjId
+            # ── Find publisher ──────────────────────────────────────────
             user = None
             try:
-                user = users_col.find_one({'_id': ObjId(user_id)})
+                user = users_col.find_one({'_id': ObjectId(user_id)})
             except Exception:
+                pass
+            if not user:
                 user = users_col.find_one({'username': user_id})
 
-            if user:
-                users_col.update_one(
-                    {'_id': user['_id']},
-                    {'$inc': {'balance': payout}}
-                )
-                logger.info(f"Credited {payout} to user {user.get('username', user_id)} from survey router")
+            if not user:
+                logger.warning(f"Survey router credit: user not found — user_id={user_id}")
+                return
+
+            publisher_id = str(user['_id'])
+            publisher_username = user.get('username', user_id)
+            publisher_postback_url = user.get('postback_url', '')
+
+            # ── Determine final payout amount ───────────────────────────
+            # Use funnel display_payout (admin-configured) when available
+            total_points = payout  # default to what partner sent
+            funnel_display_payout = 0
+            if funnel_id:
+                try:
+                    funnels_col = get_collection('survey_funnels')
+                    if funnels_col is not None:
+                        funnel_doc = funnels_col.find_one({'funnel_id': funnel_id})
+                        if funnel_doc:
+                            dp = funnel_doc.get('display_payout', 0)
+                            if dp and float(dp) > 0:
+                                funnel_display_payout = float(dp)
+                                total_points = funnel_display_payout
+                                logger.info(f"Survey router: using funnel display_payout={total_points} for {funnel_id}")
+                except Exception as fp_err:
+                    logger.warning(f"Survey router: could not load funnel display_payout: {fp_err}")
+
+            if total_points <= 0:
+                logger.warning(f"Survey router: payout is 0 — skipping credit for {publisher_username}")
+                return
+
+            total_points = round(float(total_points), 4)
+
+            # ── Award points to publisher ───────────────────────────────
+            users_col.update_one(
+                {'username': publisher_username, 'total_points': None},
+                {'$set': {'total_points': 0}}
+            )
+            users_col.update_one(
+                {'username': publisher_username},
+                {'$inc': {'total_points': total_points}, '$set': {'updated_at': datetime.utcnow()}},
+                upsert=False
+            )
+            logger.info(f"💰 Survey router: credited {total_points} points to {publisher_username}")
+
+            # ── Record points_transaction ───────────────────────────────
+            pts_col = get_collection('points_transactions')
+            if pts_col is not None:
+                pts_col.insert_one({
+                    'username': publisher_username,
+                    'user_id': user_id,
+                    'points': total_points,
+                    'type': 'survey_completion',
+                    'offer_id': funnel_id or 'survey_funnel',
+                    'click_id': session.get('session_id', ''),
+                    'conversion_id': None,
+                    'received_postback_id': str(postback_log_id) if postback_log_id else '',
+                    'timestamp': datetime.utcnow(),
+                    'status': 'completed',
+                    'source': 'survey_router_postback',
+                    'funnel_id': funnel_id or '',
+                    'session_id': session.get('session_id', ''),
+                })
+
+            # ── Forward postback to publisher's URL ─────────────────────
+            forward_status = 'no_url'
+            forward_url = ''
+            response_code = 0
+
+            if publisher_postback_url and publisher_postback_url.strip():
+                try:
+                    forward_url = publisher_postback_url.strip()
+                    # Replace common macros
+                    macro_map = {
+                        '{payout}': str(total_points),
+                        '{amount}': str(total_points),
+                        '{points}': str(total_points),
+                        '{offer_id}': funnel_id or 'survey_funnel',
+                        '{offer_name}': 'Survey Completion',
+                        '{click_id}': session.get('session_id', ''),
+                        '{transaction_id}': str(postback_log_id) if postback_log_id else '',
+                        '{status}': 'approved',
+                        '{username}': publisher_username,
+                    }
+                    for macro, val in macro_map.items():
+                        forward_url = forward_url.replace(macro, val)
+
+                    # Append basic params if no macros already added them
+                    if '?' not in forward_url:
+                        forward_url += f'?payout={total_points}&offer_id={funnel_id or "survey_funnel"}&status=approved'
+
+                    fwd_resp = req_lib.get(forward_url, timeout=10,
+                                           headers={'User-Agent': 'MoustacheLeads-Postback/1.0'})
+                    response_code = fwd_resp.status_code
+                    forward_status = 'sent' if fwd_resp.status_code < 400 else 'failed'
+                    logger.info(f"📤 Survey router: forwarded postback to {publisher_username} URL={forward_url} status={fwd_resp.status_code}")
+                except Exception as fwd_err:
+                    forward_status = 'failed'
+                    logger.error(f"❌ Survey router: postback forward failed for {publisher_username}: {fwd_err}")
+            else:
+                logger.info(f"📝 Survey router: no postback URL for {publisher_username} — conversion recorded only")
+
+            # ── Record in forwarded_postbacks (conversion report) ───────
+            forwarded_col = get_collection('forwarded_postbacks')
+            if forwarded_col is not None:
+                forwarded_col.insert_one({
+                    'timestamp': datetime.utcnow(),
+                    'original_postback_id': postback_log_id,
+                    'received_postback_id': str(postback_log_id) if postback_log_id else '',
+                    'publisher_id': publisher_id,
+                    'publisher_name': publisher_username,
+                    'username': publisher_username,
+                    'end_user_id': user_id,
+                    'points': total_points,
+                    'forward_url': forward_url,
+                    'forward_status': forward_status,
+                    'response_code': response_code,
+                    'original_params': raw_params or {},
+                    'placement_id': '',
+                    'placement_title': 'Survey Funnel',
+                    'offer_id': funnel_id or 'survey_funnel',
+                    'offer_name': 'Survey Completion',
+                    'click_id': session.get('session_id', ''),
+                    'source': 'survey_router_postback',
+                    'conversion_id': None,
+                    'transaction_id': '',
+                    'country': '',
+                    'device_type': '',
+                    'ip_address': session.get('ip_address', ''),
+                    'sub_id1': '',
+                    'sub_id2': '',
+                    'sub_id3': '',
+                    'sub_id4': '',
+                    'sub_id5': '',
+                    'funnel_id': funnel_id or '',
+                    'session_id': session.get('session_id', ''),
+                })
+                logger.info(f"📝 Survey router: forwarded_postbacks record created for {publisher_username}")
+
+            # ── Referral P2 commission ──────────────────────────────────
+            try:
+                if user.get('referred_by'):
+                    from models.referral import Referral
+                    ref_model = Referral()
+                    ref_model.update_p2_revenue(publisher_id, total_points)
+            except Exception as ref_err:
+                logger.warning(f"Survey router: referral P2 update failed (non-critical): {ref_err}")
+
         except Exception as e:
-            logger.error(f"Error crediting publisher from survey router: {e}")
+            logger.error(f"Error in survey router credit pipeline: {e}", exc_info=True)
 
     thread = threading.Thread(target=_do_credit, daemon=True)
     thread.start()

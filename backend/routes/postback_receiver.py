@@ -1792,6 +1792,8 @@ def _update_survey_router_session(unique_key, params, post_data, get_param_fn):
     # Also try click_id as session_id (common mapping)
     if not session_id:
         session_id = get_param_fn('click_id')
+    if not session_id:
+        session_id = get_param_fn('aff_sub')
     if not attempt_id:
         attempt_id = get_param_fn('sub1')
 
@@ -1820,25 +1822,30 @@ def _update_survey_router_session(unique_key, params, post_data, get_param_fn):
         return  # No matching survey router session
 
     # Determine status from postback params
-    status_raw = get_param_fn('status') or get_param_fn('event_type') or get_param_fn('event') or ''
+    status_raw = (get_param_fn('status') or get_param_fn('evaluation_result') or
+                  get_param_fn('event_type') or get_param_fn('event') or '')
     status_lower = status_raw.lower().strip()
-    
-    if status_lower in ('complete', 'completed', 'success', '1', 'approved'):
-        status = 'completed'
-    elif status_lower in ('fail', 'failed', 'disqualified', 'dq', 'screenout', '0', 'rejected'):
-        status = 'failed'
-    elif status_lower in ('quota_full', 'quotafull', 'over_quota', 'overquota', '2'):
-        status = 'quota_full'
-    else:
-        status = 'completed'  # Default to completed if status unclear
-        status = 'completed'  # Default to completed if status unclear
 
+    # Parse payout first (needed for unknown/empty status detection)
     payout = 0
     try:
-        payout_str = get_param_fn('payout') or get_param_fn('amount') or '0'
+        payout_str = (get_param_fn('payout') or get_param_fn('amount') or
+                      get_param_fn('revenue') or '0')
         payout = float(payout_str) if payout_str else 0
     except (ValueError, TypeError):
         payout = 0
+
+    if status_lower in ('complete', 'completed', 'success', '1', 'approved', 'qualified'):
+        status = 'completed'
+    elif status_lower in ('fail', 'failed', 'disqualified', 'dq', 'screenout', '0', 'rejected', 'terminate', 'terminated'):
+        status = 'failed'
+    elif status_lower in ('quota_full', 'quotafull', 'over_quota', 'overquota', '2'):
+        status = 'quota_full'
+    elif status_lower in ('unknown', '') and payout > 0:
+        # PepperAds sometimes sends evaluation_result=unknown but with payout > 0 = completion
+        status = 'completed'
+    else:
+        status = 'completed'  # Default to completed if status unclear
 
     now = datetime.utcnow()
     
@@ -1871,6 +1878,30 @@ def _update_survey_router_session(unique_key, params, post_data, get_param_fn):
         )
 
     logger.info(f"🔀 Survey router session updated: {session.get('session_id')} → {status} (payout: {payout})")
+
+    # If completed, trigger the full credit pipeline for the publisher
+    # Guard against double-credit: atomically set 'credited' flag on the session
+    if status == 'completed' and payout > 0:
+        try:
+            mark_result = sessions_col.update_one(
+                {'_id': session['_id'], 'credited': {'$ne': True}},
+                {'$set': {'credited': True}}
+            )
+            if mark_result.modified_count > 0:
+                # We won the race — proceed to credit
+                from routes.survey_router import _credit_publisher_background
+                _credit_publisher_background(
+                    session=session,
+                    payout=payout,
+                    postback_log_id=None,
+                    raw_params=dict(params),
+                    funnel_id=session.get('funnel_id', '')
+                )
+                logger.info(f"🔀 Survey router: triggered credit pipeline for session {session.get('session_id')}")
+            else:
+                logger.info(f"🔀 Survey router: session {session.get('session_id')} already credited — skipping duplicate")
+        except Exception as credit_err:
+            logger.warning(f"🔀 Survey router: credit pipeline trigger failed (non-critical): {credit_err}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
