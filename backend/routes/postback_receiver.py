@@ -1771,6 +1771,74 @@ def run_cleanup():
 # SURVEY ROUTER: Update session when partner postback arrives
 # ============================================================
 
+def _credit_publisher_from_funnel_click(click_id, get_param_fn, params):
+    """
+    Credit publisher directly from a funnel_clicks record.
+    Called when postback arrives with aff_sub=CLK-XXXX but no survey_router_session found.
+    Looks up click → gets publisher user_id → runs credit pipeline.
+    """
+    try:
+        funnel_clicks_col = get_collection('funnel_clicks')
+        if funnel_clicks_col is None:
+            logger.warning("funnel_clicks collection unavailable")
+            return
+
+        click = funnel_clicks_col.find_one({'click_id': click_id})
+        if not click:
+            logger.warning(f"🔀 Funnel click not found: {click_id}")
+            return
+
+        user_id = click.get('user_id', '') or click.get('publisher_id', '')
+        funnel_id = click.get('funnel_id', '')
+
+        if not user_id or user_id == 'anonymous':
+            logger.warning(f"🔀 Funnel click {click_id} has no publisher user_id")
+            return
+
+        # Check already credited
+        if click.get('credited'):
+            logger.info(f"🔀 Funnel click {click_id} already credited — skipping")
+            return
+
+        # Mark as credited atomically
+        mark = funnel_clicks_col.update_one(
+            {'click_id': click_id, 'credited': {'$ne': True}},
+            {'$set': {'credited': True, 'credited_at': datetime.utcnow()}}
+        )
+        if mark.modified_count == 0:
+            logger.info(f"🔀 Funnel click {click_id} credit race lost — skipping")
+            return
+
+        # Parse payout from postback
+        payout = 0
+        try:
+            payout_str = get_param_fn('payout') or get_param_fn('amount') or '0'
+            payout = float(payout_str) if payout_str else 0
+        except (ValueError, TypeError):
+            payout = 0
+
+        # Build a minimal session-like dict for _credit_publisher_background
+        fake_session = {
+            'user_id': user_id,
+            'funnel_id': funnel_id,
+            'session_id': click_id,
+            'ip_address': click.get('ip_address', ''),
+        }
+
+        from routes.survey_router import _credit_publisher_background
+        _credit_publisher_background(
+            session=fake_session,
+            payout=payout,
+            postback_log_id=None,
+            raw_params=dict(params),
+            funnel_id=funnel_id
+        )
+        logger.info(f"🔀 Funnel click {click_id}: credit pipeline triggered for publisher={user_id}")
+
+    except Exception as e:
+        logger.warning(f"🔀 _credit_publisher_from_funnel_click error (non-critical): {e}")
+
+
 def _update_survey_router_session(unique_key, params, post_data, get_param_fn):
     """
     When a postback arrives from a partner, check if there's an active
@@ -1826,22 +1894,42 @@ def _update_survey_router_session(unique_key, params, post_data, get_param_fn):
 
     if not session:
         logger.info(f"🔀 Survey router: no matching session found for key={unique_key}")
+
+        # ── DIRECT FUNNEL CLICK LOOKUP via aff_sub ────────────────────
+        # If no session found, check if aff_sub is a CLK- funnel click_id.
+        # This handles the case where the user hit /funnel-track/ directly
+        # (no survey_router_session was created) — we still credit the publisher.
+        aff_sub_val = get_param_fn('aff_sub') or get_param_fn('sub1') or ''
+        if aff_sub_val and aff_sub_val.startswith('CLK-'):
+            _credit_publisher_from_funnel_click(aff_sub_val, get_param_fn, params)
         return  # No matching survey router session
 
     # ── Override user_id from postback if session has 'anonymous' ──────
     # Pepperwahl sends publisher username in sub1 / aff_sub.
-    # If the session was created without a user_id, patch it now.
+    # If aff_sub is a CLK- click_id, look up the actual publisher from funnel_clicks.
     session_user_id = session.get('user_id', 'anonymous')
     if not session_user_id or session_user_id == 'anonymous':
-        publisher_from_postback = (get_param_fn('sub1') or get_param_fn('aff_sub') or
-                                   get_param_fn('username') or '').strip()
-        if publisher_from_postback:
+        aff_sub_val = (get_param_fn('aff_sub') or get_param_fn('sub1') or '').strip()
+        if aff_sub_val.startswith('CLK-'):
+            # Look up funnel click to get real publisher
+            funnel_clicks_col = get_collection('funnel_clicks')
+            if funnel_clicks_col is not None:
+                fc = funnel_clicks_col.find_one({'click_id': aff_sub_val})
+                if fc and fc.get('user_id') and fc['user_id'] != 'anonymous':
+                    sessions_col.update_one(
+                        {'_id': session['_id']},
+                        {'$set': {'user_id': fc['user_id']}}
+                    )
+                    session['user_id'] = fc['user_id']
+                    logger.info(f"🔀 Survey router: patched user_id from funnel click {aff_sub_val} → {fc['user_id']}")
+        elif aff_sub_val and not aff_sub_val.startswith('CLK-'):
+            # Raw username (old behaviour fallback)
             sessions_col.update_one(
                 {'_id': session['_id']},
-                {'$set': {'user_id': publisher_from_postback}}
+                {'$set': {'user_id': aff_sub_val}}
             )
-            session['user_id'] = publisher_from_postback
-            logger.info(f"🔀 Survey router: patched user_id from postback → {publisher_from_postback}")
+            session['user_id'] = aff_sub_val
+            logger.info(f"🔀 Survey router: patched user_id from aff_sub → {aff_sub_val}")
 
     # Determine status from postback params
     status_raw = (get_param_fn('status') or get_param_fn('evaluation_result') or

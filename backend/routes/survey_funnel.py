@@ -5,13 +5,14 @@ Admin configures: survey questions, pass criteria (which answers qualify), redir
 All user responses and funnel history are saved.
 """
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, redirect as flask_redirect
 from utils.auth import token_required
 from database import db_instance
 from datetime import datetime
 from bson import ObjectId
 import logging
 import secrets
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,83 @@ def get_collection(name):
 
 def generate_funnel_id():
     return f"SF-{secrets.token_hex(4).upper()}"
+
+
+def generate_click_id():
+    return f"CLK-{secrets.token_hex(6).upper()}"
+
+
+# ==================== PUBLIC: FUNNEL CLICK TRACKING ====================
+
+@survey_funnel_bp.route('/funnel-track/<funnel_id>', methods=['GET'])
+def track_funnel_click(funnel_id):
+    """
+    Tracking redirect for survey funnel clicks from the offerwall.
+    URL: /funnel-track/{funnel_id}?user_id={publisher_id}&pass_url={pepperwahl_url}
+
+    1. Logs a click record with publisher user_id + funnel_id + generated click_id
+    2. Appends aff_sub={click_id} to the Pepperwahl survey URL
+    3. Redirects the user to Pepperwahl with click_id embedded
+    4. When postback arrives with aff_sub=CLK-XXXX, we look up the click → credit publisher
+    """
+    try:
+        user_id = request.args.get('user_id', '')
+        pass_url = request.args.get('pass_url', '')
+        sub1 = request.args.get('sub1', '')
+
+        if not pass_url:
+            # Fallback: try to get pass_url from funnel config
+            funnels_col = get_collection('survey_funnels')
+            if funnels_col:
+                funnel = funnels_col.find_one({'funnel_id': funnel_id})
+                if funnel:
+                    steps = funnel.get('steps', [])
+                    if steps:
+                        pass_url = steps[0].get('pass_url', '')
+
+        if not pass_url:
+            return flask_redirect('/', code=302)
+
+        # Generate click_id
+        click_id = generate_click_id()
+
+        # Save click record in background
+        ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+        user_agent = request.headers.get('User-Agent', '')
+
+        def _save_click():
+            try:
+                clicks_col = get_collection('funnel_clicks')
+                if clicks_col is None:
+                    return
+                clicks_col.insert_one({
+                    'click_id': click_id,
+                    'funnel_id': funnel_id,
+                    'user_id': user_id,
+                    'publisher_id': user_id,
+                    'ip_address': ip_address,
+                    'user_agent': user_agent,
+                    'sub1': sub1,
+                    'pass_url': pass_url,
+                    'timestamp': datetime.utcnow(),
+                    'converted': False,
+                })
+                logger.info(f"📊 Funnel click logged: {click_id} | funnel={funnel_id} | publisher={user_id}")
+            except Exception as e:
+                logger.error(f"Funnel click save error: {e}")
+
+        threading.Thread(target=_save_click, daemon=True).start()
+
+        # Append aff_sub=click_id to the pass_url
+        separator = '&' if '?' in pass_url else '?'
+        redirect_url = f"{pass_url}{separator}aff_sub={click_id}&sub1={click_id}"
+
+        logger.info(f"↗️ Funnel click redirect: {click_id} → {redirect_url[:80]}")
+        return flask_redirect(redirect_url, code=302)
+
+    except Exception as e:
+        logger.error(f"Funnel track error: {e}")
+        return flask_redirect('/', code=302)
 
 
 # ==================== ADMIN: FUNNEL CRUD ====================
@@ -264,7 +342,8 @@ def get_active_funnels():
                 'category': f.get('display_category', 'SURVEY'),
                 'status': 'active',
                 'offer_type': 'survey_funnel',
-                'click_url': '',
+                'click_url': '',  # Frontend adds user_id param to /funnel-track/{funnel_id}
+                'tracking_url': f'/funnel-track/{f.get("funnel_id", "")}',  # Use this for click tracking
                 'network': 'Survey Funnel',
                 'countries': [],
                 'devices': [],
