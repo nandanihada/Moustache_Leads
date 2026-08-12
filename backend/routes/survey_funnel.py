@@ -191,11 +191,24 @@ def get_funnels():
                 'display_title': f.get('display_title', f.get('name', '')),
                 'display_description': f.get('display_description', 'Complete this survey to unlock a special offer!'),
                 'display_image_url': f.get('display_image_url', ''),
-                'display_payout': f.get('display_payout', 0),
+                'display_payout': float(f.get('display_payout') or f.get('payout', 0) or 0),
                 'display_category': f.get('display_category', 'SURVEY'),
                 'stats': f.get('stats', {'total_starts': 0, 'total_passes': 0, 'total_fails': 0}),
                 'created_at': f.get('created_at', '').isoformat() + 'Z' if isinstance(f.get('created_at'), datetime) else str(f.get('created_at', '')),
                 'updated_at': f.get('updated_at', '').isoformat() + 'Z' if isinstance(f.get('updated_at'), datetime) else str(f.get('updated_at', '')),
+                # Offer-level fields
+                'countries': f.get('countries', []),
+                'device_targeting': f.get('device_targeting', 'all'),
+                'approval_type': f.get('approval_type', 'manual'),
+                'offer_type': f.get('offer_type', 'CPA'),
+                'conversion_goal': f.get('conversion_goal', 'Survey completion'),
+                'languages': f.get('languages', []),
+                'publisher_payout_override': f.get('publisher_payout_override'),
+                'expiration_date': f.get('expiration_date'),
+                'daily_cap': f.get('daily_cap'),
+                'weekly_cap': f.get('weekly_cap'),
+                'monthly_cap': f.get('monthly_cap'),
+                'linked_offer_id': f.get('linked_offer_id'),
             })
 
         return jsonify({'funnels': serialized}), 200
@@ -247,9 +260,22 @@ def create_funnel():
             # Display settings — how it looks as an offer card on the offerwall
             'display_title': data.get('display_title', name),
             'display_description': data.get('display_description', 'Complete this survey to unlock a special offer!'),
-            'display_image_url': data.get('display_image_url', ''),
-            'display_payout': data.get('display_payout', 0),
-            'display_category': data.get('display_category', 'SURVEY'),
+            'display_image_url': data.get('display_image_url', data.get('image_url', '')),
+            # display_payout synced from offer-level payout if not set separately
+            'display_payout': float(data.get('display_payout') or data.get('payout', 0) or 0),
+            'display_category': data.get('display_category', data.get('vertical', 'SURVEY')),
+            # Offer-level fields (used when publishing as offer)
+            'countries': data.get('countries', []),
+            'device_targeting': data.get('device_targeting', 'all'),
+            'approval_type': data.get('approval_type', 'manual'),
+            'offer_type': data.get('offer_type', 'CPA'),
+            'conversion_goal': data.get('conversion_goal', 'Survey completion'),
+            'languages': data.get('languages', []),
+            'publisher_payout_override': data.get('publisher_payout_override'),
+            'expiration_date': data.get('expiration_date'),
+            'daily_cap': data.get('daily_cap'),
+            'weekly_cap': data.get('weekly_cap'),
+            'monthly_cap': data.get('monthly_cap'),
             'stats': {'total_starts': 0, 'total_passes': 0, 'total_fails': 0},
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow(),
@@ -319,10 +345,25 @@ def update_funnel(funnel_id):
         allowed = ['name', 'description', 'status', 'placement', 'placement_offer_id', 'steps', 'fail_message',
                    'display_title', 'display_description', 'display_image_url', 'display_payout', 'display_category',
                    'survey_template', 'questions_per_page', 'spinner_duration', 'survey_timeout',
-                   'use_survey_router', 'router_provider_id']
+                   'use_survey_router', 'router_provider_id',
+                   # Offer-level fields (used when publishing as offer)
+                   'payout', 'vertical', 'countries', 'expiration_date', 'approval_type',
+                   'device_targeting', 'daily_cap', 'weekly_cap', 'monthly_cap', 'payout_type',
+                   'offer_type', 'incentive_type', 'conversion_goal', 'publisher_payout_override',
+                   'languages', 'image_url']
         for field in allowed:
             if field in data:
                 update_fields[field] = data[field]
+
+        # Auto-sync display_payout from payout if payout is being updated and display_payout not explicitly set
+        if 'payout' in data and 'display_payout' not in data:
+            update_fields['display_payout'] = float(data['payout'] or 0)
+        # Auto-sync display_category from vertical if vertical is being updated
+        if 'vertical' in data and 'display_category' not in data:
+            update_fields['display_category'] = data['vertical']
+        # Auto-sync display_image_url from image_url if image_url being updated
+        if 'image_url' in data and 'display_image_url' not in data:
+            update_fields['display_image_url'] = data['image_url']
 
         collection.update_one({'funnel_id': funnel_id}, {'$set': update_fields})
         return jsonify({'success': True, 'message': 'Funnel updated'}), 200
@@ -352,6 +393,223 @@ def delete_funnel(funnel_id):
     except Exception as e:
         logger.error(f"Error deleting funnel {funnel_id}: {e}")
         return jsonify({'error': 'Failed to delete funnel'}), 500
+
+
+# ==================== ADMIN: PUBLISH FUNNEL AS OFFER ====================
+
+@survey_funnel_bp.route('/api/admin/survey-funnels/<funnel_id>/publish-as-offer', methods=['POST'])
+@token_required
+def publish_funnel_as_offer(funnel_id):
+    """
+    Publish a survey funnel as a regular offer in the offers collection.
+    This creates/updates a proper offer entry with a masked tracking link,
+    so surveys appear natively in all reports, access requests, and publisher views.
+    """
+    try:
+        current_user = request.current_user
+        if current_user.get('role') not in ('admin', 'subadmin'):
+            return jsonify({'error': 'Admin access required'}), 403
+
+        funnels_col = get_collection('survey_funnels')
+        offers_col = get_collection('offers')
+        if funnels_col is None or offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        funnel = funnels_col.find_one({'funnel_id': funnel_id})
+        if not funnel:
+            return jsonify({'error': 'Survey funnel not found'}), 404
+
+        # Get override data from request body (fields the admin set in the publish modal)
+        override = request.get_json() or {}
+
+        # Build the tracking URL for this funnel
+        # Use the public-facing backend URL
+        api_base = 'https://api.moustacheleads.com'
+        funnel_url = f"{api_base}/funnel-track/{funnel_id}"
+
+        # Determine approval settings
+        approval_type = override.get('approval_type', funnel.get('approval_type', 'manual'))
+        approval_settings = {'type': approval_type}
+
+        # Build the offer document
+        # Use display fields from funnel + any overrides from modal
+        offer_name = override.get('name') or funnel.get('display_title') or funnel.get('name', f'Survey {funnel_id}')
+        payout = float(override.get('payout', funnel.get('display_payout', 0)) or 0)
+        vertical = override.get('vertical') or funnel.get('display_category') or 'SURVEY'
+        countries = override.get('countries', funnel.get('countries', []))
+        description = override.get('description') or funnel.get('display_description', '')
+        image_url = override.get('image_url') or funnel.get('display_image_url', '')
+        device_targeting = override.get('device_targeting', 'all')
+        expiration_date = override.get('expiration_date')
+        daily_cap = override.get('daily_cap')
+        weekly_cap = override.get('weekly_cap')
+        monthly_cap = override.get('monthly_cap')
+        payout_type = override.get('payout_type', 'CPA')
+        offer_type = override.get('offer_type', 'CPA')
+        incentive_type = override.get('incentive_type', 'Incent')
+        conversion_goal = override.get('conversion_goal', 'Survey completion')
+        publisher_payout_override = override.get('publisher_payout_override')
+        languages = override.get('languages', [])
+        status = override.get('status', 'active')
+
+        # Check if this funnel already has a linked offer
+        existing_offer_id = funnel.get('linked_offer_id')
+        if existing_offer_id:
+            existing = offers_col.find_one({'offer_id': existing_offer_id})
+            if existing:
+                # UPDATE the existing offer with new values
+                update_doc = {
+                    'name': offer_name,
+                    'description': description,
+                    'payout': payout,
+                    'payout_type': payout_type,
+                    'offer_type': offer_type,
+                    'incentive_type': incentive_type,
+                    'vertical': vertical,
+                    'category': vertical,
+                    'categories': [vertical],
+                    'countries': countries,
+                    'allowed_countries': countries,
+                    'image_url': image_url,
+                    'device_targeting': device_targeting,
+                    'target_url': funnel_url,
+                    'approval_type': approval_type,
+                    'approval_settings': approval_settings,
+                    'conversion_goal': conversion_goal,
+                    'languages': languages,
+                    'status': status,
+                    'updated_at': datetime.utcnow(),
+                }
+                if publisher_payout_override is not None:
+                    update_doc['publisher_payout_override'] = float(publisher_payout_override)
+                if expiration_date:
+                    update_doc['expiration_date'] = expiration_date
+                if daily_cap is not None:
+                    update_doc['daily_cap'] = daily_cap
+                if weekly_cap is not None:
+                    update_doc['weekly_cap'] = weekly_cap
+                if monthly_cap is not None:
+                    update_doc['monthly_cap'] = monthly_cap
+                offers_col.update_one({'offer_id': existing_offer_id}, {'$set': update_doc})
+                logger.info(f"✅ Updated existing offer {existing_offer_id} for funnel {funnel_id}")
+                return jsonify({'success': True, 'offer_id': existing_offer_id, 'action': 'updated',
+                                'message': f'Offer "{offer_name}" updated'}), 200
+
+        # Generate a new offer_id
+        import random
+        import string
+        counter_col = get_collection('counters')
+        new_offer_num = None
+        if counter_col is not None:
+            counter = counter_col.find_one_and_update(
+                {'_id': 'offer_counter'},
+                {'$inc': {'seq': 1}},
+                upsert=True,
+                return_document=True
+            )
+            new_offer_num = counter.get('seq', 1) if counter else None
+        if new_offer_num is None:
+            new_offer_num = offers_col.count_documents({}) + 1
+        new_offer_id = f"ML-{new_offer_num:05d}"
+
+        # Ensure offer_id is unique
+        while offers_col.find_one({'offer_id': new_offer_id}):
+            new_offer_num += 1
+            new_offer_id = f"ML-{new_offer_num:05d}"
+
+        user_id = str(current_user.get('_id', ''))
+
+        offer_doc = {
+            'offer_id': new_offer_id,
+            'campaign_id': funnel_id,
+            'name': offer_name,
+            'description': description,
+            'payout': payout,
+            'payout_type': payout_type,
+            'offer_type': offer_type,
+            'incentive_type': incentive_type,
+            'revenue_share_percent': 0,
+            'currency': 'USD',
+            'vertical': vertical,
+            'category': vertical,
+            'categories': [vertical],
+            'network': 'Survey Funnel',
+            'target_url': funnel_url,
+            'masked_url': None,
+            'preview_url': None,
+            'image_url': image_url,
+            'thumbnail_url': image_url,
+            'countries': countries,
+            'allowed_countries': countries,
+            'device_targeting': device_targeting,
+            'os_targeting': [],
+            'languages': languages,
+            'status': status,
+            'is_active': True,
+            'affiliates': 'all',
+            'approval_type': approval_type,
+            'approval_settings': approval_settings,
+            'conversion_goal': conversion_goal,
+            'offer_source': 'survey_funnel',
+            'source_funnel_id': funnel_id,
+            'is_survey_funnel': True,
+            'daily_cap': daily_cap,
+            'weekly_cap': weekly_cap,
+            'monthly_cap': monthly_cap,
+            'expiration_date': expiration_date,
+            'publisher_payout_override': float(publisher_payout_override) if publisher_payout_override is not None else None,
+            'hits': 0,
+            'conversions': 0,
+            'created_at': datetime.utcnow(),
+            'updated_at': datetime.utcnow(),
+            'created_by': user_id,
+        }
+
+        offers_col.insert_one(offer_doc)
+        logger.info(f"✅ Created offer {new_offer_id} from funnel {funnel_id}")
+
+        # Auto-generate masked link
+        try:
+            from models.link_masking import LinkMasking
+            link_masking_model = LinkMasking()
+            domains = link_masking_model.get_masking_domains(active_only=True)
+            if domains:
+                masking_settings = {
+                    'domain_id': str(domains[0]['_id']),
+                    'redirect_type': '302',
+                    'subid_append': True,
+                    'preview_mode': False,
+                    'auto_rotation': False,
+                    'code_length': 8
+                }
+                masked_link, mask_error = link_masking_model.create_masked_link(
+                    new_offer_id, funnel_url, masking_settings, user_id
+                )
+                if masked_link and not mask_error:
+                    offers_col.update_one(
+                        {'offer_id': new_offer_id},
+                        {'$set': {'masked_url': masked_link['masked_url'], 'masked_link_id': str(masked_link['_id'])}}
+                    )
+                    logger.info(f"✅ Masked link created for survey offer {new_offer_id}: {masked_link['masked_url']}")
+        except Exception as mask_err:
+            logger.warning(f"⚠️ Masked link creation failed for survey offer (non-critical): {mask_err}")
+
+        # Link back: store the offer_id on the funnel so future publishes update instead of create
+        funnels_col.update_one(
+            {'funnel_id': funnel_id},
+            {'$set': {'linked_offer_id': new_offer_id, 'updated_at': datetime.utcnow()}}
+        )
+
+        return jsonify({
+            'success': True,
+            'offer_id': new_offer_id,
+            'action': 'created',
+            'message': f'Survey funnel published as offer "{offer_name}" (ID: {new_offer_id})'
+        }), 201
+
+    except Exception as e:
+        logger.error(f"Error publishing funnel {funnel_id} as offer: {e}", exc_info=True)
+        return jsonify({'error': f'Failed to publish: {str(e)}'}), 500
 
 
 # ==================== PUBLIC: GET ACTIVE FUNNELS FOR OFFERWALL ====================

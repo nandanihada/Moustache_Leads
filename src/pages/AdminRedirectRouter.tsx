@@ -241,6 +241,19 @@ function FunnelBuilder({ funnel, onBack, onSaved }: { funnel: SurveyFunnel | nul
   const [expandedStep, setExpandedStep] = useState(0);
   const [saving, setSaving] = useState(false);
 
+  // Offer-level fields (used when publishing as offer)
+  const [offerCountries, setOfferCountries] = useState((funnel as any)?.countries?.join(', ') || '');
+  const [offerDeviceTargeting, setOfferDeviceTargeting] = useState((funnel as any)?.device_targeting || 'all');
+  const [offerApprovalType, setOfferApprovalType] = useState((funnel as any)?.approval_type || 'manual');
+  const [offerType, setOfferType] = useState((funnel as any)?.offer_type || 'CPA');
+  const [offerConversionGoal, setOfferConversionGoal] = useState((funnel as any)?.conversion_goal || 'Survey completion');
+  const [offerPublisherPayout, setOfferPublisherPayout] = useState((funnel as any)?.publisher_payout_override || '');
+  const [offerExpirationDate, setOfferExpirationDate] = useState((funnel as any)?.expiration_date || '');
+  const [offerDailyCap, setOfferDailyCap] = useState((funnel as any)?.daily_cap || '');
+  const [offerWeeklyCap, setOfferWeeklyCap] = useState((funnel as any)?.weekly_cap || '');
+  const [offerMonthlyCap, setOfferMonthlyCap] = useState((funnel as any)?.monthly_cap || '');
+  const [offerLanguages, setOfferLanguages] = useState((funnel as any)?.languages?.join(', ') || '');
+
   // Fetch upward partners for the survey router dropdown
   const { data: partnersData } = useQuery({
     queryKey: ['partners-for-router'],
@@ -348,10 +361,25 @@ function FunnelBuilder({ funnel, onBack, onSaved }: { funnel: SurveyFunnel | nul
 
     setSaving(true);
     try {
-      const payload = { name, description, placement, placement_offer_id: placementOfferId, steps, fail_message: failMessage,
+      const payload: any = {
+        name, description, placement, placement_offer_id: placementOfferId, steps, fail_message: failMessage,
         display_title: displayTitle || name, display_description: displayDescription, display_image_url: displayImageUrl,
         display_payout: displayPayout, display_category: displayCategory, survey_template: surveyTemplate,
-        questions_per_page: questionsPerPage, spinner_duration: spinnerDuration, survey_timeout: surveyTimeout };
+        questions_per_page: questionsPerPage, spinner_duration: spinnerDuration, survey_timeout: surveyTimeout,
+        // Offer-level fields
+        countries: offerCountries ? offerCountries.split(',').map((c: string) => c.trim().toUpperCase()).filter(Boolean) : [],
+        device_targeting: offerDeviceTargeting,
+        approval_type: offerApprovalType,
+        offer_type: offerType,
+        conversion_goal: offerConversionGoal,
+        languages: offerLanguages ? offerLanguages.split(',').map((l: string) => l.trim()).filter(Boolean) : [],
+      };
+      if (offerPublisherPayout !== '') payload.publisher_payout_override = parseFloat(String(offerPublisherPayout));
+      if (offerExpirationDate) payload.expiration_date = offerExpirationDate;
+      if (offerDailyCap !== '') payload.daily_cap = parseInt(String(offerDailyCap));
+      if (offerWeeklyCap !== '') payload.weekly_cap = parseInt(String(offerWeeklyCap));
+      if (offerMonthlyCap !== '') payload.monthly_cap = parseInt(String(offerMonthlyCap));
+
       if (isEdit) {
         await updateSurveyFunnel(funnel!.funnel_id, payload as any);
         toast.success('Funnel updated');
@@ -501,6 +529,82 @@ function FunnelBuilder({ funnel, onBack, onSaved }: { funnel: SurveyFunnel | nul
           <div>
             <label className="text-sm font-medium">Display Payout (points shown to user)</label>
             <Input type="number" min={0} value={displayPayout} onChange={(e) => setDisplayPayout(Number(e.target.value))} placeholder="e.g. 50" />
+          </div>
+        </div>
+      </div>
+
+      {/* Offer Publishing Fields */}
+      <div className="border rounded-lg p-4 space-y-4 border-purple-200 bg-purple-50/30">
+        <div>
+          <h2 className="font-semibold text-sm text-purple-700 uppercase tracking-wide">Offer Publishing Settings</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">These fields are used when you "Publish as Offer" from the Offers page. Fill them now so the modal is pre-populated.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="text-sm font-medium">Approval Type</label>
+            <Select value={offerApprovalType} onValueChange={setOfferApprovalType}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="manual">Manual (admin reviews)</SelectItem>
+                <SelectItem value="auto_approve">Auto Approve</SelectItem>
+                <SelectItem value="time_based">Time Based</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="text-sm font-medium">Offer Type</label>
+            <Select value={offerType} onValueChange={setOfferType}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="CPA">CPA</SelectItem>
+                <SelectItem value="CPL">CPL</SelectItem>
+                <SelectItem value="CPS">CPS</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="text-sm font-medium">Device Targeting</label>
+            <Select value={offerDeviceTargeting} onValueChange={setOfferDeviceTargeting}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Devices</SelectItem>
+                <SelectItem value="mobile">Mobile Only</SelectItem>
+                <SelectItem value="desktop">Desktop Only</SelectItem>
+                <SelectItem value="tablet">Tablet Only</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="text-sm font-medium">Conversion Goal</label>
+            <Input value={offerConversionGoal} onChange={(e) => setOfferConversionGoal(e.target.value)} placeholder="Survey completion" />
+          </div>
+          <div className="md:col-span-2">
+            <label className="text-sm font-medium">Countries (comma-separated, blank = Global)</label>
+            <Input value={offerCountries} onChange={(e) => setOfferCountries(e.target.value)} placeholder="US, UK, CA — leave blank for global" />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Languages (comma-separated)</label>
+            <Input value={offerLanguages} onChange={(e) => setOfferLanguages(e.target.value)} placeholder="EN, ES" />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Publisher Payout Override ($)</label>
+            <Input type="number" min={0} step={0.01} value={offerPublisherPayout} onChange={(e) => setOfferPublisherPayout(e.target.value)} placeholder="Leave blank = auto 80% of payout" />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Expiry Date</label>
+            <Input type="date" value={offerExpirationDate} onChange={(e) => setOfferExpirationDate(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Daily Cap</label>
+            <Input type="number" min={0} value={offerDailyCap} onChange={(e) => setOfferDailyCap(e.target.value)} placeholder="Unlimited" />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Weekly Cap</label>
+            <Input type="number" min={0} value={offerWeeklyCap} onChange={(e) => setOfferWeeklyCap(e.target.value)} placeholder="Unlimited" />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Monthly Cap</label>
+            <Input type="number" min={0} value={offerMonthlyCap} onChange={(e) => setOfferMonthlyCap(e.target.value)} placeholder="Unlimited" />
           </div>
         </div>
       </div>

@@ -247,6 +247,22 @@ const AdminOffers = () => {
   const [surveyFunnelsPagination, setSurveyFunnelsPagination] = useState({ page: 1, per_page: 50, total: 0 });
   const [surveyFunnelsSearch, setSurveyFunnelsSearch] = useState('');
 
+  // Publish funnel as offer modal state
+  const [publishFunnelModalOpen, setPublishFunnelModalOpen] = useState(false);
+  const [publishFunnelTarget, setPublishFunnelTarget] = useState<any>(null);
+  const [publishFunnelLoading, setPublishFunnelLoading] = useState(false);
+  const [publishFunnelForm, setPublishFunnelForm] = useState({
+    name: '', description: '', payout: '0', vertical: 'SURVEY',
+    countries: '', device_targeting: 'all', approval_type: 'manual',
+    offer_type: 'CPA', incentive_type: 'Incent', conversion_goal: 'Survey completion',
+    publisher_payout_override: '', expiration_date: '', daily_cap: '', weekly_cap: '', monthly_cap: '',
+    image_url: '', payout_type: 'CPA', status: 'active', languages: '',
+  });
+
+  // Multi-select for bulk publish
+  const [selectedFunnelIds, setSelectedFunnelIds] = useState<Set<string>>(new Set());
+  const [bulkPublishLoading, setBulkPublishLoading] = useState(false);
+
   // Category definitions for multi-select filter
   const CATEGORIES = [
     { id: 'all', name: 'All', icon: '🎯' },
@@ -534,6 +550,138 @@ const AdminOffers = () => {
     } finally {
       setSurveyFunnelsLoading(false);
     }
+  };
+
+  const openPublishFunnelModal = (funnel: any) => {
+    setPublishFunnelTarget(funnel);
+    // Read all offer-level fields saved on the funnel (from FunnelBuilder form)
+    const countriesStr = Array.isArray(funnel.countries) ? funnel.countries.join(', ') : (funnel.countries || '');
+    const languagesStr = Array.isArray(funnel.languages) ? funnel.languages.join(', ') : (funnel.languages || '');
+    setPublishFunnelForm({
+      name: funnel.display_title || funnel.name || '',
+      description: funnel.display_description || funnel.description || '',
+      payout: String(funnel.display_payout || funnel.payout || 0),
+      vertical: funnel.display_category || funnel.vertical || 'SURVEY',
+      countries: countriesStr,
+      device_targeting: funnel.device_targeting || 'all',
+      approval_type: funnel.approval_type || 'manual',
+      offer_type: funnel.offer_type_field || (funnel.offer_type !== 'survey_funnel' ? funnel.offer_type : null) || 'CPA',
+      incentive_type: 'Incent',
+      conversion_goal: funnel.conversion_goal || 'Survey completion',
+      publisher_payout_override: funnel.publisher_payout_override != null ? String(funnel.publisher_payout_override) : '',
+      expiration_date: funnel.expiration_date || '',
+      daily_cap: funnel.daily_cap != null ? String(funnel.daily_cap) : '',
+      weekly_cap: funnel.weekly_cap != null ? String(funnel.weekly_cap) : '',
+      monthly_cap: funnel.monthly_cap != null ? String(funnel.monthly_cap) : '',
+      image_url: funnel.display_image_url || funnel.image_url || '',
+      payout_type: 'CPA',
+      status: 'active',
+      languages: languagesStr,
+    });
+    setPublishFunnelModalOpen(true);
+  };
+
+  const handlePublishFunnelAsOffer = async () => {
+    if (!publishFunnelTarget) return;
+    setPublishFunnelLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const payload: any = {
+        name: publishFunnelForm.name,
+        description: publishFunnelForm.description,
+        payout: parseFloat(publishFunnelForm.payout) || 0,
+        vertical: publishFunnelForm.vertical,
+        countries: publishFunnelForm.countries ? publishFunnelForm.countries.split(',').map(c => c.trim().toUpperCase()).filter(Boolean) : [],
+        device_targeting: publishFunnelForm.device_targeting,
+        approval_type: publishFunnelForm.approval_type,
+        offer_type: publishFunnelForm.offer_type,
+        incentive_type: publishFunnelForm.incentive_type,
+        conversion_goal: publishFunnelForm.conversion_goal,
+        payout_type: publishFunnelForm.payout_type,
+        status: publishFunnelForm.status,
+        image_url: publishFunnelForm.image_url,
+        languages: publishFunnelForm.languages ? publishFunnelForm.languages.split(',').map(l => l.trim()).filter(Boolean) : [],
+      };
+      if (publishFunnelForm.publisher_payout_override) payload.publisher_payout_override = parseFloat(publishFunnelForm.publisher_payout_override);
+      if (publishFunnelForm.expiration_date) payload.expiration_date = publishFunnelForm.expiration_date;
+      if (publishFunnelForm.daily_cap) payload.daily_cap = parseInt(publishFunnelForm.daily_cap);
+      if (publishFunnelForm.weekly_cap) payload.weekly_cap = parseInt(publishFunnelForm.weekly_cap);
+      if (publishFunnelForm.monthly_cap) payload.monthly_cap = parseInt(publishFunnelForm.monthly_cap);
+
+      const res = await fetch(`${API_BASE_URL}/api/admin/survey-funnels/${publishFunnelTarget.funnel_id}/publish-as-offer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast({
+          title: data.action === 'created' ? 'Offer Created!' : 'Offer Updated!',
+          description: data.message,
+        });
+        setPublishFunnelModalOpen(false);
+        fetchSurveyFunnels(surveyFunnelsPagination.page, surveyFunnelsSearch);
+      } else {
+        toast({ title: "Failed", description: data.error || 'Publish failed', variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || 'Something went wrong', variant: "destructive" });
+    } finally {
+      setPublishFunnelLoading(false);
+    }
+  };
+
+  const handleBulkPublishFunnels = async () => {
+    const ids = Array.from(selectedFunnelIds);
+    if (ids.length === 0) return;
+    setBulkPublishLoading(true);
+    const token = localStorage.getItem('token');
+    let created = 0, updated = 0, failed = 0;
+    for (const funnelId of ids) {
+      const funnel = surveyFunnels.find(f => f.funnel_id === funnelId);
+      if (!funnel) { failed++; continue; }
+      const countriesArr = Array.isArray(funnel.countries) ? funnel.countries : [];
+      const languagesArr = Array.isArray(funnel.languages) ? funnel.languages : [];
+      const payload: any = {
+        name: funnel.display_title || funnel.name,
+        description: funnel.display_description || funnel.description || '',
+        payout: parseFloat(funnel.display_payout || funnel.payout || 0),
+        vertical: funnel.display_category || funnel.vertical || 'SURVEY',
+        countries: countriesArr,
+        device_targeting: funnel.device_targeting || 'all',
+        approval_type: funnel.approval_type || 'manual',
+        offer_type: funnel.offer_type_field || (funnel.offer_type !== 'survey_funnel' ? funnel.offer_type : null) || 'CPA',
+        incentive_type: 'Incent',
+        conversion_goal: funnel.conversion_goal || 'Survey completion',
+        payout_type: 'CPA',
+        status: 'active',
+        image_url: funnel.display_image_url || funnel.image_url || '',
+        languages: languagesArr,
+      };
+      if (funnel.publisher_payout_override != null) payload.publisher_payout_override = funnel.publisher_payout_override;
+      if (funnel.expiration_date) payload.expiration_date = funnel.expiration_date;
+      if (funnel.daily_cap != null) payload.daily_cap = funnel.daily_cap;
+      if (funnel.weekly_cap != null) payload.weekly_cap = funnel.weekly_cap;
+      if (funnel.monthly_cap != null) payload.monthly_cap = funnel.monthly_cap;
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/admin/survey-funnels/${funnelId}/publish-as-offer`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (data.action === 'created') created++; else updated++;
+        } else { failed++; }
+      } catch { failed++; }
+    }
+    toast({
+      title: `Bulk Publish Complete`,
+      description: `${created} created, ${updated} updated${failed > 0 ? `, ${failed} failed` : ''}`,
+    });
+    setSelectedFunnelIds(new Set());
+    setBulkPublishLoading(false);
+    fetchSurveyFunnels(surveyFunnelsPagination.page, surveyFunnelsSearch);
   };
 
   const handleRunningBulkDelete = async () => {
@@ -3127,6 +3275,22 @@ const AdminOffers = () => {
                   <Button size="sm" variant="outline" onClick={() => fetchSurveyFunnels(1, surveyFunnelsSearch)}>
                     <RefreshCw className="h-4 w-4 mr-1" />Refresh
                   </Button>
+                  {selectedFunnelIds.size > 0 && (
+                    <div className="flex items-center gap-2 ml-auto bg-purple-50 border border-purple-200 rounded-lg px-3 py-1.5">
+                      <span className="text-sm font-medium text-purple-700">{selectedFunnelIds.size} selected</span>
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs bg-purple-600 hover:bg-purple-700 text-white"
+                        disabled={bulkPublishLoading}
+                        onClick={handleBulkPublishFunnels}
+                      >
+                        {bulkPublishLoading ? <RefreshCw className="h-3 w-3 animate-spin mr-1" /> : <Sparkles className="h-3 w-3 mr-1" />}
+                        Publish {selectedFunnelIds.size} as Offers
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground"
+                        onClick={() => setSelectedFunnelIds(new Set())}>Clear</Button>
+                    </div>
+                  )}
                 </div>
                 {surveyFunnelsLoading ? (
                   <div className="text-center py-12"><RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />Loading...</div>
@@ -3140,6 +3304,17 @@ const AdminOffers = () => {
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          <TableHead className="w-8">
+                            <input
+                              type="checkbox"
+                              className="rounded border-gray-300 w-4 h-4 accent-purple-600"
+                              checked={surveyFunnels.length > 0 && selectedFunnelIds.size === surveyFunnels.length}
+                              onChange={e => {
+                                if (e.target.checked) setSelectedFunnelIds(new Set(surveyFunnels.map(f => f.funnel_id)));
+                                else setSelectedFunnelIds(new Set());
+                              }}
+                            />
+                          </TableHead>
                           <TableHead>Funnel ID</TableHead>
                           <TableHead>Name</TableHead>
                           <TableHead>Payout</TableHead>
@@ -3148,13 +3323,34 @@ const AdminOffers = () => {
                           <TableHead>Placement</TableHead>
                           <TableHead>Stats</TableHead>
                           <TableHead>Created</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {surveyFunnels.map((f: any) => (
-                          <TableRow key={f.funnel_id}>
-                            <TableCell className="font-mono text-xs text-purple-600">{f.funnel_id}</TableCell>
-                            <TableCell className="font-medium text-sm">{f.name}</TableCell>
+                          <TableRow key={f.funnel_id} className={selectedFunnelIds.has(f.funnel_id) ? 'bg-purple-50/60' : ''}>
+                            <TableCell>
+                              <input
+                                type="checkbox"
+                                className="rounded border-gray-300 w-4 h-4 accent-purple-600"
+                                checked={selectedFunnelIds.has(f.funnel_id)}
+                                onChange={e => {
+                                  const next = new Set(selectedFunnelIds);
+                                  if (e.target.checked) next.add(f.funnel_id); else next.delete(f.funnel_id);
+                                  setSelectedFunnelIds(next);
+                                }}
+                              />
+                            </TableCell><TableCell className="font-mono text-xs text-purple-600">{f.funnel_id}</TableCell>
+                            <TableCell className="font-medium text-sm">
+                              <div className="flex items-center gap-2">
+                                {f.name}
+                                {f.linked_offer_id && (
+                                  <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-semibold">
+                                    {f.linked_offer_id}
+                                  </span>
+                                )}
+                              </div>
+                            </TableCell>
                             <TableCell className="font-bold text-green-600">${(f.payout || 0).toFixed(2)}</TableCell>
                             <TableCell className="text-sm">{f.steps_count}</TableCell>
                             <TableCell>
@@ -3168,6 +3364,20 @@ const AdminOffers = () => {
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground">
                               {f.created_at ? new Date(f.created_at).toLocaleDateString() : '—'}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                size="sm"
+                                variant={f.linked_offer_id ? "outline" : "default"}
+                                className={f.linked_offer_id
+                                  ? "h-7 text-xs border-green-300 text-green-700 hover:bg-green-50"
+                                  : "h-7 text-xs bg-gradient-to-r from-purple-600 to-violet-600 text-white hover:from-purple-700 hover:to-violet-700"
+                                }
+                                onClick={() => openPublishFunnelModal(f)}
+                              >
+                                <Sparkles className="h-3 w-3 mr-1" />
+                                {f.linked_offer_id ? 'Update Offer' : 'Publish as Offer'}
+                              </Button>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -5745,6 +5955,211 @@ const AdminOffers = () => {
           fetchOffers();
         }}
       />
+
+      {/* ── PUBLISH FUNNEL AS OFFER MODAL ── */}
+      {publishFunnelModalOpen && publishFunnelTarget && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setPublishFunnelModalOpen(false)}>
+          <div className="bg-white dark:bg-card rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white dark:bg-card border-b px-6 py-4 flex items-center justify-between z-10">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-purple-500" />
+                <div>
+                  <h2 className="font-bold text-lg">
+                    {publishFunnelTarget.linked_offer_id ? 'Update Survey Offer' : 'Publish Survey as Offer'}
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    Funnel: <span className="font-mono text-purple-600">{publishFunnelTarget.funnel_id}</span>
+                    {publishFunnelTarget.linked_offer_id && (
+                      <> → Offer: <span className="font-mono text-green-600">{publishFunnelTarget.linked_offer_id}</span></>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setPublishFunnelModalOpen(false)} className="text-muted-foreground hover:text-foreground p-1 rounded">✕</button>
+            </div>
+
+            <div className="px-6 py-5 space-y-5">
+              {/* Basic Info */}
+              <div>
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Basic Info</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <label className="text-xs font-medium block mb-1">Offer Name *</label>
+                    <input className="w-full border rounded-lg px-3 py-2 text-sm" value={publishFunnelForm.name}
+                      onChange={e => setPublishFunnelForm(f => ({...f, name: e.target.value}))} placeholder="Survey offer name" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-xs font-medium block mb-1">Description</label>
+                    <textarea className="w-full border rounded-lg px-3 py-2 text-sm" rows={2} value={publishFunnelForm.description}
+                      onChange={e => setPublishFunnelForm(f => ({...f, description: e.target.value}))} placeholder="What will publishers see as the offer description" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium block mb-1">Image URL</label>
+                    <input className="w-full border rounded-lg px-3 py-2 text-sm" value={publishFunnelForm.image_url}
+                      onChange={e => setPublishFunnelForm(f => ({...f, image_url: e.target.value}))} placeholder="https://..." />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium block mb-1">Status</label>
+                    <select className="w-full border rounded-lg px-3 py-2 text-sm" value={publishFunnelForm.status}
+                      onChange={e => setPublishFunnelForm(f => ({...f, status: e.target.value}))}>
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                      <option value="paused">Paused</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Payout */}
+              <div>
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Payout</h3>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-xs font-medium block mb-1">Payout (USD) *</label>
+                    <input type="number" step="0.01" min="0" className="w-full border rounded-lg px-3 py-2 text-sm"
+                      value={publishFunnelForm.payout}
+                      onChange={e => setPublishFunnelForm(f => ({...f, payout: e.target.value}))} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium block mb-1">Payout Type</label>
+                    <select className="w-full border rounded-lg px-3 py-2 text-sm" value={publishFunnelForm.payout_type}
+                      onChange={e => setPublishFunnelForm(f => ({...f, payout_type: e.target.value}))}>
+                      <option value="CPA">CPA (fixed)</option>
+                      <option value="CPL">CPL</option>
+                      <option value="CPS">CPS</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium block mb-1">Publisher Override ($)</label>
+                    <input type="number" step="0.01" min="0" className="w-full border rounded-lg px-3 py-2 text-sm"
+                      value={publishFunnelForm.publisher_payout_override}
+                      onChange={e => setPublishFunnelForm(f => ({...f, publisher_payout_override: e.target.value}))}
+                      placeholder="Leave blank = auto (80%)" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Targeting */}
+              <div>
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Targeting</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium block mb-1">Vertical / Category</label>
+                    <select className="w-full border rounded-lg px-3 py-2 text-sm" value={publishFunnelForm.vertical}
+                      onChange={e => setPublishFunnelForm(f => ({...f, vertical: e.target.value}))}>
+                      <option value="SURVEY">SURVEY</option>
+                      <option value="FINANCE">FINANCE</option>
+                      <option value="HEALTH">HEALTH</option>
+                      <option value="ECOMMERCE">ECOMMERCE</option>
+                      <option value="GAMING">GAMING</option>
+                      <option value="UTILITIES">UTILITIES</option>
+                      <option value="INSURANCE">INSURANCE</option>
+                      <option value="EDUCATION">EDUCATION</option>
+                      <option value="TRAVEL">TRAVEL</option>
+                      <option value="OTHER">OTHER</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium block mb-1">Device Targeting</label>
+                    <select className="w-full border rounded-lg px-3 py-2 text-sm" value={publishFunnelForm.device_targeting}
+                      onChange={e => setPublishFunnelForm(f => ({...f, device_targeting: e.target.value}))}>
+                      <option value="all">All Devices</option>
+                      <option value="mobile">Mobile Only</option>
+                      <option value="desktop">Desktop Only</option>
+                      <option value="tablet">Tablet Only</option>
+                    </select>
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-xs font-medium block mb-1">Countries (comma-separated, blank = Global)</label>
+                    <input className="w-full border rounded-lg px-3 py-2 text-sm" value={publishFunnelForm.countries}
+                      onChange={e => setPublishFunnelForm(f => ({...f, countries: e.target.value}))}
+                      placeholder="US, UK, CA (leave blank for global)" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium block mb-1">Languages (comma-separated)</label>
+                    <input className="w-full border rounded-lg px-3 py-2 text-sm" value={publishFunnelForm.languages}
+                      onChange={e => setPublishFunnelForm(f => ({...f, languages: e.target.value}))}
+                      placeholder="EN, ES" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium block mb-1">Offer Type</label>
+                    <select className="w-full border rounded-lg px-3 py-2 text-sm" value={publishFunnelForm.offer_type}
+                      onChange={e => setPublishFunnelForm(f => ({...f, offer_type: e.target.value}))}>
+                      <option value="CPA">CPA</option>
+                      <option value="CPL">CPL</option>
+                      <option value="CPS">CPS</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Approval & Limits */}
+              <div>
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Approval & Caps</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium block mb-1">Approval Type</label>
+                    <select className="w-full border rounded-lg px-3 py-2 text-sm" value={publishFunnelForm.approval_type}
+                      onChange={e => setPublishFunnelForm(f => ({...f, approval_type: e.target.value}))}>
+                      <option value="manual">Manual (admin reviews)</option>
+                      <option value="auto_approve">Auto Approve</option>
+                      <option value="time_based">Time Based</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium block mb-1">Conversion Goal</label>
+                    <input className="w-full border rounded-lg px-3 py-2 text-sm" value={publishFunnelForm.conversion_goal}
+                      onChange={e => setPublishFunnelForm(f => ({...f, conversion_goal: e.target.value}))} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium block mb-1">Expiry Date</label>
+                    <input type="date" className="w-full border rounded-lg px-3 py-2 text-sm" value={publishFunnelForm.expiration_date}
+                      onChange={e => setPublishFunnelForm(f => ({...f, expiration_date: e.target.value}))} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium block mb-1">Daily Cap</label>
+                    <input type="number" min="0" className="w-full border rounded-lg px-3 py-2 text-sm" value={publishFunnelForm.daily_cap}
+                      onChange={e => setPublishFunnelForm(f => ({...f, daily_cap: e.target.value}))} placeholder="Unlimited" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium block mb-1">Weekly Cap</label>
+                    <input type="number" min="0" className="w-full border rounded-lg px-3 py-2 text-sm" value={publishFunnelForm.weekly_cap}
+                      onChange={e => setPublishFunnelForm(f => ({...f, weekly_cap: e.target.value}))} placeholder="Unlimited" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium block mb-1">Monthly Cap</label>
+                    <input type="number" min="0" className="w-full border rounded-lg px-3 py-2 text-sm" value={publishFunnelForm.monthly_cap}
+                      onChange={e => setPublishFunnelForm(f => ({...f, monthly_cap: e.target.value}))} placeholder="Unlimited" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Info note */}
+              <div className="bg-purple-50 border border-purple-100 rounded-lg p-3 text-xs text-purple-700">
+                <strong>What happens:</strong> A new entry is created in the <code>offers</code> collection with the funnel's tracking URL masked. 
+                The offer appears in the offers list, publisher available offers, reports, and access requests — just like any regular offer.
+                The funnel ID is stored on the offer so you can always trace back.
+              </div>
+            </div>
+
+            <div className="sticky bottom-0 bg-white dark:bg-card border-t px-6 py-4 flex justify-end gap-3">
+              <button onClick={() => setPublishFunnelModalOpen(false)}
+                className="px-4 py-2 text-sm border rounded-lg hover:bg-muted">Cancel</button>
+              <button
+                onClick={handlePublishFunnelAsOffer}
+                disabled={publishFunnelLoading || !publishFunnelForm.name}
+                className="px-5 py-2 text-sm bg-gradient-to-r from-purple-600 to-violet-600 text-white rounded-lg hover:from-purple-700 hover:to-violet-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                {publishFunnelLoading ? (
+                  <><RefreshCw className="h-4 w-4 animate-spin" />Publishing...</>
+                ) : (
+                  <><Sparkles className="h-4 w-4" />{publishFunnelTarget.linked_offer_id ? 'Update Offer' : 'Publish as Offer'}</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

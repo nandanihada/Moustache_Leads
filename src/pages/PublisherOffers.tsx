@@ -63,9 +63,7 @@ const PublisherOffersContent = () => {
   const [topOffersList, setTopOffersList] = useState<any[]>([]);
   const [topOffersLoading, setTopOffersLoading] = useState(false);
 
-  // Survey funnels
-  const [surveyFunnels, setSurveyFunnels] = useState<any[]>([]);
-  const [surveyLoading, setSurveyLoading] = useState(false);
+  // Survey funnels removed — they are now published as regular offers via "Publish as Offer" in admin panel
 
   const fetchTopOffers = async () => {
     setTopOffersLoading(true);
@@ -87,18 +85,7 @@ const PublisherOffersContent = () => {
   };
 
   const fetchSurveyFunnels = async () => {
-    setSurveyLoading(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/publisher/offers/survey-funnels`, {
-        headers: { 'Authorization': `Bearer ${getAuthToken()}` },
-      });
-      const data = await res.json();
-      if (data.success) setSurveyFunnels(data.funnels || []);
-    } catch {
-      // silent fail
-    } finally {
-      setSurveyLoading(false);
-    }
+    // Survey funnels are now published as regular offers — no longer fetched separately
   };
 
   const [loading, setLoading] = useState(true);
@@ -117,7 +104,7 @@ const PublisherOffersContent = () => {
   const [successPopupOpen, setSuccessPopupOpen] = useState(false);
   const [lastApplyWasInstant, setLastApplyWasInstant] = useState(false);
 
-  // Survey funnel detail modal
+  // Survey funnel detail modal — kept for backward compatibility but no longer used for new offers
   const [surveyDetailOpen, setSurveyDetailOpen] = useState(false);
   const [selectedSurveyFunnel, setSelectedSurveyFunnel] = useState<any>(null);
 
@@ -276,15 +263,8 @@ const PublisherOffersContent = () => {
         };
       });
     } else {
-      // Append survey funnels at the end — admin can pin specific ones to move them up
-      const funnelsAsOffers = surveyFunnels.map((f: any) => ({
-        ...f,
-        offer_id: f.funnel_id || f.offer_id,
-        is_survey_funnel: true,
-        requires_approval: true,
-        approval_type: f.approval_type || 'manual',
-      }));
-      list = [...offers, ...funnelsAsOffers];
+      // Survey funnels are now regular offers — no longer appended separately
+      list = [...offers];
     }
 
     // In "available" mode, search is handled server-side, skip client-side search filter
@@ -390,7 +370,7 @@ const PublisherOffersContent = () => {
       }
     }
     return list;
-  }, [offers, surveyFunnels, myOffers, topOffersList, viewMode, searchTerm, countryFilter, verticalFilter, sortBy]);
+  }, [offers, myOffers, topOffersList, viewMode, searchTerm, countryFilter, verticalFilter, sortBy]);
 
   // Auto-log search to backend 2s after user stops typing (fires automatically, no button needed)
   const searchLogTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -587,12 +567,6 @@ const PublisherOffersContent = () => {
 
   // Click offer name → navigate to detail page
   const handleViewDetails = (offer: PublisherOffer) => {
-    // For survey funnels, open the survey detail modal instead of navigating
-    if ((offer as any).is_survey_funnel) {
-      setSelectedSurveyFunnel(offer);
-      setSurveyDetailOpen(true);
-      return;
-    }
     // Navigate to the full offer detail page
     navigate(`/dashboard/offers/${offer.offer_id}`);
     // Log the offer view
@@ -601,18 +575,13 @@ const PublisherOffersContent = () => {
     searchLogsApi.trackSearchAction('picked_offer', lastSearchLogId.current, offer.name, offer.offer_id);
   };
 
-  // Click Apply → open apply popup (NOT direct link)
+  // Click Apply → open apply popup
   const handleApplyClick = (offer: PublisherOffer) => {
     setApplyOffer(offer);
-    // For survey funnels, skip the proof popup — send request directly
-    if ((offer as any).is_survey_funnel) {
-      handleSendRequestDirect(offer);
-      return;
-    }
     setApplyPopupOpen(true);
   };
 
-  // Direct request without proof (used for survey funnels)
+  // Direct request without proof (kept for backward compatibility)
   const handleSendRequestDirect = async (offer: PublisherOffer) => {
     setApplyLoading(true);
     try {
@@ -620,35 +589,12 @@ const PublisherOffersContent = () => {
       const wasInstant = result.status === 'approved';
       setLastApplyWasInstant(wasInstant);
       setSuccessPopupOpen(true);
-      // Update local state
-      setSurveyFunnels(prev => prev.map((f: any) =>
-        (f.funnel_id || f.offer_id) === offer.offer_id
-          ? { ...f, has_access: wasInstant, request_status: wasInstant ? 'approved' : 'pending' }
-          : f
-      ));
-      // Also update selectedSurveyFunnel if the detail modal is open
-      setSelectedSurveyFunnel((prev: any) =>
-        prev && (prev.funnel_id || prev.offer_id) === offer.offer_id
-          ? { ...prev, has_access: wasInstant, request_status: wasInstant ? 'approved' : 'pending' }
-          : prev
-      );
       fetchSurveyFunnels();
     } catch (err: any) {
       const errData = err.response?.data;
       if (errData?.status === 'pending' || errData?.status === 'approved') {
-        const wasInstant = errData.status === 'approved';
-        setLastApplyWasInstant(wasInstant);
+        setLastApplyWasInstant(errData.status === 'approved');
         setSuccessPopupOpen(true);
-        setSurveyFunnels(prev => prev.map((f: any) =>
-          (f.funnel_id || f.offer_id) === offer.offer_id
-            ? { ...f, has_access: wasInstant, request_status: errData.status }
-            : f
-        ));
-        setSelectedSurveyFunnel((prev: any) =>
-          prev && (prev.funnel_id || prev.offer_id) === offer.offer_id
-            ? { ...prev, has_access: wasInstant, request_status: errData.status }
-            : prev
-        );
         fetchSurveyFunnels();
       } else {
         toast({ title: "Failed", description: errData?.error || err.message, variant: "destructive" });
@@ -1161,17 +1107,10 @@ const PublisherOffersContent = () => {
                           {/* Action */}
                           <TableCell className="py-2.5 pr-4 text-right">
                             {hasAccess ? (
-                              (offer as any).is_survey_funnel ? (
-                                <Button size="sm" className="h-7 text-xs rounded-full px-3 bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white shadow-sm border-0"
-                                  onClick={() => window.open((offer as any).funnel_track_url, '_blank')}>
-                                  <ExternalLink className="h-3 w-3 mr-1" />Start Survey
-                                </Button>
-                              ) : (
-                                <Button size="sm" variant="outline" className="h-7 text-xs rounded-full px-3 border-purple-200 text-purple-600 hover:bg-purple-50"
-                                  onClick={() => { trackDashboardClick(offer); handleViewDetails(offer); }}>
-                                  <ExternalLink className="h-3 w-3 mr-1" />Open
-                                </Button>
-                              )
+                              <Button size="sm" variant="outline" className="h-7 text-xs rounded-full px-3 border-purple-200 text-purple-600 hover:bg-purple-50"
+                                onClick={() => { trackDashboardClick(offer); handleViewDetails(offer); }}>
+                                <ExternalLink className="h-3 w-3 mr-1" />Open
+                              </Button>
                             ) : isPending ? (
                               <Button size="sm" variant="outline" className="h-7 text-xs rounded-full px-3 opacity-40" disabled>
                                 <Clock className="h-3 w-3 mr-1" />Pending
@@ -1259,24 +1198,14 @@ const PublisherOffersContent = () => {
                         {/* Action button */}
                         <div className="pt-2">
                           {hasAccess ? (
-                            (offer as any).is_survey_funnel ? (
-                              <Button
-                                size="sm"
-                                className="w-full h-8 text-xs rounded-full bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white shadow-sm border-0"
-                                onClick={() => window.open((offer as any).funnel_track_url, '_blank')}
-                              >
-                                <ExternalLink className="h-3 w-3 mr-1" />Start Survey
-                              </Button>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="w-full h-8 text-xs rounded-full border-purple-200 text-purple-600 hover:bg-purple-50"
-                                onClick={() => { trackDashboardClick(offer); handleViewDetails(offer); }}
-                              >
-                                <ExternalLink className="h-3 w-3 mr-1" />Open Offer
-                              </Button>
-                            )
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="w-full h-8 text-xs rounded-full border-purple-200 text-purple-600 hover:bg-purple-50"
+                              onClick={() => { trackDashboardClick(offer); handleViewDetails(offer); }}
+                            >
+                              <ExternalLink className="h-3 w-3 mr-1" />Open Offer
+                            </Button>
                           ) : isPending ? (
                             <Button size="sm" variant="outline" className="w-full h-8 text-xs rounded-full opacity-40" disabled>
                               <Clock className="h-3 w-3 mr-1" />Pending
