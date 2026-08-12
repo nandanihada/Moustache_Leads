@@ -60,7 +60,13 @@ def track_funnel_click(funnel_id):
                         pass_url = steps[0].get('pass_url', '')
 
         if not pass_url:
-            return flask_redirect('/', code=302)
+            logger.warning(f"⚠️ No pass_url for funnel {funnel_id} — no step redirect URL configured")
+            # Return a simple error page instead of redirecting to API root
+            return """<!DOCTYPE html><html><head><title>Survey Unavailable</title></head>
+<body style="font-family:sans-serif;text-align:center;padding:60px;color:#555">
+<h2>Survey Temporarily Unavailable</h2>
+<p>This survey link is not yet configured. Please contact the platform administrator.</p>
+</body></html>""", 404
 
         # Generate click_id
         click_id = generate_click_id()
@@ -423,9 +429,14 @@ def publish_funnel_as_offer(funnel_id):
         override = request.get_json() or {}
 
         # Build the tracking URL for this funnel
-        # Use the public-facing backend URL
+        # Include pass_url from first step so the click redirect works without needing it as a query param
+        import urllib.parse as _urlparse
         api_base = 'https://api.moustacheleads.com'
+        steps = funnel.get('steps', [])
+        pass_url = steps[0].get('pass_url', '') if steps else ''
         funnel_url = f"{api_base}/funnel-track/{funnel_id}"
+        if pass_url:
+            funnel_url += f"?pass_url={_urlparse.quote(pass_url, safe='')}"
 
         # Determine approval settings
         approval_type = override.get('approval_type', funnel.get('approval_type', 'manual'))
