@@ -65,6 +65,12 @@ def track_funnel_click(funnel_id):
         # Generate click_id
         click_id = generate_click_id()
 
+        # Capture request info before saving
+        ip_address = request.headers.get('X-Forwarded-For', request.remote_addr or '')
+        if ip_address and ',' in ip_address:
+            ip_address = ip_address.split(',')[0].strip()
+        user_agent = request.headers.get('User-Agent', '')
+
         # Save click record SYNCHRONOUSLY before redirecting
         # (Pepperwahl fires postback very fast — background thread causes race condition)
         try:
