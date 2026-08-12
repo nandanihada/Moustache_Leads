@@ -754,19 +754,25 @@ def receive_postback(unique_key, event_type):
                 if placement_id and placement_id != 'default':
                     placements_collection = get_collection('placements')
                     if placements_collection is not None:
-                        try:
-                            placement = placements_collection.find_one({'_id': ObjectId(placement_id)})
-                        except:
-                            placement = placements_collection.find_one({'_id': placement_id})
+                        # Try by placementIdentifier (the URL key like LFKO1rpd2uoQ78r6) first
+                        placement = placements_collection.find_one({'placementIdentifier': placement_id})
+                        if not placement:
+                            try:
+                                placement = placements_collection.find_one({'_id': ObjectId(placement_id)})
+                            except:
+                                placement = placements_collection.find_one({'_id': placement_id})
                         if placement:
                             placement_title = placement.get('offerwallTitle', 'Unknown')
-                            placement_owner = placement.get('created_by') or placement.get('user_id')
+                            # Use publisherId (correct field) first, fall back to created_by/user_id
+                            placement_owner = (placement.get('publisherId') or
+                                               placement.get('created_by') or
+                                               placement.get('user_id'))
                             users_collection = get_collection('users')
                             if users_collection is not None and placement_owner:
                                 try:
-                                    owner_user = users_collection.find_one({'_id': ObjectId(placement_owner)})
+                                    owner_user = users_collection.find_one({'_id': ObjectId(str(placement_owner))})
                                 except:
-                                    owner_user = users_collection.find_one({'username': placement_owner})
+                                    owner_user = users_collection.find_one({'username': str(placement_owner)})
                                 if owner_user:
                                     owner_username = owner_user.get('username', actual_username)
                                     owner_postback_url = owner_user.get('postback_url')

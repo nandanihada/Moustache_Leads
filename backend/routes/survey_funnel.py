@@ -84,17 +84,16 @@ def track_funnel_click(funnel_id):
                     placements_col = get_collection('placements')
                     users_col = get_collection('users')
                     if placements_col is not None and users_col is not None:
-                        placement = placements_col.find_one({'_id': placement_id_val}) or \
-                                    placements_col.find_one({'placement_id': placement_id_val}) or \
-                                    placements_col.find_one({'placementKey': placement_id_val})
+                        placement = placements_col.find_one({'placementIdentifier': placement_id_val})
                         if not placement:
+                            # Try by MongoDB _id
                             from bson import ObjectId
                             try:
                                 placement = placements_col.find_one({'_id': ObjectId(placement_id_val)})
                             except Exception:
                                 pass
                         if placement:
-                            owner_id = placement.get('created_by') or placement.get('user_id') or placement.get('userId')
+                            owner_id = placement.get('publisherId') or placement.get('created_by') or placement.get('user_id')
                             if owner_id:
                                 from bson import ObjectId
                                 try:
