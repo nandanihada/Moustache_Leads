@@ -723,7 +723,7 @@ def receive_postback(unique_key, event_type):
                         return val[0] if val else ''
                     return str(val) if val and val != f"{{{key}}}" else ''
 
-                click_id = get_param_value('click_id')
+                click_id = get_param_value('click_id') or get_param_value('aff_click_id')
                 offer_id = get_param_value('offer_id') or get_param_value('survey_id')
                 upward_payout = get_param_value('payout') or get_param_value('amount') or 0
                 event_type = get_param_value('event_type') or get_param_value('event') or ''
