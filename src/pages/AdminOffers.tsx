@@ -102,7 +102,7 @@ const AdminOffers = () => {
   const [recycleBinSearchTerm, setRecycleBinSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [activeTab, setActiveTab] = useState('offers');
-  const [offersSubView, setOffersSubView] = useState<'all' | 'running' | 'rotating' | 'recommended'>('all');
+  const [offersSubView, setOffersSubView] = useState<'all' | 'running' | 'rotating' | 'recommended' | 'survey_funnels'>('all');
   const [addOfferModalOpen, setAddOfferModalOpen] = useState(false);
   const [editOfferModalOpen, setEditOfferModalOpen] = useState(false);
   const [linkMaskingModalOpen, setLinkMaskingModalOpen] = useState(false);
@@ -239,6 +239,13 @@ const AdminOffers = () => {
   const [recommendedTotal, setRecommendedTotal] = useState(0);
   const [recommendedPage, setRecommendedPage] = useState(1);
   const [expandedRecommended, setExpandedRecommended] = useState<string | null>(null);
+
+  // Survey funnels state (admin view)
+  const [surveyFunnels, setSurveyFunnels] = useState<any[]>([]);
+  const [surveyFunnelsLoading, setSurveyFunnelsLoading] = useState(false);
+  const [surveyFunnelsTotal, setSurveyFunnelsTotal] = useState(0);
+  const [surveyFunnelsPagination, setSurveyFunnelsPagination] = useState({ page: 1, per_page: 50, total: 0 });
+  const [surveyFunnelsSearch, setSurveyFunnelsSearch] = useState('');
 
   // Category definitions for multi-select filter
   const CATEGORIES = [
@@ -505,6 +512,27 @@ const AdminOffers = () => {
       toast({ title: "Error", description: "Failed to load recommended offers", variant: "destructive" });
     } finally {
       setRecommendedLoading(false);
+    }
+  };
+
+  const fetchSurveyFunnels = async (page = 1, search = '') => {
+    setSurveyFunnelsLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const params = new URLSearchParams({ page: String(page), per_page: '50', ...(search && { search }) });
+      const res = await fetch(`${API_BASE_URL}/api/admin/offers/survey-funnels?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSurveyFunnels(data.offers || []);
+        setSurveyFunnelsTotal(data.total || 0);
+        setSurveyFunnelsPagination({ page, per_page: 50, total: data.total || 0 });
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to load survey funnels", variant: "destructive" });
+    } finally {
+      setSurveyFunnelsLoading(false);
     }
   };
 
@@ -2029,6 +2057,21 @@ const AdminOffers = () => {
     }
   }, [offersSubView]);
 
+  // Fetch survey funnels when sub-view changes
+  useEffect(() => {
+    if (offersSubView === 'survey_funnels') {
+      fetchSurveyFunnels(1, surveyFunnelsSearch);
+    }
+  }, [offersSubView]);
+
+  // Debounced search for survey funnels
+  useEffect(() => {
+    if (offersSubView === 'survey_funnels') {
+      const timer = setTimeout(() => fetchSurveyFunnels(1, surveyFunnelsSearch), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [surveyFunnelsSearch]);
+
   // Pre-fetch running offers count for the dropdown
   useEffect(() => {
     const fetchRunningCount = async () => {
@@ -2389,7 +2432,7 @@ const AdminOffers = () => {
       </TooltipProvider>
 
       {/* Collapsible Filter Panel - only show for main offers view, not running offers */}
-      {offersSubView !== 'running' && (
+      {offersSubView !== 'running' && offersSubView !== 'survey_funnels' && (
       <FilterPanel
         statusFilter={statusFilter}
         onStatusChange={(v) => { setStatusFilter(v); setPagination(prev => ({ ...prev, page: 1 })); }}
@@ -2414,7 +2457,7 @@ const AdminOffers = () => {
           <TabsList className="flex-wrap h-auto">
             <TabsTrigger value="offers" className="flex items-center gap-2">
               <Globe className="h-4 w-4" />
-              {offersSubView === 'running' ? `Running Offers (${runningPagination.total})` : offersSubView === 'rotating' ? `Rotating Offers (${rotatingPagination.total})` : offersSubView === 'recommended' ? `Recommended (${recommendedTotal})` : `Active Offers (${pagination.total})`}
+              {offersSubView === 'running' ? `Running Offers (${runningPagination.total})` : offersSubView === 'rotating' ? `Rotating Offers (${rotatingPagination.total})` : offersSubView === 'recommended' ? `Recommended (${recommendedTotal})` : offersSubView === 'survey_funnels' ? `Survey Funnels (${surveyFunnelsTotal})` : `Active Offers (${pagination.total})`}
             </TabsTrigger>
             <TabsTrigger value="ad-campaigns" className="flex items-center gap-2">
               <Megaphone className="h-4 w-4" />
@@ -2434,7 +2477,7 @@ const AdminOffers = () => {
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="flex items-center gap-1.5 h-9">
                   <Activity className="h-4 w-4" />
-                  {offersSubView === 'all' ? 'All Offers' : offersSubView === 'running' ? 'Running Offers' : offersSubView === 'rotating' ? 'Rotating Offers' : 'Recommended'}
+                  {offersSubView === 'all' ? 'All Offers' : offersSubView === 'running' ? 'Running Offers' : offersSubView === 'rotating' ? 'Rotating Offers' : offersSubView === 'survey_funnels' ? 'Survey Funnels' : 'Recommended'}
                   <ChevronDown className="h-3.5 w-3.5 opacity-60" />
                 </Button>
               </DropdownMenuTrigger>
@@ -2454,6 +2497,10 @@ const AdminOffers = () => {
                 <DropdownMenuItem onClick={() => { setOffersSubView('recommended'); fetchRecommendedOffers(1); }} className={offersSubView === 'recommended' ? 'bg-accent' : ''}>
                   <Gift className="h-4 w-4 mr-2 text-orange-500" />
                   Recommended ({recommendedTotal})
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { setOffersSubView('survey_funnels'); fetchSurveyFunnels(1, ''); }} className={offersSubView === 'survey_funnels' ? 'bg-accent' : ''}>
+                  <Sparkles className="h-4 w-4 mr-2 text-purple-500" />
+                  Survey Funnels ({surveyFunnelsTotal})
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -3057,6 +3104,86 @@ const AdminOffers = () => {
                 <Button size="sm" variant="outline" disabled={recommendedPage >= Math.ceil(recommendedTotal / 25)} onClick={() => { setRecommendedPage(p => p + 1); fetchRecommendedOffers(recommendedPage + 1); }}>Next</Button>
               </div>
             )}
+          </div>
+          ) : offersSubView === 'survey_funnels' ? (
+          /* Survey Funnels Sub-View */
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-purple-500" />
+                  Survey Funnels ({surveyFunnelsTotal})
+                </CardTitle>
+                <CardDescription>Active survey funnels available to publishers. Each funnel tracks clicks via /funnel-track/ and credits the publisher on postback.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-2 mb-4">
+                  <Input
+                    placeholder="Search survey funnels..."
+                    value={surveyFunnelsSearch}
+                    onChange={(e) => setSurveyFunnelsSearch(e.target.value)}
+                    className="max-w-xs h-8 text-sm"
+                  />
+                  <Button size="sm" variant="outline" onClick={() => fetchSurveyFunnels(1, surveyFunnelsSearch)}>
+                    <RefreshCw className="h-4 w-4 mr-1" />Refresh
+                  </Button>
+                </div>
+                {surveyFunnelsLoading ? (
+                  <div className="text-center py-12"><RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />Loading...</div>
+                ) : surveyFunnels.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Sparkles className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                    <p>No survey funnels found. Create them in the Survey Gateway section.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Funnel ID</TableHead>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Payout</TableHead>
+                          <TableHead>Steps</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Placement</TableHead>
+                          <TableHead>Stats</TableHead>
+                          <TableHead>Created</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {surveyFunnels.map((f: any) => (
+                          <TableRow key={f.funnel_id}>
+                            <TableCell className="font-mono text-xs text-purple-600">{f.funnel_id}</TableCell>
+                            <TableCell className="font-medium text-sm">{f.name}</TableCell>
+                            <TableCell className="font-bold text-green-600">${(f.payout || 0).toFixed(2)}</TableCell>
+                            <TableCell className="text-sm">{f.steps_count}</TableCell>
+                            <TableCell>
+                              <Badge className={f.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}>
+                                {f.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{f.placement || 'everywhere'}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">
+                              {f.stats ? `${f.stats.total_starts || 0} starts / ${f.stats.total_passes || 0} passes` : '—'}
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">
+                              {f.created_at ? new Date(f.created_at).toLocaleDateString() : '—'}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+                {surveyFunnelsPagination.total > 50 && (
+                  <div className="flex justify-center gap-2 mt-4">
+                    <Button size="sm" variant="outline" disabled={surveyFunnelsPagination.page <= 1} onClick={() => fetchSurveyFunnels(surveyFunnelsPagination.page - 1, surveyFunnelsSearch)}>Prev</Button>
+                    <span className="text-sm text-muted-foreground py-1.5">Page {surveyFunnelsPagination.page}</span>
+                    <Button size="sm" variant="outline" disabled={surveyFunnelsPagination.page >= Math.ceil(surveyFunnelsPagination.total / 50)} onClick={() => fetchSurveyFunnels(surveyFunnelsPagination.page + 1, surveyFunnelsSearch)}>Next</Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
           ) : (
           <>

@@ -7680,3 +7680,73 @@ def get_offerwall_exclusive_offers():
     except Exception as e:
         logging.error(f"Get offerwall exclusive offers error: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+
+@admin_offers_bp.route('/offers/survey-funnels', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def admin_list_survey_funnels():
+    """List survey funnels in admin offers view."""
+    try:
+        funnels_col = db_instance.get_collection('survey_funnels')
+        if funnels_col is None:
+            return jsonify({'success': True, 'offers': [], 'total': 0}), 200
+
+        search = request.args.get('search', '')
+        status_filter = request.args.get('status', '')
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 50))
+
+        query = {}
+        if search:
+            import re as _re
+            escaped = _re.escape(search)
+            query['$or'] = [
+                {'name': {'$regex': escaped, '$options': 'i'}},
+                {'display_title': {'$regex': escaped, '$options': 'i'}},
+                {'funnel_id': {'$regex': escaped, '$options': 'i'}},
+            ]
+        if status_filter:
+            query['status'] = status_filter
+
+        total = funnels_col.count_documents(query)
+        skip = (page - 1) * per_page
+        funnels = list(funnels_col.find(query).sort('created_at', -1).skip(skip).limit(per_page))
+
+        result = []
+        for f in funnels:
+            funnel_id = f.get('funnel_id', '')
+            steps = f.get('steps', [])
+            created_at = f.get('created_at', '')
+            created_at_str = created_at.isoformat() + 'Z' if hasattr(created_at, 'isoformat') else str(created_at)
+            result.append({
+                'offer_id': funnel_id,
+                'funnel_id': funnel_id,
+                'name': f.get('display_title', f.get('name', 'Survey')),
+                'description': f.get('display_description', ''),
+                'category': 'SURVEY',
+                'vertical': 'SURVEY',
+                'payout': float(f.get('display_payout', 0) or 0),
+                'payout_type': 'CPA',
+                'network': 'Survey Funnel',
+                'status': f.get('status', 'active'),
+                'offer_type': 'survey_funnel',
+                'is_survey_funnel': True,
+                'placement': f.get('placement', 'everywhere'),
+                'steps_count': len(steps),
+                'stats': f.get('stats', {'total_starts': 0, 'total_passes': 0, 'total_fails': 0}),
+                'countries': [],
+                'image_url': f.get('display_image_url', ''),
+                'created_at': created_at_str,
+            })
+
+        return jsonify({
+            'success': True,
+            'offers': result,
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+        }), 200
+    except Exception as e:
+        logging.error(f"Error listing admin survey funnels: {e}", exc_info=True)
+        return jsonify({'success': True, 'offers': [], 'total': 0}), 200

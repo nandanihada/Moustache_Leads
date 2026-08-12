@@ -38,13 +38,13 @@ const PublisherOffersContent = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
   // View mode — persisted in URL ?tab=my_offers so it survives navigation back
-  const initialTab = (searchParams.get('tab') || 'available') as "available" | "requests" | "my_offers" | "top_20";
-  const [viewMode, setViewMode] = useState<"available" | "requests" | "my_offers" | "top_20">(
-    ['available', 'requests', 'my_offers', 'top_20'].includes(initialTab) ? initialTab : 'available'
+  const initialTab = (searchParams.get('tab') || 'available') as "available" | "requests" | "my_offers" | "top_20" | "surveys";
+  const [viewMode, setViewMode] = useState<"available" | "requests" | "my_offers" | "top_20" | "surveys">(
+    ['available', 'requests', 'my_offers', 'top_20', 'surveys'].includes(initialTab) ? initialTab : 'available'
   );
 
   // Sync viewMode changes to URL
-  const handleSetViewMode = (mode: "available" | "requests" | "my_offers" | "top_20") => {
+  const handleSetViewMode = (mode: "available" | "requests" | "my_offers" | "top_20" | "surveys") => {
     setViewMode(mode);
     setSearchParams(mode === 'available' ? {} : { tab: mode }, { replace: true });
   };
@@ -63,6 +63,10 @@ const PublisherOffersContent = () => {
   const [topOffersList, setTopOffersList] = useState<any[]>([]);
   const [topOffersLoading, setTopOffersLoading] = useState(false);
 
+  // Survey funnels
+  const [surveyFunnels, setSurveyFunnels] = useState<any[]>([]);
+  const [surveyLoading, setSurveyLoading] = useState(false);
+
   const fetchTopOffers = async () => {
     setTopOffersLoading(true);
     try {
@@ -79,6 +83,21 @@ const PublisherOffersContent = () => {
       console.error("Failed to load top offers:", err);
     } finally {
       setTopOffersLoading(false);
+    }
+  };
+
+  const fetchSurveyFunnels = async () => {
+    setSurveyLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/publisher/offers/survey-funnels`, {
+        headers: { 'Authorization': `Bearer ${getAuthToken()}` },
+      });
+      const data = await res.json();
+      if (data.success) setSurveyFunnels(data.funnels || []);
+    } catch {
+      // silent fail
+    } finally {
+      setSurveyLoading(false);
     }
   };
 
@@ -168,6 +187,7 @@ const PublisherOffersContent = () => {
     fetchMyRequests();
     fetchMyOffers();
     fetchTopOffers();
+    fetchSurveyFunnels();
   }, []);
 
   // Re-fetch when page or perPage changes
@@ -182,6 +202,7 @@ const PublisherOffersContent = () => {
     if (viewMode === "requests") fetchMyRequests();
     if (viewMode === "my_offers") fetchMyOffers();
     if (viewMode === "top_20") fetchTopOffers();
+    if (viewMode === "surveys") fetchSurveyFunnels();
   }, [viewMode]);
 
   // Get unique countries and verticals for filter dropdowns
@@ -713,6 +734,7 @@ const PublisherOffersContent = () => {
               <SelectItem value="requests">My Requests</SelectItem>
               <SelectItem value="my_offers">My Offers</SelectItem>
               <SelectItem value="top_20">Top 20 Offers</SelectItem>
+              <SelectItem value="surveys">Survey Offers</SelectItem>
             </SelectContent>
           </Select>
 
@@ -953,8 +975,46 @@ const PublisherOffersContent = () => {
           </div>
         )}
 
+        {/* SURVEY OFFERS VIEW */}
+        {viewMode === "surveys" && (
+          <div>
+            {surveyLoading ? (
+              <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-purple-500" /></div>
+            ) : surveyFunnels.length === 0 ? (
+              <div className="text-center py-16 text-muted-foreground">No survey offers available</div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {surveyFunnels.map((funnel) => (
+                  <div key={funnel.funnel_id} className="border rounded-xl p-4 bg-white shadow-sm hover:shadow-md transition-shadow">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Badge className="bg-purple-100 text-purple-700 text-xs">Survey</Badge>
+                          <span className="text-xs text-muted-foreground">{funnel.steps_count} step{funnel.steps_count !== 1 ? 's' : ''}</span>
+                        </div>
+                        <h3 className="font-semibold text-sm">{funnel.name}</h3>
+                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{funnel.description}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between mt-3">
+                      <span className="font-bold text-purple-700">${funnel.payout.toFixed(2)}</span>
+                      <Button
+                        size="sm"
+                        className="bg-purple-600 hover:bg-purple-700 text-white"
+                        onClick={() => window.open(funnel.funnel_track_url, '_blank')}
+                      >
+                        Start Survey <ExternalLink className="ml-1 h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* OFFERS TABLE (available + my_offers) */}
-        {viewMode !== "requests" && (
+        {viewMode !== "requests" && viewMode !== "surveys" && (
           <>
             {pinnedOffers.length >= 0 && /* pinned offers merged into main list */ null}
 

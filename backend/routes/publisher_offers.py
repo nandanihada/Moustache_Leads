@@ -1596,6 +1596,70 @@ def get_my_offers():
         return jsonify({'error': f'Failed to fetch my offers: {str(e)}'}), 500
 
 
+@publisher_offers_bp.route('/offers/survey-funnels', methods=['GET'])
+@token_required
+def get_publisher_survey_funnels():
+    """Get active survey funnels formatted as offer cards for publisher view."""
+    try:
+        import urllib.parse
+        user = request.current_user
+        publisher_id = str(user.get('_id', ''))
+
+        funnels_col = db_instance.get_collection('survey_funnels')
+        if funnels_col is None:
+            return jsonify({'success': True, 'funnels': []}), 200
+
+        funnels = list(funnels_col.find({'status': 'active'}).sort('created_at', -1))
+
+        # Use the public-facing API base URL (not internal Render host)
+        api_base = 'https://api.moustacheleads.com'
+
+        result = []
+        for f in funnels:
+            funnel_id = f.get('funnel_id', '')
+            steps = f.get('steps', [])
+            pass_url = steps[0].get('pass_url', '') if steps else ''
+
+            funnel_track_url = (
+                f"{api_base}/funnel-track/{funnel_id}"
+                f"?user_id={urllib.parse.quote(publisher_id)}"
+                + (f"&pass_url={urllib.parse.quote(pass_url, safe='')}" if pass_url else '')
+            )
+
+            created_at = f.get('created_at', '')
+            created_at_str = created_at.isoformat() + 'Z' if hasattr(created_at, 'isoformat') else str(created_at)
+
+            result.append({
+                'offer_id': funnel_id,
+                'funnel_id': funnel_id,
+                'name': f.get('display_title', f.get('name', 'Survey')),
+                'description': f.get('display_description', 'Complete this survey to earn rewards'),
+                'category': 'SURVEY',
+                'vertical': 'SURVEY',
+                'categories': ['SURVEY'],
+                'payout': float(f.get('display_payout', 0) or 0),
+                'payout_type': 'CPA',
+                'currency': 'USD',
+                'network': 'Survey Funnel',
+                'countries': [],
+                'image_url': f.get('display_image_url', ''),
+                'status': 'active',
+                'offer_type': 'survey_funnel',
+                'is_survey_funnel': True,
+                'funnel_track_url': funnel_track_url,
+                'has_access': True,
+                'requires_approval': False,
+                'is_locked': False,
+                'steps_count': len(steps),
+                'created_at': created_at_str,
+            })
+
+        return jsonify({'success': True, 'funnels': result}), 200
+    except Exception as e:
+        logger.error(f"Error fetching survey funnels for publisher: {e}")
+        return jsonify({'success': True, 'funnels': []}), 200
+
+
 @publisher_offers_bp.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -1604,6 +1668,7 @@ def health_check():
         'service': 'publisher_offers',
         'endpoints': [
             'GET /api/publisher/offers/available',
+            'GET /api/publisher/offers/survey-funnels',
             'GET /api/publisher/offers/autocomplete',
             'GET /api/publisher/offers/<offer_id>',
             'POST /api/publisher/offers/<offer_id>/request-access',
