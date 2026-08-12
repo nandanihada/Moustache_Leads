@@ -848,17 +848,87 @@ def get_offer_details(offer_id):
 @token_required
 def request_offer_access(offer_id):
     """
-    Request access to an offer
+    Request access to an offer (works for both regular offers and survey funnels)
     """
     try:
         user = request.current_user
+        user_id = user.get('_id')
+        user_id_str = str(user_id)
         data = request.get_json() or {}
         message = data.get('message', '')
         
         logger.info(f"📝 Publisher {user.get('username')} requesting access to offer {offer_id}")
-        
-        # Request access through access control service
-        result = access_service.request_offer_access(offer_id, user.get('_id'), message)
+
+        # ── Survey Funnel path (SF- prefix) ──────────────────────────────────
+        if offer_id.startswith('SF-'):
+            funnels_col = db_instance.get_collection('survey_funnels')
+            funnel = funnels_col.find_one({'funnel_id': offer_id})
+            if not funnel:
+                return jsonify({'error': 'Survey funnel not found'}), 400
+
+            requests_col = db_instance.get_collection('affiliate_requests')
+            user_query_conditions = [
+                {'user_id': user_id_str},
+                {'publisher_id': user_id_str},
+                {'user_id': user_id},
+                {'publisher_id': user_id},
+            ]
+            try:
+                from bson import ObjectId
+                if ObjectId.is_valid(user_id_str):
+                    user_obj_id = ObjectId(user_id_str)
+                    user_query_conditions.extend([
+                        {'user_id': user_obj_id},
+                        {'publisher_id': user_obj_id},
+                    ])
+            except Exception:
+                pass
+
+            existing = requests_col.find_one({
+                'offer_id': offer_id,
+                '$or': user_query_conditions
+            })
+
+            if existing:
+                existing_status = existing.get('status', 'pending')
+                if existing_status == 'approved':
+                    return safe_json_response({'message': 'Access already granted', 'status': 'approved'})
+                if existing_status == 'pending':
+                    return jsonify({'error': 'Request already pending', 'status': 'pending'}), 400
+
+            # Determine approval type for funnel (default manual so admin can review)
+            approval_type = funnel.get('approval_type', 'manual')
+            initial_status = 'approved' if approval_type == 'auto_approve' else 'pending'
+
+            users_col = db_instance.get_collection('users')
+            user_doc = users_col.find_one({'_id': user_id})
+
+            from datetime import datetime as _dt
+            import time as _time
+            request_doc = {
+                'request_id': f"REQ-{offer_id}-{user_id_str}-{int(_time.time())}",
+                'offer_id': offer_id,
+                'offer_type': 'survey_funnel',
+                'user_id': user_id_str,
+                'publisher_id': user_id_str,
+                'username': user_doc.get('username') if user_doc else user.get('username', ''),
+                'email': user_doc.get('email') if user_doc else user.get('email', ''),
+                'message': message or '',
+                'status': initial_status,
+                'requested_at': _dt.utcnow(),
+                'created_at': _dt.utcnow(),
+                'approval_type': approval_type,
+            }
+            if initial_status == 'approved':
+                request_doc['approved_at'] = _dt.utcnow()
+                request_doc['approved_by'] = 'system'
+
+            requests_col.insert_one(request_doc)
+            logger.info(f"✅ Survey funnel access request created for {offer_id}: status={initial_status}")
+            return safe_json_response({'message': 'Request submitted', 'status': initial_status})
+
+        # ── Regular offer path ────────────────────────────────────────────────
+        result = access_service.request_offer_access(offer_id, user_id, message)
         
         logger.info(f"📊 Access request result for offer {offer_id}: status={result.get('status')} error={result.get('error')}")
         
@@ -934,7 +1004,30 @@ def get_my_access_requests():
         per_page = min(int(request.args.get('per_page', 20)), 100)
         
         # Build query — exclude rejected/hidden requests from publisher view
-        query = {'user_id': user_id, 'status': {'$ne': 'rejected'}, 'hidden_from_publisher': {'$ne': True}}
+        # Match both ObjectId and string forms of user_id
+        user_id_str = str(user_id)
+        user_query_conditions = [
+            {'user_id': user_id},
+            {'user_id': user_id_str},
+            {'publisher_id': user_id},
+            {'publisher_id': user_id_str},
+        ]
+        try:
+            from bson import ObjectId
+            if ObjectId.is_valid(user_id_str):
+                user_obj_id = ObjectId(user_id_str)
+                user_query_conditions.extend([
+                    {'user_id': user_obj_id},
+                    {'publisher_id': user_obj_id},
+                ])
+        except Exception:
+            pass
+
+        query = {
+            '$or': user_query_conditions,
+            'status': {'$ne': 'rejected'},
+            'hidden_from_publisher': {'$ne': True}
+        }
         if status != 'all':
             if status == 'rejected':
                 # Publisher should never see rejected — return empty
@@ -953,12 +1046,33 @@ def get_my_access_requests():
         
         # Enrich with offer details — skip requests for deleted offers
         offers_collection = db_instance.get_collection('offers')
+        funnels_collection = db_instance.get_collection('survey_funnels')
         filtered_requests = []
         for req in requests:
             req['_id'] = str(req['_id'])
             
+            offer_id = req.get('offer_id', '')
+            # Survey funnel request
+            if offer_id.startswith('SF-') or req.get('offer_type') == 'survey_funnel':
+                funnel = funnels_collection.find_one({'funnel_id': offer_id})
+                if funnel:
+                    req['offer_details'] = {
+                        'name': funnel.get('display_title', funnel.get('name', offer_id)),
+                        'payout': float(funnel.get('display_payout', 0) or 0),
+                        'network': 'Survey Funnel',
+                        'image_url': funnel.get('display_image_url', ''),
+                    }
+                    req['is_survey_funnel'] = True
+                    filtered_requests.append(req)
+                else:
+                    # Funnel may have been deleted — still show request with fallback
+                    req['offer_details'] = {'name': offer_id, 'payout': 0, 'network': 'Survey Funnel', 'image_url': ''}
+                    req['is_survey_funnel'] = True
+                    filtered_requests.append(req)
+                continue
+
             # Get offer details
-            offer = offers_collection.find_one({'offer_id': req['offer_id']})
+            offer = offers_collection.find_one({'offer_id': offer_id})
             if offer and not offer.get('deleted', False):
                 req['offer_details'] = {
                     'name': offer.get('name'),
@@ -1611,6 +1725,32 @@ def get_publisher_survey_funnels():
 
         funnels = list(funnels_col.find({'status': 'active'}).sort('created_at', -1))
 
+        # Batch-fetch all affiliate_requests for this publisher + all funnel IDs
+        funnel_ids = [f.get('funnel_id', '') for f in funnels if f.get('funnel_id')]
+        requests_col = db_instance.get_collection('affiliate_requests')
+        user_id_str = publisher_id
+        user_query_conditions = [
+            {'user_id': user_id_str},
+            {'publisher_id': user_id_str},
+        ]
+        try:
+            from bson import ObjectId
+            user_raw = user.get('_id')
+            if user_raw and ObjectId.is_valid(str(user_raw)):
+                user_obj_id = ObjectId(str(user_raw))
+                user_query_conditions.extend([
+                    {'user_id': user_obj_id},
+                    {'publisher_id': user_obj_id},
+                ])
+        except Exception:
+            pass
+
+        funnel_requests = list(requests_col.find({
+            'offer_id': {'$in': funnel_ids},
+            '$or': user_query_conditions
+        }))
+        requests_by_funnel = {r['offer_id']: r for r in funnel_requests}
+
         # Use the public-facing API base URL (not internal Render host)
         api_base = 'https://api.moustacheleads.com'
 
@@ -1628,6 +1768,16 @@ def get_publisher_survey_funnels():
 
             created_at = f.get('created_at', '')
             created_at_str = created_at.isoformat() + 'Z' if hasattr(created_at, 'isoformat') else str(created_at)
+
+            # Determine access status from affiliate_requests
+            existing_req = requests_by_funnel.get(funnel_id)
+            if existing_req:
+                req_status = existing_req.get('status', 'pending')
+                has_access = req_status == 'approved'
+                request_status = req_status
+            else:
+                has_access = False
+                request_status = 'not_requested'
 
             result.append({
                 'offer_id': funnel_id,
@@ -1647,9 +1797,10 @@ def get_publisher_survey_funnels():
                 'offer_type': 'survey_funnel',
                 'is_survey_funnel': True,
                 'funnel_track_url': funnel_track_url,
-                'has_access': True,
-                'requires_approval': False,
-                'is_locked': False,
+                'has_access': has_access,
+                'request_status': request_status,
+                'requires_approval': True,
+                'is_locked': not has_access,
                 'steps_count': len(steps),
                 'created_at': created_at_str,
             })

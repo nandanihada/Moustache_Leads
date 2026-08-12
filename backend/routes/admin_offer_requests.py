@@ -196,6 +196,26 @@ def get_publisher_profiles_with_requests():
         if offer_ids_needed:
             for o in offers_collection.find({'offer_id': {'$in': list(offer_ids_needed)}}):
                 offer_cache[o['offer_id']] = o
+            # Also look up survey funnels for SF- prefixed IDs
+            sf_ids = [oid for oid in offer_ids_needed if isinstance(oid, str) and oid.startswith('SF-') and oid not in offer_cache]
+            if sf_ids:
+                funnels_col = db_instance.get_collection('survey_funnels')
+                if funnels_col is not None:
+                    for f in funnels_col.find({'funnel_id': {'$in': sf_ids}}):
+                        fid = f.get('funnel_id')
+                        # Normalize to look like an offer for downstream code
+                        offer_cache[fid] = {
+                            'offer_id': fid,
+                            'name': f.get('display_title', f.get('name', fid)),
+                            'payout': float(f.get('display_payout', 0) or 0),
+                            'network': 'Survey Funnel',
+                            'category': 'SURVEY',
+                            'vertical': 'SURVEY',
+                            'countries': [],
+                            'status': f.get('status', 'active'),
+                            'target_url': '',
+                            'is_survey_funnel': True,
+                        }
         
         # Compute offer-level stats across ALL requests (not just this page)
         offer_stats = {}
@@ -1238,7 +1258,24 @@ def get_all_access_requests():
         for req in page_reqs:
             oid = req.get('offer_id')
             if oid not in offer_cache:
-                offer_cache[oid] = offers_collection.find_one({'offer_id': oid})
+                if isinstance(oid, str) and oid.startswith('SF-'):
+                    funnels_col = db_instance.get_collection('survey_funnels')
+                    funnel = funnels_col.find_one({'funnel_id': oid}) if funnels_col else None
+                    if funnel:
+                        offer_cache[oid] = {
+                            'offer_id': oid,
+                            'name': funnel.get('display_title', funnel.get('name', oid)),
+                            'payout': float(funnel.get('display_payout', 0) or 0),
+                            'network': 'Survey Funnel',
+                            'category': 'SURVEY',
+                            'device_targeting': 'all',
+                            'approval_settings': {},
+                            'is_survey_funnel': True,
+                        }
+                    else:
+                        offer_cache[oid] = None
+                else:
+                    offer_cache[oid] = offers_collection.find_one({'offer_id': oid})
             offer = offer_cache[oid]
             if offer:
                 req['offer_details'] = {
