@@ -429,14 +429,8 @@ def publish_funnel_as_offer(funnel_id):
         override = request.get_json() or {}
 
         # Build the tracking URL for this funnel
-        # Include pass_url from first step so the click redirect works without needing it as a query param
-        import urllib.parse as _urlparse
-        api_base = 'https://api.moustacheleads.com'
-        steps = funnel.get('steps', [])
-        pass_url = steps[0].get('pass_url', '') if steps else ''
-        funnel_url = f"{api_base}/funnel-track/{funnel_id}"
-        if pass_url:
-            funnel_url += f"?pass_url={_urlparse.quote(pass_url, safe='')}"
+        # Use the survey frontend URL directly — simple and clean
+        funnel_url = f"https://survey.moustacheleads.com/funnel/{funnel_id}"
 
         # Determine approval settings
         approval_type = override.get('approval_type', funnel.get('approval_type', 'manual'))
