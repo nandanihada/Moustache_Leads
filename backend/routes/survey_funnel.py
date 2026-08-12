@@ -71,21 +71,37 @@ def track_funnel_click(funnel_id):
 
         def _save_click():
             try:
-                clicks_col = get_collection('funnel_clicks')
-                if clicks_col is None:
-                    return
-                clicks_col.insert_one({
+                now = datetime.utcnow()
+                click_doc = {
                     'click_id': click_id,
                     'funnel_id': funnel_id,
+                    'offer_id': funnel_id,  # use funnel_id as offer_id so postback processor can find it
+                    'offer_name': f'Survey Funnel {funnel_id}',
                     'user_id': user_id,
-                    'publisher_id': user_id,
+                    'affiliate_id': user_id,
+                    'placement_id': sub1,
                     'ip_address': ip_address,
                     'user_agent': user_agent,
-                    'sub1': sub1,
+                    'sub_id1': sub1,
                     'pass_url': pass_url,
-                    'timestamp': datetime.utcnow(),
+                    'click_time': now,
+                    'timestamp': now,
                     'converted': False,
-                })
+                    'country': 'Unknown',
+                    'device_type': 'unknown',
+                    'payout': 0,
+                    'source': 'survey_funnel',
+                    'network': 'Pepperwahl',
+                }
+                # Write to both collections:
+                # 1. funnel_clicks — for funnel-specific lookup
+                funnel_clicks_col = get_collection('funnel_clicks')
+                if funnel_clicks_col is not None:
+                    funnel_clicks_col.insert_one(dict(click_doc))
+                # 2. clicks — so process_single_postback can find CLK-XXX and forward normally
+                clicks_col = get_collection('clicks')
+                if clicks_col is not None:
+                    clicks_col.insert_one(dict(click_doc))
                 logger.info(f"📊 Funnel click logged: {click_id} | funnel={funnel_id} | publisher={user_id}")
             except Exception as e:
                 logger.error(f"Funnel click save error: {e}")
