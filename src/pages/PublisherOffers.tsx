@@ -38,13 +38,13 @@ const PublisherOffersContent = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
   // View mode — persisted in URL ?tab=my_offers so it survives navigation back
-  const initialTab = (searchParams.get('tab') || 'available') as "available" | "requests" | "my_offers" | "top_20" | "surveys";
-  const [viewMode, setViewMode] = useState<"available" | "requests" | "my_offers" | "top_20" | "surveys">(
-    ['available', 'requests', 'my_offers', 'top_20', 'surveys'].includes(initialTab) ? initialTab : 'available'
+  const initialTab = (searchParams.get('tab') || 'available') as "available" | "requests" | "my_offers" | "top_20";
+  const [viewMode, setViewMode] = useState<"available" | "requests" | "my_offers" | "top_20">(
+    ['available', 'requests', 'my_offers', 'top_20'].includes(initialTab) ? initialTab : 'available'
   );
 
   // Sync viewMode changes to URL
-  const handleSetViewMode = (mode: "available" | "requests" | "my_offers" | "top_20" | "surveys") => {
+  const handleSetViewMode = (mode: "available" | "requests" | "my_offers" | "top_20") => {
     setViewMode(mode);
     setSearchParams(mode === 'available' ? {} : { tab: mode }, { replace: true });
   };
@@ -202,7 +202,6 @@ const PublisherOffersContent = () => {
     if (viewMode === "requests") fetchMyRequests();
     if (viewMode === "my_offers") fetchMyOffers();
     if (viewMode === "top_20") fetchTopOffers();
-    if (viewMode === "surveys") fetchSurveyFunnels();
   }, [viewMode]);
 
   // Get unique countries and verticals for filter dropdowns
@@ -273,7 +272,14 @@ const PublisherOffersContent = () => {
         };
       });
     } else {
-      list = [...offers];
+      // Merge survey funnels at the top of the available offers list
+      const funnelsAsOffers = surveyFunnels.map((f: any) => ({
+        ...f,
+        offer_id: f.funnel_id || f.offer_id,
+        has_access: true,
+        is_survey_funnel: true,
+      }));
+      list = [...funnelsAsOffers, ...offers];
     }
 
     // In "available" mode, search is handled server-side, skip client-side search filter
@@ -379,7 +385,7 @@ const PublisherOffersContent = () => {
       }
     }
     return list;
-  }, [offers, myOffers, topOffersList, viewMode, searchTerm, countryFilter, verticalFilter, sortBy]);
+  }, [offers, surveyFunnels, myOffers, topOffersList, viewMode, searchTerm, countryFilter, verticalFilter, sortBy]);
 
   // Auto-log search to backend 2s after user stops typing (fires automatically, no button needed)
   const searchLogTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -734,7 +740,6 @@ const PublisherOffersContent = () => {
               <SelectItem value="requests">My Requests</SelectItem>
               <SelectItem value="my_offers">My Offers</SelectItem>
               <SelectItem value="top_20">Top 20 Offers</SelectItem>
-              <SelectItem value="surveys">Survey Offers</SelectItem>
             </SelectContent>
           </Select>
 
@@ -975,46 +980,9 @@ const PublisherOffersContent = () => {
           </div>
         )}
 
-        {/* SURVEY OFFERS VIEW */}
-        {viewMode === "surveys" && (
-          <div>
-            {surveyLoading ? (
-              <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-purple-500" /></div>
-            ) : surveyFunnels.length === 0 ? (
-              <div className="text-center py-16 text-muted-foreground">No survey offers available</div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {surveyFunnels.map((funnel) => (
-                  <div key={funnel.funnel_id} className="border rounded-xl p-4 bg-white shadow-sm hover:shadow-md transition-shadow">
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Badge className="bg-purple-100 text-purple-700 text-xs">Survey</Badge>
-                          <span className="text-xs text-muted-foreground">{funnel.steps_count} step{funnel.steps_count !== 1 ? 's' : ''}</span>
-                        </div>
-                        <h3 className="font-semibold text-sm">{funnel.name}</h3>
-                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{funnel.description}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between mt-3">
-                      <span className="font-bold text-purple-700">${funnel.payout.toFixed(2)}</span>
-                      <Button
-                        size="sm"
-                        className="bg-purple-600 hover:bg-purple-700 text-white"
-                        onClick={() => window.open(funnel.funnel_track_url, '_blank')}
-                      >
-                        Start Survey <ExternalLink className="ml-1 h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
 
         {/* OFFERS TABLE (available + my_offers) */}
-        {viewMode !== "requests" && viewMode !== "surveys" && (
+        {viewMode !== "requests" && (
           <>
             {pinnedOffers.length >= 0 && /* pinned offers merged into main list */ null}
 
@@ -1130,7 +1098,12 @@ const PublisherOffersContent = () => {
 
                           {/* Action */}
                           <TableCell className="py-2.5 pr-4 text-right">
-                            {hasAccess ? (
+                            {(offer as any).is_survey_funnel ? (
+                              <Button size="sm" className="h-7 text-xs rounded-full px-3 bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white shadow-sm border-0"
+                                onClick={() => window.open((offer as any).funnel_track_url, '_blank')}>
+                                <ExternalLink className="h-3 w-3 mr-1" />Start Survey
+                              </Button>
+                            ) : hasAccess ? (
                               <Button size="sm" variant="outline" className="h-7 text-xs rounded-full px-3 border-purple-200 text-purple-600 hover:bg-purple-50"
                                 onClick={() => { trackDashboardClick(offer); handleViewDetails(offer); }}>
                                 <ExternalLink className="h-3 w-3 mr-1" />Open
@@ -1221,7 +1194,15 @@ const PublisherOffersContent = () => {
 
                         {/* Action button */}
                         <div className="pt-2">
-                          {hasAccess ? (
+                          {(offer as any).is_survey_funnel ? (
+                            <Button
+                              size="sm"
+                              className="w-full h-8 text-xs rounded-full bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white shadow-sm border-0"
+                              onClick={() => window.open((offer as any).funnel_track_url, '_blank')}
+                            >
+                              <ExternalLink className="h-3 w-3 mr-1" />Start Survey
+                            </Button>
+                          ) : hasAccess ? (
                             <Button
                               size="sm"
                               variant="outline"
