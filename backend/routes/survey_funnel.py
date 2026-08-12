@@ -65,84 +65,75 @@ def track_funnel_click(funnel_id):
         # Generate click_id
         click_id = generate_click_id()
 
-        # Save click record in background
-        ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
-        user_agent = request.headers.get('User-Agent', '')
-
-        def _save_click():
-            try:
-                now = datetime.utcnow()
-                # ── Resolve publisher from placement_id ──────────────────────
-                publisher_user_id = ''
-                publisher_username = ''
-                placement_id_val = request.args.get('placement_id', '') or sub1
-                if placement_id_val:
-                    try:
-                        placements_col = get_collection('placements')
-                        users_col = get_collection('users')
-                        if placements_col is not None and users_col is not None:
-                            placement = placements_col.find_one({'_id': placement_id_val}) or \
-                                        placements_col.find_one({'placement_id': placement_id_val}) or \
-                                        placements_col.find_one({'placementKey': placement_id_val})
-                            if not placement:
-                                # Try by placementKey or shortCode
+        # Save click record SYNCHRONOUSLY before redirecting
+        # (Pepperwahl fires postback very fast — background thread causes race condition)
+        try:
+            now = datetime.utcnow()
+            # ── Resolve publisher from placement_id ──────────────────────
+            publisher_user_id = ''
+            publisher_username = ''
+            placement_id_val = request.args.get('placement_id', '') or sub1
+            if placement_id_val:
+                try:
+                    placements_col = get_collection('placements')
+                    users_col = get_collection('users')
+                    if placements_col is not None and users_col is not None:
+                        placement = placements_col.find_one({'_id': placement_id_val}) or \
+                                    placements_col.find_one({'placement_id': placement_id_val}) or \
+                                    placements_col.find_one({'placementKey': placement_id_val})
+                        if not placement:
+                            from bson import ObjectId
+                            try:
+                                placement = placements_col.find_one({'_id': ObjectId(placement_id_val)})
+                            except Exception:
+                                pass
+                        if placement:
+                            owner_id = placement.get('created_by') or placement.get('user_id') or placement.get('userId')
+                            if owner_id:
                                 from bson import ObjectId
                                 try:
-                                    placement = placements_col.find_one({'_id': ObjectId(placement_id_val)})
+                                    pub_user = users_col.find_one({'_id': ObjectId(str(owner_id))})
                                 except Exception:
-                                    pass
-                            if placement:
-                                owner_id = placement.get('created_by') or placement.get('user_id') or placement.get('userId')
-                                if owner_id:
-                                    from bson import ObjectId
-                                    try:
-                                        pub_user = users_col.find_one({'_id': ObjectId(str(owner_id))})
-                                    except Exception:
-                                        pub_user = users_col.find_one({'username': str(owner_id)})
-                                    if pub_user:
-                                        publisher_user_id = str(pub_user['_id'])
-                                        publisher_username = pub_user.get('username', '')
-                                        logger.info(f"📊 Publisher resolved from placement {placement_id_val}: {publisher_username}")
-                    except Exception as pe:
-                        logger.warning(f"Could not resolve publisher from placement: {pe}")
+                                    pub_user = users_col.find_one({'username': str(owner_id)})
+                                if pub_user:
+                                    publisher_user_id = str(pub_user['_id'])
+                                    publisher_username = pub_user.get('username', '')
+                                    logger.info(f"📊 Publisher resolved from placement {placement_id_val}: {publisher_username}")
+                except Exception as pe:
+                    logger.warning(f"Could not resolve publisher from placement: {pe}")
 
-                click_doc = {
-                    'click_id': click_id,
-                    'funnel_id': funnel_id,
-                    'offer_id': funnel_id,  # use funnel_id as offer_id so postback processor can find it
-                    'offer_name': f'Survey Funnel {funnel_id}',
-                    'user_id': publisher_user_id or user_id,  # publisher's user_id
-                    'affiliate_id': publisher_user_id or user_id,
-                    'username': publisher_username or user_id,
-                    'end_user_id': user_id,   # the actual end user who took the survey
-                    'placement_id': placement_id_val,
-                    'ip_address': ip_address,
-                    'user_agent': user_agent,
-                    'sub_id1': sub1,
-                    'pass_url': pass_url,
-                    'click_time': now,
-                    'timestamp': now,
-                    'converted': False,
-                    'country': 'Unknown',
-                    'device_type': 'unknown',
-                    'payout': 0,
-                    'source': 'survey_funnel',
-                    'network': 'Pepperwahl',
-                }
-                # Write to both collections:
-                # 1. funnel_clicks — for funnel-specific lookup
-                funnel_clicks_col = get_collection('funnel_clicks')
-                if funnel_clicks_col is not None:
-                    funnel_clicks_col.insert_one(dict(click_doc))
-                # 2. clicks — so process_single_postback can find CLK-XXX and forward normally
-                clicks_col = get_collection('clicks')
-                if clicks_col is not None:
-                    clicks_col.insert_one(dict(click_doc))
-                logger.info(f"📊 Funnel click logged: {click_id} | funnel={funnel_id} | publisher={publisher_username or user_id}")
-            except Exception as e:
-                logger.error(f"Funnel click save error: {e}")
-
-        threading.Thread(target=_save_click, daemon=True).start()
+            click_doc = {
+                'click_id': click_id,
+                'funnel_id': funnel_id,
+                'offer_id': funnel_id,
+                'offer_name': f'Survey Funnel {funnel_id}',
+                'user_id': publisher_user_id or user_id,
+                'affiliate_id': publisher_user_id or user_id,
+                'username': publisher_username or user_id,
+                'end_user_id': user_id,
+                'placement_id': placement_id_val,
+                'ip_address': ip_address,
+                'user_agent': user_agent,
+                'sub_id1': sub1,
+                'pass_url': pass_url,
+                'click_time': now,
+                'timestamp': now,
+                'converted': False,
+                'country': 'Unknown',
+                'device_type': 'unknown',
+                'payout': 0,
+                'source': 'survey_funnel',
+                'network': 'Pepperwahl',
+            }
+            funnel_clicks_col = get_collection('funnel_clicks')
+            if funnel_clicks_col is not None:
+                funnel_clicks_col.insert_one(dict(click_doc))
+            clicks_col = get_collection('clicks')
+            if clicks_col is not None:
+                clicks_col.insert_one(dict(click_doc))
+            logger.info(f"📊 Funnel click logged: {click_id} | funnel={funnel_id} | publisher={publisher_username or user_id}")
+        except Exception as e:
+            logger.error(f"Funnel click save error: {e}")
 
         # Append aff_sub=click_id to the pass_url
         separator = '&' if '?' in pass_url else '?'
