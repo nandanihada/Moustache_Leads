@@ -2037,6 +2037,38 @@ class NetworkFieldMapper:
             except (ValueError, TypeError):
                 daily_cap = 0
 
+            # Enriched fields injected by VoqallSyncService._enrich_survey()
+            # (also used when manually importing via the API Import modal)
+            resolved_country = offer_data.get('_resolved_country_code', 'WW') or 'WW'
+            resolved_language = offer_data.get('_resolved_language_name', '')
+            resolved_industry = offer_data.get('_resolved_industry', 'SURVEY') or 'SURVEY'
+
+            # Map resolved industry → platform vertical
+            industry_to_vertical = {
+                'Technology': 'TECH',
+                'Finance': 'FINANCE',
+                'Healthcare': 'HEALTH',
+                'Retail': 'SHOPPING',
+                'Automotive': 'AUTOMOTIVE',
+                'Travel': 'TRAVEL',
+                'Entertainment': 'ENTERTAINMENT',
+                'Education': 'EDUCATION',
+                'Food & Beverage': 'FOOD',
+                'Politics': 'POLITICS',
+                'Sports': 'SPORTS',
+                'Beauty': 'BEAUTY',
+                'Home & Garden': 'HOME',
+                'Pets': 'PETS',
+                'Gaming': 'GAMING',
+            }
+            platform_vertical = industry_to_vertical.get(resolved_industry, 'SURVEY')
+
+            # Use resolved country; fall back to WW if unknown
+            countries = [resolved_country] if resolved_country and resolved_country != 'WW' else ['WW']
+
+            # Language requirement
+            lang_requirements = [resolved_language] if resolved_language else []
+
             mapped_offer = {
                 'campaign_id': survey_id,
                 'name': format_offer_name(name) if name else f'Voqall Survey {survey_id}',
@@ -2046,10 +2078,10 @@ class NetworkFieldMapper:
                 'image_url': '',
                 'payout': round(payout, 4),
                 'currency': 'USD',
-                'countries': ['WW'],           # Voqall survey list doesn't include country per-survey
-                'allowed_countries': ['WW'],
-                'vertical': 'SURVEY',
-                'category': 'SURVEY',
+                'countries': countries,
+                'allowed_countries': countries,
+                'vertical': platform_vertical,
+                'category': resolved_industry if resolved_industry != 'SURVEY' else 'SURVEY',
                 'device_targeting': device_targeting,
                 'network': 'voqall',
                 'network_type': 'voqall',
@@ -2073,6 +2105,11 @@ class NetworkFieldMapper:
                 'voqall_has_qualifications': bool(offer_data.get('Has_Qualifications', False)),
                 'voqall_has_quotas': bool(offer_data.get('Has_Quotas', False)),
                 'voqall_study_type_id': offer_data.get('StudyTypeId'),
+                'voqall_study_type_name': offer_data.get('_resolved_study_type', ''),
+                'voqall_language_id': offer_data.get('LanguageId'),
+                'voqall_language_name': resolved_language,
+                'voqall_industry_id': offer_data.get('IndustryId'),
+                'voqall_industry_name': resolved_industry,
                 'conversion_type': 'Survey Complete',
                 'level_payouts': {'enabled': False, 'levels': []},
                 'geo_payouts': [],
@@ -2090,7 +2127,7 @@ class NetworkFieldMapper:
                 'browser_requirements': [],
                 'carrier_requirements': [],
                 'connection_type': '',
-                'language_requirements': [],
+                'language_requirements': lang_requirements,
                 'monthly_cap': 0,
                 'kpi': '',
                 'traffic_type': '',

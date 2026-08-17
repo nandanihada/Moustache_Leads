@@ -260,6 +260,10 @@ class BulkOfferProcessor:
         
         elapsed = (datetime.utcnow() - start_time).total_seconds()
         
+        # Separate truly skipped from updated (both land in skipped_duplicates list)
+        updated_count = sum(1 for s in skipped_duplicates if s.get('reason') == 'updated_existing')
+        truly_skipped = sum(1 for s in skipped_duplicates if s.get('reason') != 'updated_existing')
+
         result = {
             'created_ids': created_ids,
             'errors': errors,
@@ -267,13 +271,14 @@ class BulkOfferProcessor:
             'stats': {
                 'total': len(validated_data),
                 'created': len(created_ids),
-                'skipped': len(skipped_duplicates),
+                'updated': updated_count,
+                'skipped': truly_skipped,
                 'errors': len(errors),
                 'elapsed_seconds': round(elapsed, 2)
             }
         }
         
-        logger.info(f"Bulk create complete: {len(created_ids)} created, {len(skipped_duplicates)} skipped, {len(errors)} errors in {elapsed:.2f}s")
+        logger.info(f"Bulk create complete: {len(created_ids)} created, {updated_count} updated, {truly_skipped} skipped, {len(errors)} errors in {elapsed:.2f}s")
         
         return result
 

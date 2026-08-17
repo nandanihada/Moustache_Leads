@@ -757,6 +757,15 @@ def start_background_services():
         except Exception as e:
             logging.warning(f"⚠️ Link health service failed to start: {str(e)}")
 
+        # RE-ENABLED: Voqall Auto-Sync — imports/updates surveys every 23 hours
+        try:
+            from services.voqall_sync_service import get_voqall_sync_service
+            voqall_sync_svc = get_voqall_sync_service()
+            voqall_sync_svc.start()
+            logging.info("✅ Voqall auto-sync service started (every 23 hours)")
+        except Exception as e:
+            logging.warning(f"⚠️ Voqall auto-sync service failed to start: {str(e)}")
+
         logging.info("✅ Background services initialization completed (9 active, 5 disabled)")
     except Exception as e:
         logging.error(f"Error in background services initialization: {str(e)}")

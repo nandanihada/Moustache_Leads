@@ -168,6 +168,13 @@ def get_available_offers():
         except Exception as grant_err:
             logger.warning(f"Failed to fetch offer grants: {grant_err}")
         
+        # Condition to exclude offerwall-exclusive offers (visible only on offerwall, not publisher page)
+        not_offerwall_exclusive = {'$or': [
+            {'offerwall_exclusive': {'$exists': False}},
+            {'offerwall_exclusive': False},
+            {'offerwall_exclusive': None}
+        ]}
+
         query = {
             '$or': [
                 # Normal: globally active/running/rotating offers
@@ -187,9 +194,28 @@ def get_available_offers():
         if not granted_offer_ids:
             query = {
                 'status': {'$in': visible_statuses},
-                '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
+                '$and': [
+                    {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+                    not_offerwall_exclusive
+                ]
             }
-        
+        else:
+            # With grants: apply exclusion to non-granted offers only
+            # (admin-granted offers bypass the offerwall_exclusive restriction)
+            query = {
+                '$and': [
+                    not_offerwall_exclusive,
+                    {'$or': [
+                        {'deleted': {'$exists': False}},
+                        {'deleted': False}
+                    ]},
+                    {'$or': [
+                        {'status': {'$in': visible_statuses}},
+                        {'offer_id': {'$in': granted_offer_ids}}
+                    ]}
+                ]
+            }
+
         # Add search if provided
         if search:
             # Escape special regex characters to prevent regex injection
@@ -208,6 +234,7 @@ def get_available_offers():
                     '$and': [
                         {'$or': search_conditions},
                         {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+                        not_offerwall_exclusive,
                         {'$or': [
                             {'status': {'$in': visible_statuses}},
                             {'offer_id': {'$in': granted_offer_ids}},
@@ -219,13 +246,10 @@ def get_available_offers():
                     'status': {'$in': visible_statuses},
                     '$and': [
                         {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
-                        {'$or': search_conditions}
+                        {'$or': search_conditions},
+                        not_offerwall_exclusive
                     ]
                 }
-        
-        # Exclude offerwall-exclusive offers from publisher view — DISABLED
-        # Offerwall exclusive is just a tag/marker, not a visibility restriction.
-        # Offers marked as offerwall_exclusive still remain visible on publisher offers page.
 
         # OPTIMIZATION: Only fetch fields we actually need (not all 100+ fields)
         projection = {

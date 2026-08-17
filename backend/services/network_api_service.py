@@ -1205,7 +1205,7 @@ class NetworkAPIService:
             limit:      Optional int — truncate result set for preview
             
         Returns:
-            Tuple[list of raw survey dicts, error_message or None]
+            Tuple[list of raw survey dicts enriched with lookup data, error_message or None]
         """
         try:
             base_url = self._voqall_resolve_base_url(network_id, api_key)
@@ -1226,17 +1226,20 @@ class NetworkAPIService:
             surveys = data.get('Surveys', [])
             logger.info(f"📡 Voqall: fetched {len(surveys)} surveys")
 
-            # Optional country filter
-            if filters and filters.get('country'):
-                target_country = filters['country'].upper()
-                # Voqall doesn't expose country in the survey list endpoint directly,
-                # but the SurveyUrl often contains geo hints.  We do a best-effort
-                # filter on the Name field; a full geo filter would require per-survey
-                # qualification calls.  Skip if no match clue found.
-                pass  # Keep all surveys; geo info not reliably available in list endpoint
-
             if limit:
                 surveys = surveys[:limit]
+
+            # Enrich surveys with lookup data (languages, industries, study types)
+            # Uses VoqallSyncService which caches lookups for 24h to avoid repeat calls
+            try:
+                from services.voqall_sync_service import get_voqall_sync_service
+                sync_svc = get_voqall_sync_service()
+                lookups = sync_svc._fetch_lookups_cached(api_key, network_id)
+                surveys = [sync_svc._enrich_survey(s, lookups) for s in surveys]
+                logger.info(f"📡 Voqall: enriched {len(surveys)} surveys with lookup data")
+            except Exception as enrich_err:
+                # Enrichment is best-effort — don't fail the whole fetch
+                logger.warning(f"Voqall lookup enrichment failed (non-critical): {enrich_err}")
 
             return surveys, None
 

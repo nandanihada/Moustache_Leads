@@ -204,6 +204,12 @@ def get_automation_status():
                 'description': 'Posts trending offers to Telegram every 7 hours'
             },
             {
+                'name': 'Voqall Auto-Sync',
+                'status': 'running',
+                'type': 'background',
+                'description': 'Fetches & updates Voqall surveys every 23 hours with lookup enrichment'
+            },
+            {
                 'name': 'Offer Inactivity Check',
                 'status': 'manual',
                 'type': 'button',
@@ -243,5 +249,36 @@ def get_automation_status():
             'estimated_memory_mb': 220
         })
         
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_automation_bp.route('/api/admin/automation/voqall-sync/run', methods=['POST'])
+@token_required
+@admin_required
+def run_voqall_sync_now():
+    """
+    Manually trigger a Voqall sync right now.
+    Fetches all voqall presets, enriches with lookup data, imports/updates surveys.
+    """
+    try:
+        from services.voqall_sync_service import get_voqall_sync_service
+        svc = get_voqall_sync_service()
+        result = svc.run_now()
+        return jsonify({'success': True, 'result': result}), 200
+    except Exception as e:
+        logger.error(f"Manual Voqall sync failed: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_automation_bp.route('/api/admin/automation/voqall-sync/status', methods=['GET'])
+@token_required
+@admin_required
+def get_voqall_sync_status():
+    """Get Voqall auto-sync service status (last run, next run, last result)."""
+    try:
+        from services.voqall_sync_service import get_voqall_sync_service
+        svc = get_voqall_sync_service()
+        return jsonify({'success': True, 'status': svc.get_status()}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
