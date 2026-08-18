@@ -2102,6 +2102,12 @@ def get_offers():
                         {'offerwall_exclusive': True},
                         # Offers that have been approved for any publisher (exist in affiliate_requests)
                         {'offer_id': {'$in': list(_get_all_approved_offer_ids(db_instance))}}
+                    ]},
+                    # Never show subwall-exclusive offers on the main offerwall
+                    {'$or': [
+                        {'subwall_exclusive': {'$exists': False}},
+                        {'subwall_exclusive': False},
+                        {'subwall_exclusive': None}
                     ]}
                 ]
             }
@@ -2121,7 +2127,13 @@ def get_offers():
                     {'status': {'$in': ['active', 'running']}},
                     # Only offerwall-exclusive offers in the base query
                     # Publisher-specific offers will be fetched separately using their approved IDs
-                    {'offerwall_exclusive': True}
+                    {'offerwall_exclusive': True},
+                    # Never show subwall-exclusive offers on the main offerwall
+                    {'$or': [
+                        {'subwall_exclusive': {'$exists': False}},
+                        {'subwall_exclusive': False},
+                        {'subwall_exclusive': None}
+                    ]}
                 ]
             }
         

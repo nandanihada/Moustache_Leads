@@ -247,6 +247,8 @@ class VoqallSyncService:
                 }
                 mapped['approval_type'] = 'auto_approve'
                 mapped['require_approval'] = False
+                # Preserve any custom name the admin may have set — don't overwrite with Voqall API name
+                mapped['_preserve_name'] = True
                 # Apply partner network params to URL
                 mapped.update(apply_network_offer_params(mapped))
                 mapped_offers.append(mapped)

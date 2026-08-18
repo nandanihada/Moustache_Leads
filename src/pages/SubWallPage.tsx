@@ -55,6 +55,8 @@ interface SurveyData {
   questions: SurveyQuestion[];
 }
 
+const OFFERS_PER_PAGE = 30;
+
 const SubWallPage: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
   const [subWall, setSubWall] = useState<SubWallData | null>(null);
@@ -72,6 +74,9 @@ const SubWallPage: React.FC = () => {
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [userCountry, setUserCountry] = useState('');
+  const [visibleCount, setVisibleCount] = useState(OFFERS_PER_PAGE);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loaderRef = React.useRef<HTMLDivElement>(null);
 
   const isAdmin = new URLSearchParams(window.location.search).get('admin') === 'true';
 
@@ -87,6 +92,30 @@ const SubWallPage: React.FC = () => {
     if (urlCountry) { setUserCountry(urlCountry.toUpperCase()); return; }
     detectCountry();
   }, []);
+
+  // Reset visible count when search/sort/subwall changes
+  useEffect(() => {
+    setVisibleCount(OFFERS_PER_PAGE);
+  }, [search, sort, subWall]);
+
+  // Infinite scroll observer
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !loadingMore) {
+          setLoadingMore(true);
+          setTimeout(() => {
+            setVisibleCount(prev => prev + OFFERS_PER_PAGE);
+            setLoadingMore(false);
+          }, 500); // brief delay for animation
+        }
+      },
+      { threshold: 0.1 }
+    );
+    const el = loaderRef.current;
+    if (el) observer.observe(el);
+    return () => { if (el) observer.unobserve(el); };
+  }, [loadingMore]);
 
   const detectCountry = async () => {
     try {
@@ -262,6 +291,8 @@ const SubWallPage: React.FC = () => {
   };
 
   const filteredOffers = getFilteredOffers();
+  const visibleOffers = filteredOffers.slice(0, visibleCount);
+  const hasMore = visibleCount < filteredOffers.length;
   const themeColor = subWall?.theme_color || '#6366f1';
   const buttonText = subWall?.button_text || 'Click to Earn';
   const headingText = subWall?.heading_text || subWall?.name || '';
@@ -513,7 +544,7 @@ const SubWallPage: React.FC = () => {
               <span>Offer</span><span className="text-center">Payout</span><span className="text-center">Geo</span><span className="text-right">Action</span>
             </div>
             <div className="flex flex-col gap-2.5">
-              {filteredOffers.map(offer => (
+              {visibleOffers.map(offer => (
                 <div key={offer._id || offer.offer_id}
                   className="bg-white rounded-xl border border-gray-100 hover:shadow-md px-4 py-3 cursor-pointer transition-all group grid grid-cols-[1fr_auto] md:grid-cols-[1fr_120px_100px_130px] items-center gap-2 md:gap-0"
                   style={{ '--hover-border': themeColor } as React.CSSProperties}
@@ -572,11 +603,25 @@ const SubWallPage: React.FC = () => {
                 </div>
               ))}
             </div>
+            {/* Infinite scroll sentinel */}
+            {hasMore && (
+              <div ref={loaderRef} className="flex justify-center py-6">
+                {loadingMore ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-400">
+                    <div className="sw-spinner" style={{ width: 20, height: 20, borderWidth: 2 }}></div>
+                    Loading more offers...
+                  </div>
+                ) : (
+                  <div className="h-4" />
+                )}
+              </div>
+            )}
           </div>
         )}
 
         {/* ===== GRID VIEW ===== */}
         {filteredOffers.length > 0 && viewMode === 'grid' && (
+          <>
           <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 md:gap-5">
             {/* Survey cards */}
             {surveyCards.map((card: any, idx: number) => (
@@ -609,7 +654,7 @@ const SubWallPage: React.FC = () => {
             ))}
 
             {/* Offer cards */}
-            {filteredOffers.map(offer => (
+            {visibleOffers.map(offer => (
               <div key={offer._id || offer.offer_id} className="sw-card group cursor-pointer" onClick={() => handleOfferClick(offer)}>
                 {/* Image */}
                 <div className="relative h-40 overflow-hidden rounded-t-2xl bg-white border-b border-gray-100 flex items-center justify-center">
@@ -647,6 +692,20 @@ const SubWallPage: React.FC = () => {
               </div>
             ))}
           </div>
+          {/* Infinite scroll sentinel for grid */}
+          {hasMore && (
+            <div ref={loaderRef} className="col-span-full flex justify-center py-6">
+              {loadingMore ? (
+                <div className="flex items-center gap-2 text-sm text-gray-400">
+                  <div className="sw-spinner" style={{ width: 20, height: 20, borderWidth: 2 }}></div>
+                  Loading more offers...
+                </div>
+              ) : (
+                <div className="h-4" />
+              )}
+            </div>
+          )}
+          </>
         )}
 
         {/* Footer */}

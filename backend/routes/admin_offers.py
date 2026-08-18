@@ -7682,6 +7682,61 @@ def get_offerwall_exclusive_offers():
         return jsonify({'error': str(e)}), 500
 
 
+@admin_offers_bp.route('/offers/subwall-exclusive', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def set_subwall_exclusive():
+    """Bulk set/unset offers as subwall-exclusive (visible ONLY in sub-walls, hidden from offerwall and publisher offers page)"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        offer_ids = data.get('offer_ids', [])
+        action = data.get('action', 'activate')  # 'activate' or 'deactivate'
+
+        if not offer_ids:
+            return jsonify({'error': 'offer_ids required'}), 400
+
+        offers_col = db_instance.get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        current_user = request.current_user
+        admin_username = current_user.get('username', 'admin')
+        now = datetime.utcnow()
+
+        is_exclusive = action == 'activate'
+
+        update_fields = {
+            'subwall_exclusive': is_exclusive,
+            'updated_at': now,
+        }
+        if is_exclusive:
+            update_fields['subwall_exclusive_since'] = now
+            update_fields['subwall_exclusive_set_by'] = admin_username
+            # Ensure offer is active/findable
+            update_fields['is_active'] = True
+        else:
+            update_fields['subwall_exclusive_since'] = None
+
+        result = offers_col.update_many(
+            {'offer_id': {'$in': offer_ids}},
+            {'$set': update_fields}
+        )
+
+        return jsonify({
+            'success': True,
+            'modified': result.modified_count,
+            'action': action,
+            'message': f'{result.modified_count} offers {"marked as subwall exclusive" if is_exclusive else "removed from subwall exclusive"}'
+        }), 200
+
+    except Exception as e:
+        logging.error(f"Subwall exclusive error: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
 @admin_offers_bp.route('/offers/survey-funnels', methods=['GET'])
 @token_required
 @subadmin_or_admin_required('offers')

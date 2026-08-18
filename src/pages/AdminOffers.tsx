@@ -1510,6 +1510,30 @@ const AdminOffers = () => {
     }
   };
 
+  const handleBulkSubwallExclusive = async (action: 'activate' | 'deactivate') => {
+    const isRunningView = offersSubView === 'running';
+    const ids = Array.from(isRunningView ? selectedRunningOffers : selectedOffers);
+    if (ids.length === 0) return;
+    try {
+      const token = localStorage.getItem('token') || document.cookie.split('auth_token=')[1]?.split(';')[0] || '';
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/offers/subwall-exclusive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ offer_ids: ids, action }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast({ title: 'Success', description: data.message });
+        if (isRunningView) { setSelectedRunningOffers(new Set()); fetchRunningOffers(); }
+        else { setSelectedOffers(new Set()); fetchOffers(); }
+      } else {
+        toast({ title: 'Error', description: data.error || 'Failed', variant: 'destructive' });
+      }
+    } catch (err) {
+      toast({ title: 'Error', description: 'Failed to update offers', variant: 'destructive' });
+    }
+  };
+
   const handleApplyRenames = async (renames: Array<{ offer_id: string; new_name: string; original_name: string }>, imageUrl?: string, perOfferImages?: Record<string, string>, perOfferDescs?: Record<string, string>, perOfferVerticals?: Record<string, string>) => {
     const result = await adminOfferApi.bulkRenameOffers(renames);
     toast({ title: "Renamed", description: result.message });
@@ -2523,6 +2547,13 @@ const AdminOffers = () => {
                   <DropdownMenuItem onClick={() => handleBulkOfferwallExclusive('deactivate')}>
                     <span className="mr-2">🚫</span> Remove Offerwall Exclusive
                   </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => handleBulkSubwallExclusive('activate')}>
+                    <span className="mr-2">🧱</span> Make SubWall Exclusive
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleBulkSubwallExclusive('deactivate')}>
+                    <span className="mr-2">↩️</span> Remove SubWall Exclusive
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button
@@ -2749,6 +2780,13 @@ const AdminOffers = () => {
                       <DropdownMenuItem onClick={() => handleBulkOfferwallExclusive('deactivate')}>
                         <span className="mr-2">🚫</span> Remove Offerwall Exclusive
                       </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => handleBulkSubwallExclusive('activate')}>
+                        <span className="mr-2">🧱</span> Make SubWall Exclusive
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleBulkSubwallExclusive('deactivate')}>
+                        <span className="mr-2">↩️</span> Remove SubWall Exclusive
+                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                   <Button variant="destructive" size="sm" onClick={handleRunningBulkDelete} disabled={bulkDeleting} className="shrink-0">
@@ -2866,6 +2904,7 @@ const AdminOffers = () => {
                             <TableCell>
                               <Badge className={getStatusColor(offer.status)}>{offer.status}</Badge>
                               {(offer as any).offerwall_exclusive && <Badge className="bg-purple-100 text-purple-800 ml-1">🖼️ Offerwall</Badge>}
+                              {(offer as any).subwall_exclusive && <Badge className="bg-orange-100 text-orange-800 ml-1">🧱 SubWall</Badge>}
                             </TableCell>
                             <TableCell>
                               <div className="flex gap-1 flex-wrap">
@@ -3079,7 +3118,7 @@ const AdminOffers = () => {
                                 <span className="font-medium">{offer.name}</span>
                               </div>
                             </TableCell>
-                            <TableCell><Badge className={getStatusColor(offer.status)}>{offer.status}</Badge>{(offer as any).offerwall_exclusive && <Badge className="bg-purple-100 text-purple-800 ml-1">🖼️ Offerwall</Badge>}</TableCell>
+                            <TableCell><Badge className={getStatusColor(offer.status)}>{offer.status}</Badge>{(offer as any).offerwall_exclusive && <Badge className="bg-purple-100 text-purple-800 ml-1">🖼️ Offerwall</Badge>}{(offer as any).subwall_exclusive && <Badge className="bg-orange-100 text-orange-800 ml-1">🧱 SubWall</Badge>}</TableCell>
                             <TableCell className="font-medium text-green-600">${offer.payout?.toFixed(2)}</TableCell>
                             <TableCell className="text-sm">{offer.network}</TableCell>
                             <TableCell>
@@ -3696,6 +3735,7 @@ const AdminOffers = () => {
                         {offer.status}
                       </Badge>
                       {(offer as any).offerwall_exclusive && <Badge className="bg-purple-100 text-purple-800 ml-1">🖼️ Offerwall</Badge>}
+                      {(offer as any).subwall_exclusive && <Badge className="bg-orange-100 text-orange-800 ml-1">🧱 SubWall</Badge>}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1 flex-wrap">

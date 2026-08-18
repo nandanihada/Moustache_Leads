@@ -220,7 +220,7 @@ export default function AdminSubWalls() {
     setOfferSearchLoading(true);
     try {
       const token = getAuthToken();
-      const res = await fetch(`${getApiBaseUrl()}/api/admin/offers?search=${encodeURIComponent(query)}&per_page=100`, {
+      const res = await fetch(`${getApiBaseUrl()}/api/admin/offers?search=${encodeURIComponent(query)}&per_page=500`, {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {

@@ -175,6 +175,13 @@ def get_available_offers():
             {'offerwall_exclusive': None}
         ]}
 
+        # Condition to exclude subwall-exclusive offers (visible only in sub-walls)
+        not_subwall_exclusive = {'$or': [
+            {'subwall_exclusive': {'$exists': False}},
+            {'subwall_exclusive': False},
+            {'subwall_exclusive': None}
+        ]}
+
         query = {
             '$or': [
                 # Normal: globally active/running/rotating offers
@@ -196,7 +203,8 @@ def get_available_offers():
                 'status': {'$in': visible_statuses},
                 '$and': [
                     {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
-                    not_offerwall_exclusive
+                    not_offerwall_exclusive,
+                    not_subwall_exclusive
                 ]
             }
         else:
@@ -205,6 +213,7 @@ def get_available_offers():
             query = {
                 '$and': [
                     not_offerwall_exclusive,
+                    not_subwall_exclusive,
                     {'$or': [
                         {'deleted': {'$exists': False}},
                         {'deleted': False}
@@ -235,6 +244,7 @@ def get_available_offers():
                         {'$or': search_conditions},
                         {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
                         not_offerwall_exclusive,
+                        not_subwall_exclusive,
                         {'$or': [
                             {'status': {'$in': visible_statuses}},
                             {'offer_id': {'$in': granted_offer_ids}},
@@ -247,7 +257,8 @@ def get_available_offers():
                     '$and': [
                         {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
                         {'$or': search_conditions},
-                        not_offerwall_exclusive
+                        not_offerwall_exclusive,
+                        not_subwall_exclusive
                     ]
                 }
 

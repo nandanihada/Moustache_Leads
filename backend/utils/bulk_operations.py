@@ -317,8 +317,13 @@ class BulkOfferProcessor:
         """Update an existing offer with new data."""
         try:
             # Remove fields that shouldn't be updated
-            update_data = {k: v for k, v in new_data.items() 
-                         if k not in ['_id', 'offer_id', 'created_at', 'created_by']}
+            protected = ['_id', 'offer_id', 'created_at', 'created_by']
+
+            # If caller set _preserve_name, keep the existing name (don't overwrite with API value)
+            if new_data.pop('_preserve_name', False):
+                protected.append('name')
+
+            update_data = {k: v for k, v in new_data.items() if k not in protected}
             update_data['updated_at'] = datetime.utcnow()
             
             # Don't overwrite image_url/thumbnail_url with empty values
