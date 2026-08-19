@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { TemplatePicker, TemplateName } from '@/components/survey-templates/SurveyTemplateRenderer';
@@ -16,6 +16,12 @@ import {
 } from '@/services/surveyFunnelApi';
 import { getProviders, SurveyProvider } from '@/services/surveyRouterApi';
 import { partnerApi, Partner } from '@/services/partnerApi';
+import {
+  fetchPepperwahlInbox, fetchPepperwahlEntry, processPepperwahlEntry,
+  setPepperwahlPayout, setPepperwahlStatus, deletePepperwahlEntry,
+  fetchPepperwahlStats,
+  type PepperwahlInboxEntry, type PepperwahlStats,
+} from '@/services/surveyApi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -42,13 +48,87 @@ import {
   Copy,
   ExternalLink,
   Route,
+  Inbox,
+  Search,
+  RefreshCw,
+  DollarSign,
+  RotateCcw,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Shield,
 } from 'lucide-react';
 
 export default function AdminRedirectRouter() {
   const queryClient = useQueryClient();
-  const [view, setView] = useState<'list' | 'builder' | 'history'>('list');
+  const [view, setView] = useState<'list' | 'builder' | 'history' | 'pepperwahl'>('list');
   const [editingFunnel, setEditingFunnel] = useState<SurveyFunnel | null>(null);
   const [historyFunnelId, setHistoryFunnelId] = useState('');
+
+  // Pepperwahl state
+  const [pwInbox, setPwInbox] = useState<PepperwahlInboxEntry[]>([]);
+  const [pwTotal, setPwTotal] = useState(0);
+  const [pwPage, setPwPage] = useState(1);
+  const [pwLoading, setPwLoading] = useState(false);
+  const [pwSearch, setPwSearch] = useState('');
+  const [pwStatusFilter, setPwStatusFilter] = useState('');
+  const [pwStats, setPwStats] = useState<PepperwahlStats | null>(null);
+  const [pwSelected, setPwSelected] = useState<PepperwahlInboxEntry | null>(null);
+  const [pwDetailOpen, setPwDetailOpen] = useState(false);
+  const [pwPayoutEdit, setPwPayoutEdit] = useState('');
+
+  const loadPwInbox = useCallback(async () => {
+    setPwLoading(true);
+    try {
+      const [inboxRes, statsRes] = await Promise.all([
+        fetchPepperwahlInbox({ page: pwPage, per_page: 15, search: pwSearch, status: pwStatusFilter }),
+        fetchPepperwahlStats(),
+      ]);
+      if (inboxRes.success) { setPwInbox(inboxRes.inbox); setPwTotal(inboxRes.total); }
+      if (statsRes.success) setPwStats(statsRes.stats);
+    } catch { toast.error('Failed to load Pepperwahl inbox'); }
+    setPwLoading(false);
+  }, [pwPage, pwSearch, pwStatusFilter]);
+
+  useEffect(() => { if (view === 'pepperwahl') loadPwInbox(); }, [view, loadPwInbox]);
+
+  const handlePwProcess = async (id: string) => {
+    const res = await processPepperwahlEntry(id);
+    if (res.success) { toast.success('Processed'); loadPwInbox(); }
+    else toast.error(res.error || 'Failed');
+  };
+
+  const handlePwSetPayout = async (id: string) => {
+    const val = parseFloat(pwPayoutEdit);
+    if (isNaN(val) || val < 0) { toast.error('Enter valid amount'); return; }
+    const res = await setPepperwahlPayout(id, val);
+    if (res.success) { toast.success(res.message); setPwPayoutEdit(''); loadPwInbox(); }
+    else toast.error(res.error || 'Failed');
+  };
+
+  const handlePwToggle = async (entry: PepperwahlInboxEntry) => {
+    const newStatus = entry.status === 'active' ? 'paused' : 'active';
+    const res = await setPepperwahlStatus(entry._id, newStatus);
+    if (res.success) { toast.success(res.message); loadPwInbox(); }
+    else toast.error(res.error || 'Failed');
+  };
+
+  const handlePwDelete = async (id: string) => {
+    if (!confirm('Remove this entry?')) return;
+    const res = await deletePepperwahlEntry(id);
+    if (res.success) { toast.success('Removed'); setPwDetailOpen(false); loadPwInbox(); }
+    else toast.error(res.error || 'Failed');
+  };
+
+  const openPwDetail = async (entry: PepperwahlInboxEntry) => {
+    setPwSelected(entry);
+    setPwPayoutEdit(String(entry.payout ?? 0));
+    setPwDetailOpen(true);
+    try {
+      const res = await fetchPepperwahlEntry(entry._id);
+      if (res.success) setPwSelected(res.entry);
+    } catch { /* use cached */ }
+  };
 
   // Fetch funnels
   const { data: funnelsData, isLoading } = useQuery({
@@ -92,6 +172,307 @@ export default function AdminRedirectRouter() {
     return <FunnelHistory funnelId={historyFunnelId} onBack={() => setView('list')} />;
   }
 
+  if (view === 'pepperwahl') {
+    return (
+      <div className="space-y-5">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setView('list')} className="p-1.5 hover:bg-muted rounded-lg">
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <div>
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                <Inbox className="h-6 w-6 text-violet-500" />
+                Pepperwahl Inbox
+              </h1>
+              <p className="text-sm text-muted-foreground mt-0.5">Surveys published from Pepperwahl</p>
+            </div>
+          </div>
+          <button onClick={loadPwInbox} className="p-2 border rounded-lg hover:bg-muted">
+            <RefreshCw className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Stats */}
+        {pwStats && (
+          <div className="grid grid-cols-3 md:grid-cols-7 gap-3">
+            {[
+              { label: 'Total', value: pwStats.total },
+              { label: 'Pending', value: pwStats.pending, color: 'text-amber-600' },
+              { label: 'Processed', value: pwStats.processed, color: 'text-violet-600' },
+              { label: 'Active', value: pwStats.active, color: 'text-green-600' },
+              { label: 'Paused', value: pwStats.paused },
+              { label: 'Live Offers', value: pwStats.active_offers, color: 'text-green-600' },
+              { label: 'Payout Exposure', value: `$${pwStats.total_payout_exposure}`, color: 'text-violet-600' },
+            ].map(s => (
+              <div key={s.label} className="bg-muted/30 rounded-lg p-3">
+                <p className="text-xs text-muted-foreground mb-1">{s.label}</p>
+                <p className={`text-xl font-bold ${s.color || ''}`}>{s.value}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* API info */}
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3">
+          <Shield className="h-4 w-4 text-amber-600 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-amber-800">Pepperwahl Publish Endpoint</p>
+            <p className="text-xs font-mono text-amber-700 truncate">
+              POST https://api.moustacheleads.com/api/external/pepperwahl/publish
+            </p>
+          </div>
+          <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded font-mono flex-shrink-0">
+            X-API-Key: pw_moustache_secret_key_2025
+          </span>
+        </div>
+
+        {/* Filters */}
+        <div className="flex gap-3">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <input value={pwSearch} onChange={e => { setPwSearch(e.target.value); setPwPage(1); }}
+              placeholder="Search surveys..." className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm" />
+          </div>
+          <select value={pwStatusFilter} onChange={e => { setPwStatusFilter(e.target.value); setPwPage(1); }}
+            className="border rounded-lg px-3 py-2 text-sm">
+            <option value="">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="processed">Processed</option>
+            <option value="active">Active</option>
+            <option value="paused">Paused</option>
+          </select>
+        </div>
+
+        {/* Table */}
+        {pwLoading ? (
+          <div className="text-center py-12 text-muted-foreground">Loading...</div>
+        ) : pwInbox.length === 0 ? (
+          <div className="text-center py-16 border rounded-lg bg-muted/20">
+            <Inbox className="h-12 w-12 mx-auto text-muted-foreground mb-3 opacity-40" />
+            <p className="font-medium">No Pepperwahl surveys yet</p>
+            <p className="text-sm text-muted-foreground mt-1">Surveys published by Pepperwahl will appear here automatically.</p>
+          </div>
+        ) : (
+          <div className="bg-white dark:bg-card border rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium">Survey</th>
+                  <th className="text-left px-4 py-3 font-medium">Status</th>
+                  <th className="text-left px-4 py-3 font-medium">Offer ID</th>
+                  <th className="text-left px-4 py-3 font-medium">Payout</th>
+                  <th className="text-left px-4 py-3 font-medium">Clicks</th>
+                  <th className="text-left px-4 py-3 font-medium">Country / LOI</th>
+                  <th className="text-left px-4 py-3 font-medium">Received</th>
+                  <th className="text-right px-4 py-3 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {pwInbox.map(entry => (
+                  <tr key={entry._id} className="hover:bg-muted/30 cursor-pointer" onClick={() => openPwDetail(entry)}>
+                    <td className="px-4 py-3">
+                      <div className="font-medium truncate max-w-[180px]">{entry.payload.survey_name}</div>
+                      <div className="text-xs text-muted-foreground font-mono">{entry.payload.survey_id}</div>
+                    </td>
+                    <td className="px-4 py-3"><PwBadge status={entry.status} /></td>
+                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{entry.moustache_offer_id || '—'}</td>
+                    <td className="px-4 py-3 font-semibold">
+                      {entry.payout > 0 ? `$${entry.payout}` : <span className="text-amber-600 text-xs">Not set</span>}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{entry.offer_details?.hits ?? 0}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {entry.payload.country && <span className="font-medium text-foreground">{entry.payload.country}</span>}
+                      {entry.payload.loi_minutes && <span className="ml-1">· {entry.payload.loi_minutes}m</span>}
+                      {!entry.payload.country && !entry.payload.loi_minutes && '—'}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                      {entry.received_at ? new Date(entry.received_at).toLocaleString() : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
+                      <div className="flex gap-1.5 justify-end">
+                        {entry.status === 'pending' && (
+                          <button onClick={() => handlePwProcess(entry._id)} title="Process"
+                            className="p-1.5 text-violet-600 border border-violet-200 rounded-lg hover:bg-violet-50">
+                            <RotateCcw className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {['processed','active','paused'].includes(entry.status) && (
+                          <button onClick={() => handlePwToggle(entry)}
+                            className={`p-1.5 border rounded-lg ${entry.status === 'active' ? 'text-amber-600 border-amber-200 hover:bg-amber-50' : 'text-green-600 border-green-200 hover:bg-green-50'}`}>
+                            {entry.status === 'active' ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                          </button>
+                        )}
+                        <button onClick={() => handlePwDelete(entry._id)} title="Remove"
+                          className="p-1.5 text-red-500 border border-red-100 rounded-lg hover:bg-red-50">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Pagination */}
+        {pwTotal > 15 && (
+          <div className="flex justify-center gap-2">
+            <button disabled={pwPage <= 1} onClick={() => setPwPage(p => p - 1)}
+              className="px-3 py-1.5 border rounded-lg text-sm disabled:opacity-40 flex items-center gap-1">
+              <ChevronLeft className="h-3.5 w-3.5" /> Prev
+            </button>
+            <span className="px-3 py-1.5 text-sm text-muted-foreground">
+              {pwPage} / {Math.ceil(pwTotal / 15)}
+            </span>
+            <button disabled={pwPage >= Math.ceil(pwTotal / 15)} onClick={() => setPwPage(p => p + 1)}
+              className="px-3 py-1.5 border rounded-lg text-sm disabled:opacity-40 flex items-center gap-1">
+              Next <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Detail drawer */}
+        {pwDetailOpen && pwSelected && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center p-4"
+            onClick={() => setPwDetailOpen(false)}>
+            <div className="bg-white dark:bg-card rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+              onClick={e => e.stopPropagation()}>
+              <div className="sticky top-0 bg-white dark:bg-card border-b px-6 py-4 flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-lg">{pwSelected.payload.survey_name}</h3>
+                    <PwBadge status={pwSelected.status} />
+                  </div>
+                  <p className="text-xs text-muted-foreground font-mono">{pwSelected.payload.survey_id}</p>
+                </div>
+                <button onClick={() => setPwDetailOpen(false)} className="p-1.5 hover:bg-muted rounded-lg">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="p-6 space-y-5">
+                {/* IDs */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-violet-50 border border-violet-200 rounded-xl p-4">
+                    <p className="text-xs font-semibold text-violet-600 uppercase tracking-wider mb-1">Moustache Offer ID</p>
+                    <p className="font-mono font-bold text-lg">{pwSelected.moustache_offer_id || <span className="text-muted-foreground text-sm">Not created</span>}</p>
+                    {pwSelected.offer_details && (
+                      <p className="text-xs text-violet-500 mt-1">{pwSelected.offer_details.status} · {pwSelected.offer_details.hits} clicks</p>
+                    )}
+                  </div>
+                  <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+                    <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-1">Survey ID</p>
+                    <p className="font-mono text-sm break-all">{pwSelected.moustache_survey_id || <span className="text-muted-foreground text-sm">Not created</span>}</p>
+                  </div>
+                </div>
+
+                {/* Meta */}
+                <div className="border rounded-xl p-4 space-y-2 text-sm">
+                  <h4 className="font-semibold text-xs uppercase tracking-wider text-muted-foreground mb-2">Survey Info</h4>
+                  {[
+                    ['Country', pwSelected.payload.country || '—'],
+                    ['LOI', pwSelected.payload.loi_minutes ? `${pwSelected.payload.loi_minutes} minutes` : '—'],
+                    ['Topic', pwSelected.payload.topic || pwSelected.payload.survey_name],
+                    ['Questions', `${pwSelected.payload.questions?.length || 0} eligibility questions`],
+                    ['Received', pwSelected.received_at ? new Date(pwSelected.received_at).toLocaleString() : '—'],
+                  ].map(([k, v]) => (
+                    <div key={k} className="flex justify-between border-b border-muted/40 pb-1.5 last:border-0 last:pb-0">
+                      <span className="text-muted-foreground">{k}</span>
+                      <span className="font-medium">{v}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Survey link */}
+                <div className="border rounded-xl p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Pepperwahl Link</p>
+                  <div className="flex items-center gap-2 bg-muted/40 rounded-lg px-3 py-2">
+                    <span className="text-xs font-mono truncate flex-1">{pwSelected.payload.survey_link}</span>
+                    <a href={pwSelected.payload.survey_link} target="_blank" rel="noopener noreferrer" className="text-violet-600">
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </div>
+                </div>
+
+                {/* Questions */}
+                <div className="border rounded-xl p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                    Eligibility Questions ({pwSelected.payload.questions?.length || 0})
+                  </p>
+                  <div className="space-y-3">
+                    {(pwSelected.payload.questions || []).map((q, i) => (
+                      <div key={i} className="bg-muted/30 rounded-lg p-3">
+                        <p className="text-sm font-medium mb-2">
+                          <span className="text-xs font-bold text-violet-600 mr-1">Q{i+1}</span>{q.question}
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(q.options || []).map(opt => {
+                            const passes = (q.qualify_if || []).includes(opt);
+                            return (
+                              <span key={opt} className={`text-xs px-2.5 py-1 rounded-full font-medium border ${passes ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-50 text-red-400 border-red-200 line-through'}`}>
+                                {passes && '✓ '}{opt}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Payout */}
+                <div className="border rounded-xl p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Payout per Completion</p>
+                  <div className="flex gap-2 items-center">
+                    <div className="relative flex-1 max-w-xs">
+                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <input type="number" min="0" step="0.01" value={pwPayoutEdit}
+                        onChange={e => setPwPayoutEdit(e.target.value)} placeholder="e.g. 2.50"
+                        className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm" />
+                    </div>
+                    <button onClick={() => handlePwSetPayout(pwSelected._id)}
+                      className="px-4 py-2 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700">
+                      Set
+                    </button>
+                    {pwSelected.payout > 0 && <span className="text-sm text-muted-foreground">Current: <strong>${pwSelected.payout}</strong></span>}
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-3 flex-wrap">
+                  {pwSelected.status === 'pending' && (
+                    <button onClick={() => { handlePwProcess(pwSelected._id); setPwDetailOpen(false); }}
+                      className="flex-1 py-2.5 bg-violet-600 text-white text-sm font-semibold rounded-xl hover:bg-violet-700 flex items-center justify-center gap-2">
+                      <RotateCcw className="h-4 w-4" /> Process Now
+                    </button>
+                  )}
+                  {['processed','active'].includes(pwSelected.status) && (
+                    <button onClick={() => { handlePwToggle(pwSelected); setPwDetailOpen(false); }}
+                      className="flex-1 py-2.5 bg-amber-500 text-white text-sm font-semibold rounded-xl hover:bg-amber-600 flex items-center justify-center gap-2">
+                      <Pause className="h-4 w-4" /> Pause Survey
+                    </button>
+                  )}
+                  {pwSelected.status === 'paused' && (
+                    <button onClick={() => { handlePwToggle(pwSelected); setPwDetailOpen(false); }}
+                      className="flex-1 py-2.5 bg-green-600 text-white text-sm font-semibold rounded-xl hover:bg-green-700 flex items-center justify-center gap-2">
+                      <Play className="h-4 w-4" /> Activate
+                    </button>
+                  )}
+                  <button onClick={() => handlePwDelete(pwSelected._id)}
+                    className="px-5 py-2.5 border border-red-200 text-red-500 text-sm font-semibold rounded-xl hover:bg-red-50 flex items-center gap-2">
+                    <Trash2 className="h-4 w-4" /> Remove
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -106,6 +487,15 @@ export default function AdminRedirectRouter() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setView('pepperwahl')} className="gap-1.5">
+            <Inbox className="h-4 w-4 text-violet-500" />
+            Pepperwahl Inbox
+            {pwStats && pwStats.pending > 0 && (
+              <span className="bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1">
+                {pwStats.pending}
+              </span>
+            )}
+          </Button>
           <Button variant="outline" onClick={() => { setHistoryFunnelId(''); setView('history'); }}>
             <History className="h-4 w-4 mr-2" /> History
           </Button>
@@ -942,4 +1332,17 @@ function FunnelHistory({ funnelId, onBack }: { funnelId: string; onBack: () => v
       )}
     </div>
   );
+}
+
+// ── Pepperwahl status badge ───────────────────────────────────────────────────
+function PwBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    pending:   { label: 'Pending',   cls: 'bg-amber-100 text-amber-700' },
+    processed: { label: 'Processed', cls: 'bg-violet-100 text-violet-700' },
+    active:    { label: 'Active',    cls: 'bg-green-100 text-green-700' },
+    paused:    { label: 'Paused',    cls: 'bg-gray-100 text-gray-600' },
+    deleted:   { label: 'Deleted',   cls: 'bg-red-100 text-red-600' },
+  };
+  const s = map[status] || { label: status, cls: 'bg-muted text-muted-foreground' };
+  return <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${s.cls}`}>{s.label}</span>;
 }
