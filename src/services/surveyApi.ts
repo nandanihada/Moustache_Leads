@@ -144,3 +144,99 @@ export async function seedSurveys() {
   });
   return res.json();
 }
+
+
+// ── Pepperwahl Integration ─────────────────────────────────────────────
+
+const PW_BASE = () => `${getApiBaseUrl()}/api/admin/pepperwahl`;
+
+export interface PepperwahlQuestion {
+  question: string;
+  options: string[];
+  qualify_if: string[];
+}
+
+export interface PepperwahlInboxEntry {
+  _id: string;
+  status: 'pending' | 'processed' | 'active' | 'paused' | 'deleted';
+  received_at: string;
+  processed_at?: string;
+  payout: number;
+  moustache_survey_id?: string;
+  moustache_offer_id?: string;
+  survey_action?: string;
+  offer_action?: string;
+  source_ip?: string;
+  payload: {
+    survey_id: string;
+    survey_name: string;
+    survey_link: string;
+    questions: PepperwahlQuestion[];
+    country?: string;
+    loi_minutes?: number;
+    topic?: string;
+  };
+  offer_details?: {
+    name: string;
+    status: string;
+    payout: number;
+    hits: number;
+  };
+}
+
+export interface PepperwahlStats {
+  total: number;
+  pending: number;
+  processed: number;
+  active: number;
+  paused: number;
+  active_offers: number;
+  total_payout_exposure: number;
+}
+
+export async function fetchPepperwahlInbox(params: Record<string, string | number> = {}) {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== '' && v !== null) qs.set(k, String(v));
+  });
+  const res = await fetch(`${PW_BASE()}/inbox?${qs}`, { headers: headers() });
+  return res.json();
+}
+
+export async function fetchPepperwahlEntry(id: string) {
+  const res = await fetch(`${PW_BASE()}/inbox/${id}`, { headers: headers() });
+  return res.json();
+}
+
+export async function processPepperwahlEntry(id: string) {
+  const res = await fetch(`${PW_BASE()}/process/${id}`, {
+    method: 'POST', headers: headers(),
+  });
+  return res.json();
+}
+
+export async function setPepperwahlPayout(id: string, payout: number) {
+  const res = await fetch(`${PW_BASE()}/inbox/${id}/payout`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify({ payout }),
+  });
+  return res.json();
+}
+
+export async function setPepperwahlStatus(id: string, status: 'active' | 'paused') {
+  const res = await fetch(`${PW_BASE()}/inbox/${id}/status`, {
+    method: 'PUT', headers: headers(), body: JSON.stringify({ status }),
+  });
+  return res.json();
+}
+
+export async function deletePepperwahlEntry(id: string) {
+  const res = await fetch(`${PW_BASE()}/inbox/${id}`, {
+    method: 'DELETE', headers: headers(),
+  });
+  return res.json();
+}
+
+export async function fetchPepperwahlStats() {
+  const res = await fetch(`${PW_BASE()}/stats`, { headers: headers() });
+  return res.json();
+}

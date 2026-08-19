@@ -334,7 +334,18 @@ def serve_survey(click_id):
 
 @survey_gateway_bp.route('/survey/<click_id>/submit', methods=['POST'])
 def submit_survey(click_id):
-    """Process survey submission and redirect to target URL."""
+    """Process survey submission and redirect to target URL.
+
+    For Pepperwahl surveys (qualify_mode=True):
+    - Evaluates each answer against question.qualify_if rules.
+    - ALL questions must pass for the user to qualify.
+    - Qualified users → survey.redirect_url (the Pepperwahl link, with user_id injected).
+    - Disqualified users → a polite screen-out page (no retry).
+
+    For standard bot-detection surveys:
+    - Validates captcha + bot signals.
+    - Passed users → offer target_url.
+    """
     try:
         data = request.get_json()
         clicks_col = db_instance.get_collection('clicks')
@@ -346,6 +357,116 @@ def submit_survey(click_id):
         offers_col = db_instance.get_collection('offers')
         offer = offers_col.find_one({'offer_id': offer_id})
         target_url = offer.get('target_url', '') if offer else ''
+
+        # ── Load the survey to check mode ───────────────────────────────────
+        model = Survey()
+        survey_id = data.get('survey_id', '')
+        survey_doc = None
+        if survey_id:
+            try:
+                from bson import ObjectId as _ObjId
+                survey_doc = model.collection.find_one({'_id': _ObjId(survey_id)})
+            except Exception:
+                pass
+
+        is_pepperwahl = bool(survey_doc and survey_doc.get('qualify_mode'))
+
+        # ════════════════════════════════════════════════════════════════════
+        # PATH A — PEPPERWAHL QUALIFY MODE
+        # ════════════════════════════════════════════════════════════════════
+        if is_pepperwahl:
+            answers = data.get('answers', [])  # [{question_index, answer}, ...]
+            questions = survey_doc.get('questions', [])
+            total_time = data.get('total_time_ms', 0)
+            honeypot = data.get('honeypot_filled', False)
+            user_id = click.get('user_id', '')
+
+            # Basic bot check (keep lightweight — no captcha for Pepperwahl surveys)
+            is_bot = honeypot or (total_time < 2000)
+
+            # Evaluate qualify_if for each answered question
+            disqualified = False
+            disqualify_reason = ''
+            answered_map = {a.get('question_index', i): a.get('answer', '') for i, a in enumerate(answers)}
+
+            for q_idx, q in enumerate(questions):
+                qualify_if = q.get('qualify_if', [])
+                if not qualify_if:
+                    continue  # No rule → always pass
+                user_answer = answered_map.get(q_idx, '')
+                if user_answer not in qualify_if:
+                    disqualified = True
+                    disqualify_reason = f'Answer "{user_answer}" for Q{q_idx + 1} did not meet eligibility criteria'
+                    break
+
+            if is_bot:
+                result = 'failed'
+                disqualified = True
+                disqualify_reason = 'Bot detected'
+            elif disqualified:
+                result = 'disqualified'
+            else:
+                result = 'passed'
+
+            # Record response with qualification context
+            model.record_response({
+                'survey_id': survey_id,
+                'offer_id': offer_id,
+                'click_id': click_id,
+                'user_id': user_id,
+                'ip_address': request.headers.get('X-Forwarded-For', request.remote_addr),
+                'user_agent': request.headers.get('User-Agent', ''),
+                'answers': answers,
+                'captcha_passed': True,          # No captcha in PW mode
+                'captcha_type': 'none',
+                'total_time_ms': total_time,
+                'result': result,
+                'abandoned_at_question': data.get('abandoned_at_question'),
+                'honeypot_filled': honeypot,
+                'mouse_moved': data.get('mouse_moved', True),
+                'qualify_mode': True,
+                'disqualify_reason': disqualify_reason,
+            })
+
+            # Update click record
+            try:
+                clicks_col.update_one(
+                    {'click_id': click_id},
+                    {'$set': {
+                        'survey_result': result,
+                        'survey_completed_at': datetime.utcnow(),
+                        'qualify_mode': True,
+                    }}
+                )
+            except Exception:
+                pass
+
+            if result == 'passed':
+                # Build Pepperwahl redirect URL — inject user_id macro
+                redirect_url = survey_doc.get('redirect_url') or target_url
+                redirect_url = redirect_url.replace('{{user_id}}', str(user_id))
+                # Also append click_id for Pepperwahl's own tracking if they want it
+                sep = '&' if '?' in redirect_url else '?'
+                redirect_url = f"{redirect_url}{sep}ml_click={click_id}"
+                return jsonify({'success': True, 'redirect_url': redirect_url, 'qualified': True})
+            else:
+                # Screen-out — do NOT retry (this is not a captcha failure)
+                screen_out_message = (
+                    "Thank you for your time! Unfortunately, you don't qualify for this survey."
+                    if result == 'disqualified'
+                    else 'Verification failed. Please try again.'
+                )
+                return jsonify({
+                    'success': False,
+                    'error': screen_out_message,
+                    'qualified': False,
+                    'screen_out': result == 'disqualified',
+                    'retry': result == 'failed',
+                })
+
+        # ════════════════════════════════════════════════════════════════════
+        # PATH B — STANDARD BOT-DETECTION SURVEY (original logic unchanged)
+        # ════════════════════════════════════════════════════════════════════
 
         # Validate captcha
         captcha_answer = data.get('captcha_answer', '')
@@ -380,9 +501,8 @@ def submit_survey(click_id):
             result = 'passed'
 
         # Record response
-        model = Survey()
         model.record_response({
-            'survey_id': data.get('survey_id', ''),
+            'survey_id': survey_id,
             'offer_id': offer_id,
             'click_id': click_id,
             'user_id': click.get('user_id', ''),
@@ -842,6 +962,15 @@ border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margi
           '<div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">' +
           '<polyline points="20 6 9 17 4 12"></polyline></svg></div></div>';
         setTimeout(() => { window.location.href = res.redirect_url; }, 800);
+      } else if (res.screen_out) {
+        // Pepperwahl screen-out — polite disqualification, no retry
+        container.innerHTML =
+          '<div class="success-anim" style="text-align:center;padding:60px 20px">' +
+          '<div style="font-size:56px;margin-bottom:16px">🙏</div>' +
+          '<h2 style="font-size:22px;font-weight:700;color:#374151;margin-bottom:10px">Thank you!</h2>' +
+          '<p style="font-size:15px;color:#6b7280;max-width:340px;margin:0 auto;line-height:1.6">' +
+          (res.error || "Unfortunately you don't qualify for this survey, but we appreciate your time!") +
+          '</p></div>';
       } else {
         document.getElementById('errorMsg').textContent = res.error || 'Something went wrong';
         document.getElementById('errorMsg').style.display = 'block';
