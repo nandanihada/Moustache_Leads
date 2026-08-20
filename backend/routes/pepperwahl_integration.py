@@ -781,7 +781,7 @@ def _send_pepperwahl_offer_email(offer_id: str, funnel_id: str, survey_name: str
 
         template = {
             'title': 'New Survey Available',
-            'subtitle': 'A new Pepperwahl pre-screening survey has just been added!',
+            'subtitle': '',
             'cta_text': 'View Survey Offer',
             'highlight_label': 'Category',
             'color': '#8b5cf6',
