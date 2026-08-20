@@ -19,9 +19,11 @@ import { partnerApi, Partner } from '@/services/partnerApi';
 import {
   fetchPepperwahlInbox, fetchPepperwahlEntry, processPepperwahlEntry,
   setPepperwahlPayout, setPepperwahlStatus, deletePepperwahlEntry,
-  fetchPepperwahlStats,
-  type PepperwahlInboxEntry, type PepperwahlStats,
+  fetchPepperwahlStats, fetchPepperwahlEmailSettings, savePepperwahlEmailSettings,
+  type PepperwahlInboxEntry, type PepperwahlStats, type PepperwahlEmailSettings,
 } from '@/services/surveyApi';
+import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
+import { offerInsightsApi, type Partner as InsightPartner } from '@/services/offerInsightsApi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -57,6 +59,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Shield,
+  Mail,
+  Users,
+  ToggleLeft,
+  ToggleRight,
 } from 'lucide-react';
 
 export default function AdminRedirectRouter() {
@@ -77,6 +83,51 @@ export default function AdminRedirectRouter() {
   const [pwDetailOpen, setPwDetailOpen] = useState(false);
   const [pwPayoutEdit, setPwPayoutEdit] = useState('');
 
+  // Pepperwahl email settings state
+  const [pwEmailSettings, setPwEmailSettings] = useState<PepperwahlEmailSettings>({
+    enabled: false,
+    template_style: 'table',
+    payout_type: 'publisher',
+    visible_fields: ['name', 'payout', 'countries', 'category', 'image', 'offer_id'],
+    see_more_fields: [],
+    default_image: '',
+    payment_terms: '',
+    recipient_mode: 'all',
+    recipient_ids: [],
+    custom_message: '',
+  });
+  const [pwEmailSettingsLoaded, setPwEmailSettingsLoaded] = useState(false);
+  const [pwEmailSaving, setPwEmailSaving] = useState(false);
+  const [pwEmailPanelOpen, setPwEmailPanelOpen] = useState(false);
+  const [pwAllPartners, setPwAllPartners] = useState<InsightPartner[]>([]);
+  const [pwPartnerSearch, setPwPartnerSearch] = useState('');
+
+  // Map PepperwahlEmailSettings ↔ EmailSettings (the panel's format)
+  const toEmailSettings = (s: PepperwahlEmailSettings): EmailSettings => ({
+    templateStyle: s.template_style,
+    payoutType: s.payout_type,
+    visibleFields: s.visible_fields,
+    seeMoreFields: s.see_more_fields,
+    defaultImage: s.default_image,
+    paymentTerms: s.payment_terms,
+    maskPreviewLinks: false,
+    customPaymentTerms: [],
+    customPreviewUrl: '',
+    customPreviewUrls: {},
+    customPreviewMode: 'all',
+    previewInEmail: 'both',
+    customPreviewInEmail: 'both',
+  });
+
+  const fromEmailSettings = (e: EmailSettings): Partial<PepperwahlEmailSettings> => ({
+    template_style: e.templateStyle,
+    payout_type: e.payoutType,
+    visible_fields: e.visibleFields,
+    see_more_fields: e.seeMoreFields,
+    default_image: e.defaultImage,
+    payment_terms: e.paymentTerms,
+  });
+
   const loadPwInbox = useCallback(async () => {
     setPwLoading(true);
     try {
@@ -91,6 +142,25 @@ export default function AdminRedirectRouter() {
   }, [pwPage, pwSearch, pwStatusFilter]);
 
   useEffect(() => { if (view === 'pepperwahl') loadPwInbox(); }, [view, loadPwInbox]);
+
+  // Load email settings once when entering the pepperwahl view
+  useEffect(() => {
+    if (view === 'pepperwahl' && !pwEmailSettingsLoaded) {
+      fetchPepperwahlEmailSettings().then(res => {
+        if (res.success) { setPwEmailSettings(res.settings); }
+        setPwEmailSettingsLoaded(true);
+      }).catch(() => setPwEmailSettingsLoaded(true));
+    }
+  }, [view, pwEmailSettingsLoaded]);
+
+  // Load all partners once for recipient picker
+  useEffect(() => {
+    if (view === 'pepperwahl' && pwAllPartners.length === 0) {
+      offerInsightsApi.getPartners('', 'all').then(res => {
+        if (res.success) setPwAllPartners(res.partners || []);
+      }).catch(() => {});
+    }
+  }, [view, pwAllPartners.length]);
 
   const handlePwProcess = async (id: string) => {
     const res = await processPepperwahlEntry(id);
@@ -128,6 +198,23 @@ export default function AdminRedirectRouter() {
       const res = await fetchPepperwahlEntry(entry._id);
       if (res.success) setPwSelected(res.entry);
     } catch { /* use cached */ }
+  };
+
+  const handleSaveEmailSettings = async (patch: Partial<PepperwahlEmailSettings>) => {
+    setPwEmailSaving(true);
+    const merged = { ...pwEmailSettings, ...patch };
+    const res = await savePepperwahlEmailSettings(merged);
+    setPwEmailSaving(false);
+    if (res.success) {
+      setPwEmailSettings(merged);
+      toast.success('Email settings saved');
+    } else {
+      toast.error('Failed to save email settings');
+    }
+  };
+
+  const handleToggleEmail = () => {
+    handleSaveEmailSettings({ enabled: !pwEmailSettings.enabled });
   };
 
   // Fetch funnels
@@ -226,6 +313,140 @@ export default function AdminRedirectRouter() {
           <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded font-mono flex-shrink-0">
             X-API-Key: pw_moustache_secret_key_2025
           </span>
+        </div>
+
+        {/* Email Notification Settings */}
+        <div className={`border rounded-xl overflow-hidden transition-all ${pwEmailSettings.enabled ? 'border-violet-200 bg-violet-50/30' : 'border-border bg-muted/20'}`}>
+          {/* Toggle row */}
+          <div className="flex items-center justify-between px-5 py-4">
+            <div className="flex items-center gap-3">
+              <Mail className={`h-5 w-5 ${pwEmailSettings.enabled ? 'text-violet-600' : 'text-muted-foreground'}`} />
+              <div>
+                <p className="text-sm font-semibold text-foreground">Auto Email Notification</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {pwEmailSettings.enabled
+                    ? 'When Pepperwahl publishes a survey, publishers will be notified automatically'
+                    : 'Toggle on to send publishers an email whenever a new Pepperwahl survey arrives'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              {pwEmailSettings.enabled && (
+                <button
+                  onClick={() => setPwEmailPanelOpen(v => !v)}
+                  className="text-xs text-violet-600 font-medium hover:underline flex items-center gap-1">
+                  {pwEmailPanelOpen ? 'Hide' : 'Edit'} Template
+                </button>
+              )}
+              <button
+                onClick={handleToggleEmail}
+                disabled={pwEmailSaving}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                  pwEmailSettings.enabled ? 'bg-violet-600' : 'bg-gray-200'
+                }`}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                  pwEmailSettings.enabled ? 'translate-x-6' : 'translate-x-1'
+                }`} />
+              </button>
+            </div>
+          </div>
+
+          {/* Expanded settings — only visible when toggle is ON */}
+          {pwEmailSettings.enabled && pwEmailPanelOpen && (
+            <div className="border-t px-5 py-4 space-y-4">
+
+              {/* Recipients */}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+                  <Users className="h-3.5 w-3.5" /> Recipients
+                </p>
+                <div className="flex gap-2 mb-3">
+                  {(['all', 'include', 'exclude'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => handleSaveEmailSettings({ recipient_mode: mode, recipient_ids: [] })}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors capitalize ${
+                        pwEmailSettings.recipient_mode === mode
+                          ? 'bg-violet-600 text-white border-violet-600'
+                          : 'bg-white text-muted-foreground border-border hover:bg-muted'
+                      }`}>
+                      {mode === 'all' ? '✦ All Publishers' : mode === 'include' ? '✓ Include Only' : '✕ Exclude'}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Partner picker for include/exclude modes */}
+                {(pwEmailSettings.recipient_mode === 'include' || pwEmailSettings.recipient_mode === 'exclude') && (
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                      <input
+                        value={pwPartnerSearch}
+                        onChange={e => setPwPartnerSearch(e.target.value)}
+                        placeholder="Search publishers..."
+                        className="w-full pl-8 pr-3 py-1.5 border rounded-lg text-xs"
+                      />
+                    </div>
+                    <div className="max-h-36 overflow-y-auto border rounded-lg divide-y bg-white">
+                      {pwAllPartners
+                        .filter(p => !pwPartnerSearch || p.username.toLowerCase().includes(pwPartnerSearch.toLowerCase()) || p.email.toLowerCase().includes(pwPartnerSearch.toLowerCase()))
+                        .map(p => {
+                          const selected = pwEmailSettings.recipient_ids.includes(p._id);
+                          return (
+                            <label key={p._id} className="flex items-center gap-2.5 px-3 py-2 hover:bg-muted/30 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={() => {
+                                  const ids = selected
+                                    ? pwEmailSettings.recipient_ids.filter(id => id !== p._id)
+                                    : [...pwEmailSettings.recipient_ids, p._id];
+                                  handleSaveEmailSettings({ recipient_ids: ids });
+                                }}
+                                className="accent-violet-600"
+                              />
+                              <span className="text-xs font-medium">{p.username}</span>
+                              <span className="text-xs text-muted-foreground">{p.email}</span>
+                            </label>
+                          );
+                        })}
+                    </div>
+                    {pwEmailSettings.recipient_ids.length > 0 && (
+                      <p className="text-xs text-violet-600 font-medium">
+                        {pwEmailSettings.recipient_ids.length} publisher{pwEmailSettings.recipient_ids.length !== 1 ? 's' : ''} selected
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Custom message */}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                  Email Message <span className="normal-case font-normal">(optional — shown above offer card)</span>
+                </p>
+                <textarea
+                  value={pwEmailSettings.custom_message}
+                  onChange={e => setPwEmailSettings(s => ({ ...s, custom_message: e.target.value }))}
+                  onBlur={() => handleSaveEmailSettings({ custom_message: pwEmailSettings.custom_message })}
+                  placeholder="Please push more traffic on this survey!"
+                  rows={2}
+                  className="w-full border rounded-lg px-3 py-2 text-sm resize-none"
+                />
+              </div>
+
+              {/* EmailSettingsPanel — exact same component as offers section */}
+              <EmailSettingsPanel
+                settings={toEmailSettings(pwEmailSettings)}
+                onChange={es => {
+                  const patch = fromEmailSettings(es);
+                  setPwEmailSettings(s => ({ ...s, ...patch }));
+                  handleSaveEmailSettings(patch);
+                }}
+              />
+
+            </div>
+          )}
         </div>
 
         {/* Filters */}
@@ -421,6 +642,16 @@ export default function AdminRedirectRouter() {
                     ))}
                   </div>
                 </div>
+
+                {/* Raw JSON */}
+                <details className="border rounded-xl">
+                  <summary className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground cursor-pointer select-none hover:bg-muted/30">
+                    Raw JSON from Pepperwahl
+                  </summary>
+                  <pre className="p-4 text-xs font-mono bg-muted/30 rounded-b-xl overflow-x-auto whitespace-pre-wrap break-all">
+                    {JSON.stringify(pwSelected.payload, null, 2)}
+                  </pre>
+                </details>
 
                 {/* Payout */}
                 <div className="border rounded-xl p-4">

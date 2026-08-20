@@ -132,9 +132,29 @@ def _validate_payload(data):
 # ─────────────────────────────────────────────────────────────────────────────
 # CORE PROCESSING  — creates Survey + Offer automatically
 # ─────────────────────────────────────────────────────────────────────────────
+def _funnels_col():
+    return db_instance.get_collection('survey_funnels')
+
+
+def _generate_funnel_id():
+    import secrets
+    return f"SF-{secrets.token_hex(4).upper()}"
+
+
 def _process_inbox_entry(inbox_id: str):
     """
-    Read an inbox entry, create/update the Survey + Offer, mark as processed.
+    Read an inbox entry, create/update a Survey Funnel + Offer, mark as processed.
+
+    Correct flow:
+    1. Build a Survey Funnel (survey_funnels collection) from Pepperwahl's questions.
+       - Each question becomes a funnel step with pass_criteria using qualify_if.
+       - pass_url on the final step = Pepperwahl's survey_link (redirect on qualify).
+    2. Create an Offer (offers collection) whose target_url = Moustache funnel URL
+       (survey.moustacheleads.com/funnel/<funnel_id>).
+       The Pepperwahl link is NEVER the offer target_url — it is only stored internally
+       as the funnel's redirect destination.
+    3. Link offer → funnel via linked_offer_id / source_funnel_id.
+
     Returns (success: bool, message: str, detail: dict)
     """
     inbox = _inbox_col().find_one({'_id': ObjectId(inbox_id)})
@@ -144,195 +164,209 @@ def _process_inbox_entry(inbox_id: str):
     payload = inbox.get('payload', {})
     pw_survey_id = payload.get('survey_id', '')
     survey_name = payload.get('survey_name', 'Pepperwahl Survey')
-    survey_link = payload.get('survey_link', '')
+    survey_link = payload.get('survey_link', '')   # Pepperwahl destination — used as pass_url
     questions = payload.get('questions', [])
     country = payload.get('country', '')
     loi = payload.get('loi_minutes')
     topic = payload.get('topic', survey_name)
 
-    # Build survey questions in Moustache format
-    survey_questions = []
-    for q in questions:
-        survey_questions.append({
-            'type': 'multiple_choice',
-            'question': q['question'],
-            'options': q['options'],
-            'required': True,
-            # Pepperwahl-specific: which answers allow the user to proceed
-            'qualify_if': q.get('qualify_if', q['options']),
-        })
-
     now = datetime.utcnow()
 
-    # ── Check if this pw_survey_id already has a survey/offer (update flow) ──
+    # ── Check for existing processed entry for this pw_survey_id (update flow) ──
     existing_inbox = _inbox_col().find_one({
         'payload.survey_id': pw_survey_id,
         'status': {'$in': ['processed', 'active', 'paused']},
         '_id': {'$ne': ObjectId(inbox_id)},
     })
 
-    existing_survey_id = inbox.get('moustache_survey_id')
-    existing_offer_id = inbox.get('moustache_offer_id')
+    existing_funnel_id = inbox.get('moustache_funnel_id') or (existing_inbox or {}).get('moustache_funnel_id')
+    existing_offer_id  = inbox.get('moustache_offer_id')  or (existing_inbox or {}).get('moustache_offer_id')
 
-    if existing_inbox:
-        existing_survey_id = existing_survey_id or existing_inbox.get('moustache_survey_id')
-        existing_offer_id = existing_offer_id or existing_inbox.get('moustache_offer_id')
-
-    # ── CREATE or UPDATE Survey ───────────────────────────────────────────────
-    survey_doc = {
-        'name': survey_name,
-        'description': f'Pre-screening survey from Pepperwahl. Topic: {topic}',
-        'category': 'Survey',
-        'questions': survey_questions,
-        'captcha_enabled': False,      # Pepperwahl surveys skip captcha
-        'template': 'modern-card',
-        'questions_per_page': 1,       # One question at a time for better UX
-        'is_active': True,
-        'updated_at': now,
-        # Pepperwahl-specific fields
-        'source': 'pepperwahl',
-        'pepperwahl_survey_id': pw_survey_id,
-        'redirect_url': survey_link,   # Where qualified users go
-        'loi_minutes': loi,
-        'target_country': country,
-        'topic': topic,
-        'qualify_mode': True,          # flag: submit handler evaluates qualify_if
-    }
-
-    if existing_survey_id:
-        try:
-            _surveys_col().update_one(
-                {'_id': ObjectId(existing_survey_id)},
-                {'$set': survey_doc},
-            )
-            ml_survey_id = existing_survey_id
-            survey_action = 'updated'
-        except Exception as e:
-            logger.error(f'Survey update failed: {e}')
-            existing_survey_id = None
-
-    if not existing_survey_id:
-        survey_doc['created_by'] = 'pepperwahl'
-        survey_doc['created_at'] = now
-        survey_doc['total_responses'] = 0
-        survey_doc['total_passed'] = 0
-        survey_doc['total_failed'] = 0
-        survey_doc['total_abandoned'] = 0
-        survey_doc['avg_completion_time'] = 0
-        result = _surveys_col().insert_one(survey_doc)
-        ml_survey_id = str(result.inserted_id)
-        survey_action = 'created'
-
-    # ── CREATE or UPDATE Offer ─────────────────────────────────────────────────
-    # The offer URL uses the Moustache pre-screening survey path.
-    # simple_tracking will route click → /survey/<click_id>
-    tracking_base = os.environ.get('TRACKING_BASE_URL', 'https://offers.moustacheleads.com')
-    offer_target_url = f'{tracking_base}/survey/{{click_id}}'  # resolved at click time
+    # ─────────────────────────────────────────────────────────────────────────
+    # STEP 1 — Build Survey Funnel steps from Pepperwahl questions
+    #
+    # Each question from Pepperwahl becomes ONE funnel step with ONE question.
+    # pass_criteria uses qualify_if answers.
+    # The LAST step (or every step that qualifies) sets pass_url = survey_link.
+    # ─────────────────────────────────────────────────────────────────────────
+    funnel_steps = []
+    for q in questions:
+        qualify_if = q.get('qualify_if', q.get('options', []))
+        funnel_steps.append({
+            'survey_title': survey_name,
+            'questions': [
+                {
+                    'text': q['question'],
+                    'options': q.get('options', []),
+                }
+            ],
+            'pass_criteria': {
+                'mode': 'all',
+                'rules': [
+                    {
+                        'question_index': 0,
+                        'accepted_answers': qualify_if,
+                    }
+                ],
+            },
+            # On pass at this step → send user to Pepperwahl survey
+            'pass_url': survey_link,
+            'pass_message': 'You qualify! Taking you to the survey now...',
+            'fail_message': "Sorry, you don't qualify for this survey.",
+        })
 
     loi_text = f' ({loi} min)' if loi else ''
     country_text = f' [{country}]' if country else ''
+    funnel_name = f'{survey_name}{country_text}{loi_text}'
+
+    funnel_doc = {
+        'name': funnel_name,
+        'description': f'Auto-created from Pepperwahl survey {pw_survey_id}. Topic: {topic}.',
+        'status': 'active',
+        'placement': 'everywhere',
+        'survey_template': 'modern-card',
+        'questions_per_page': 1,
+        'spinner_duration': 3,
+        'survey_timeout': 5,
+        'steps': funnel_steps,
+        'fail_message': "Thank you for your time! Unfortunately you don't qualify for this survey.",
+        'display_title': survey_name,
+        'display_description': (
+            f'Answer a few quick questions to see if you qualify.'
+            f'{" Estimated time: " + str(loi) + " minutes." if loi else ""}'
+        ),
+        'display_payout': float(inbox.get('payout', 0)),
+        'display_category': 'SURVEY',
+        # Pepperwahl metadata
+        'source': 'pepperwahl',
+        'pepperwahl_survey_id': pw_survey_id,
+        'pepperwahl_redirect_url': survey_link,   # stored for reference — NOT the offer URL
+        'target_country': country,
+        'countries': [country] if country else [],
+        'loi_minutes': loi,
+        'topic': topic,
+        'updated_at': now,
+        'stats': {'total_starts': 0, 'total_passes': 0, 'total_fails': 0},
+    }
+
+    # ── CREATE or UPDATE Survey Funnel ────────────────────────────────────────
+    if existing_funnel_id:
+        _funnels_col().update_one(
+            {'funnel_id': existing_funnel_id},
+            {'$set': funnel_doc},
+        )
+        ml_funnel_id = existing_funnel_id
+        funnel_action = 'updated'
+    else:
+        ml_funnel_id = _generate_funnel_id()
+        funnel_doc['funnel_id'] = ml_funnel_id
+        funnel_doc['created_at'] = now
+        funnel_doc['created_by'] = 'pepperwahl'
+        _funnels_col().insert_one(funnel_doc)
+        funnel_action = 'created'
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # STEP 2 — Create Offer whose target_url = Moustache funnel URL
+    #
+    # target_url = https://survey.moustacheleads.com/funnel/<funnel_id>
+    # The Pepperwahl link is NEVER stored here — it lives inside the funnel step.
+    # ─────────────────────────────────────────────────────────────────────────
+    funnel_url = f'https://survey.moustacheleads.com/funnel/{ml_funnel_id}'
 
     offer_fields = {
-        'name': f'{survey_name}{country_text}{loi_text}',
-        'description': (
-            f'Pepperwahl pre-screening survey. Topic: {topic}.'
-            f'{" LOI: " + str(loi) + " minutes." if loi else ""}'
-            f'{" Country: " + country + "." if country else ""}'
-        ),
+        'name': funnel_name,
+        'description': funnel_doc['description'],
         'vertical': 'SURVEY',
         'category': 'SURVEY',
         'categories': ['SURVEY'],
         'status': 'active',
         'network': 'Pepperwahl',
         'partner_id': pw_survey_id,
-        'target_url': survey_link,     # direct link stored for reference
-        'preview_url': survey_link,
+        # ✅ Correct: Moustache funnel URL — NOT the Pepperwahl link
+        'target_url': funnel_url,
+        'preview_url': funnel_url,
         'payout': float(inbox.get('payout', 0)),
         'currency': 'USD',
-        'payout_type': 'fixed',
+        'payout_type': 'CPA',
         'incentive_type': 'Incent',
         'offer_type': 'CPA',
         'countries': [country] if country else [],
         'allowed_countries': [country] if country else [],
         'tags': ['pepperwahl', 'survey', 'pre-screening'],
-        'keywords': ['survey', 'pepperwahl', topic.lower()],
-        # Link back to the survey for the gateway
-        'pepperwahl_survey_id': pw_survey_id,
-        'moustache_survey_id': ml_survey_id,
+        'keywords': ['survey', 'pepperwahl', topic.lower() if topic else ''],
         'source': 'pepperwahl',
-        'is_active': True,
-        'updated_at': now,
         'offer_source': 'pepperwahl',
-        # Tracking fields
-        'hits': 0 if not existing_offer_id else None,
+        'is_survey_funnel': True,
+        'source_funnel_id': ml_funnel_id,
+        'pepperwahl_survey_id': pw_survey_id,
+        'is_active': True,
         'affiliates': 'all',
         'access_type': 'public',
         'is_public': True,
         'tracking_protocol': 's2s',
         'click_expiration': 7,
         'conversion_window': 30,
+        'updated_at': now,
     }
-    # Don't set hits to None on update
-    if existing_offer_id and offer_fields.get('hits') is None:
-        del offer_fields['hits']
 
     if existing_offer_id:
-        try:
-            _offers_col().update_one(
-                {'offer_id': existing_offer_id},
-                {'$set': offer_fields},
-            )
-            ml_offer_id = existing_offer_id
-            offer_action = 'updated'
-        except Exception as e:
-            logger.error(f'Offer update failed: {e}')
-            existing_offer_id = None
-
-    if not existing_offer_id:
-        offer_id = _next_offer_id()
-        offer_fields['offer_id'] = offer_id
+        # Remove hits from update so we don't reset click counter
+        _offers_col().update_one(
+            {'offer_id': existing_offer_id},
+            {'$set': offer_fields},
+        )
+        ml_offer_id = existing_offer_id
+        offer_action = 'updated'
+    else:
+        ml_offer_id = _next_offer_id()
+        offer_fields['offer_id'] = ml_offer_id
         offer_fields['campaign_id'] = f'PW-{pw_survey_id}'
         offer_fields['created_by'] = 'pepperwahl'
         offer_fields['created_at'] = now
         offer_fields['hits'] = 0
         _offers_col().insert_one(offer_fields)
-        ml_offer_id = offer_id
         offer_action = 'created'
 
-    # Auto-assign the survey to the offer in survey_assignments
-    try:
-        assignments_col = db_instance.get_collection('survey_assignments')
-        assignments_col.update_one(
-            {'offer_id': ml_offer_id},
-            {'$set': {
-                'offer_id': ml_offer_id,
-                'survey_id': ml_survey_id,
-                'assigned_by': 'pepperwahl_auto',
-                'assignment_type': 'pepperwahl',
-                'assigned_at': now,
-            }},
-            upsert=True,
-        )
-    except Exception as e:
-        logger.warning(f'Survey assignment upsert failed: {e}')
+    # ── Link offer → funnel ───────────────────────────────────────────────────
+    _funnels_col().update_one(
+        {'funnel_id': ml_funnel_id},
+        {'$set': {'linked_offer_id': ml_offer_id}},
+    )
 
-    # ── Update inbox entry ─────────────────────────────────────────────────────
+    # ── Update inbox entry ────────────────────────────────────────────────────
     _inbox_col().update_one(
         {'_id': ObjectId(inbox_id)},
         {'$set': {
             'status': 'processed',
             'processed_at': now,
-            'moustache_survey_id': ml_survey_id,
+            'moustache_funnel_id': ml_funnel_id,
             'moustache_offer_id': ml_offer_id,
-            'survey_action': survey_action,
+            'funnel_action': funnel_action,
             'offer_action': offer_action,
+            # Keep for backwards compat display
+            'moustache_survey_id': ml_funnel_id,
         }},
     )
 
+    # ── Auto-send email notification if toggle is ON and this is a new offer ──
+    if offer_action == 'created':
+        try:
+            import threading
+            t = threading.Thread(
+                target=_send_pepperwahl_offer_email,
+                args=(ml_offer_id, ml_funnel_id, survey_name),
+                daemon=True,
+            )
+            t.start()
+        except Exception as e:
+            logger.warning(f'Could not start email thread: {e}')
+
     return True, 'Processed successfully', {
-        'moustache_survey_id': ml_survey_id,
+        'moustache_funnel_id': ml_funnel_id,
+        'moustache_survey_id': ml_funnel_id,   # backwards compat
         'moustache_offer_id': ml_offer_id,
-        'survey_action': survey_action,
+        'funnel_url': funnel_url,
+        'funnel_action': funnel_action,
         'offer_action': offer_action,
     }
 
@@ -422,10 +456,12 @@ def pepperwahl_publish():
     return jsonify({
         'success': True,
         'source_survey_id': pw_survey_id,
-        'moustache_survey_id': detail.get('moustache_survey_id'),
+        'moustache_funnel_id': detail.get('moustache_funnel_id'),
+        'moustache_survey_id': detail.get('moustache_funnel_id'),  # backwards compat
         'moustache_offer_id': detail.get('moustache_offer_id'),
+        'funnel_url': detail.get('funnel_url'),
         'status': status_word,
-        'message': f'Pre-screening survey {status_word} successfully on Moustache Leads',
+        'message': f'Pre-screening survey funnel {status_word} successfully on Moustache Leads',
     }), 200 if is_update else 201
 
 
@@ -645,6 +681,189 @@ def inbox_delete(inbox_id):
         {'$set': {'status': 'deleted', 'deleted_at': datetime.utcnow()}},
     )
     return jsonify({'success': True, 'message': 'Entry removed from inbox'})
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# ADMIN — EMAIL SETTINGS  (toggle + template prefs)
+# ═════════════════════════════════════════════════════════════════════════════
+
+@pepperwahl_integration_bp.route('/api/admin/pepperwahl/email-settings', methods=['GET'])
+@_admin_guard
+def get_email_settings():
+    """
+    Returns the current Pepperwahl auto-email settings stored in `platform_settings`.
+    If no settings exist yet, returns safe defaults (toggle OFF).
+    """
+    col = db_instance.get_collection('platform_settings')
+    doc = col.find_one({'key': 'pepperwahl_email_settings'}) or {}
+    settings = doc.get('value', {})
+    return jsonify({
+        'success': True,
+        'settings': {
+            'enabled': settings.get('enabled', False),
+            'template_style': settings.get('template_style', 'table'),
+            'payout_type': settings.get('payout_type', 'publisher'),
+            'visible_fields': settings.get('visible_fields', ['name', 'payout', 'countries', 'category', 'image', 'offer_id']),
+            'see_more_fields': settings.get('see_more_fields', []),
+            'default_image': settings.get('default_image', ''),
+            'payment_terms': settings.get('payment_terms', ''),
+            'recipient_mode': settings.get('recipient_mode', 'all'),   # 'all' | 'include' | 'exclude'
+            'recipient_ids': settings.get('recipient_ids', []),
+            'custom_message': settings.get('custom_message', ''),
+        }
+    })
+
+
+@pepperwahl_integration_bp.route('/api/admin/pepperwahl/email-settings', methods=['PUT'])
+@_admin_guard
+def save_email_settings():
+    """Save Pepperwahl auto-email settings."""
+    data = request.get_json(silent=True) or {}
+    col = db_instance.get_collection('platform_settings')
+    col.update_one(
+        {'key': 'pepperwahl_email_settings'},
+        {'$set': {
+            'key': 'pepperwahl_email_settings',
+            'value': {
+                'enabled': bool(data.get('enabled', False)),
+                'template_style': data.get('template_style', 'table'),
+                'payout_type': data.get('payout_type', 'publisher'),
+                'visible_fields': data.get('visible_fields', ['name', 'payout', 'countries', 'category', 'image', 'offer_id']),
+                'see_more_fields': data.get('see_more_fields', []),
+                'default_image': data.get('default_image', ''),
+                'payment_terms': data.get('payment_terms', ''),
+                'recipient_mode': data.get('recipient_mode', 'all'),
+                'recipient_ids': data.get('recipient_ids', []),
+                'custom_message': data.get('custom_message', ''),
+            },
+            'updated_at': datetime.utcnow(),
+        }},
+        upsert=True,
+    )
+    return jsonify({'success': True, 'message': 'Email settings saved'})
+
+
+def _send_pepperwahl_offer_email(offer_id: str, funnel_id: str, survey_name: str):
+    """
+    Auto-send offer notification email when a new Pepperwahl survey is processed.
+    Reads email settings from platform_settings, respects toggle and recipient filters.
+    Uses the same generate_multi_offer_email_html template as the offer insights system.
+    """
+    try:
+        col = db_instance.get_collection('platform_settings')
+        settings_doc = col.find_one({'key': 'pepperwahl_email_settings'}) or {}
+        settings = settings_doc.get('value', {})
+
+        if not settings.get('enabled', False):
+            logger.info(f'Pepperwahl email toggle is OFF — skipping email for {offer_id}')
+            return
+
+        # Load the offer for email content
+        offer = _offers_col().find_one({'offer_id': offer_id})
+        if not offer:
+            logger.warning(f'Offer {offer_id} not found for email send')
+            return
+
+        payout_type = settings.get('payout_type', 'publisher')
+        raw_payout = float(offer.get('payout', 0) or 0)
+        display_payout = round(raw_payout * 0.8, 2) if payout_type == 'publisher' else raw_payout
+
+        offer_data = {
+            'name': offer.get('name', survey_name),
+            'payout': display_payout,
+            'image_url': offer.get('image_url', settings.get('default_image', '')),
+            'category': offer.get('category', 'SURVEY'),
+            'offer_id': offer_id,
+            'countries': ', '.join(offer.get('countries', [])),
+            'metric_value': 0,
+            'metric_label': 'New Survey',
+        }
+
+        template = {
+            'title': 'New Survey Available',
+            'subtitle': 'A new Pepperwahl pre-screening survey has just been added!',
+            'cta_text': 'View Survey Offer',
+            'highlight_label': 'Category',
+            'color': '#8b5cf6',
+        }
+
+        custom_message = settings.get('custom_message', '')
+
+        # Build recipient list
+        users_col = db_instance.get_collection('users')
+        recipient_mode = settings.get('recipient_mode', 'all')
+        recipient_ids = settings.get('recipient_ids', [])
+
+        if recipient_mode == 'all':
+            users = list(users_col.find(
+                {'role': {'$nin': ['admin', 'superadmin']}, 'email': {'$exists': True}},
+                {'_id': 1, 'username': 1, 'email': 1}
+            ))
+        elif recipient_mode == 'include':
+            from bson import ObjectId as _ObjId
+            oids = []
+            for rid in recipient_ids:
+                try: oids.append(_ObjId(rid))
+                except: pass
+            users = list(users_col.find({'_id': {'$in': oids}}, {'_id': 1, 'username': 1, 'email': 1}))
+        elif recipient_mode == 'exclude':
+            from bson import ObjectId as _ObjId
+            oids = []
+            for rid in recipient_ids:
+                try: oids.append(_ObjId(rid))
+                except: pass
+            users = list(users_col.find(
+                {'_id': {'$nin': oids}, 'role': {'$nin': ['admin', 'superadmin']}, 'email': {'$exists': True}},
+                {'_id': 1, 'username': 1, 'email': 1}
+            ))
+        else:
+            users = []
+
+        if not users:
+            logger.info(f'No recipients for Pepperwahl email ({recipient_mode})')
+            return
+
+        # Import the email generator from offer_insights
+        from routes.offer_insights_email import generate_multi_offer_email_html
+        from services.email_verification_service import EmailVerificationService
+        email_svc = EmailVerificationService()
+
+        subject = f'🔔 New Survey Offer: {offer.get("name", survey_name)}'
+        sent = 0
+        failed = 0
+
+        for user in users:
+            try:
+                html = generate_multi_offer_email_html(
+                    template=template,
+                    offers=[offer_data],
+                    partner_name=user.get('username', 'Partner'),
+                    custom_message=custom_message,
+                )
+                ok = email_svc._send_email(user.get('email'), subject, html)
+                if ok: sent += 1
+                else: failed += 1
+            except Exception as e:
+                logger.error(f'Email send failed for {user.get("email")}: {e}')
+                failed += 1
+
+        # Log the campaign
+        db_instance.get_collection('insight_email_logs').insert_one({
+            'type': 'pepperwahl_auto',
+            'offer_id': offer_id,
+            'offer_name': offer.get('name', survey_name),
+            'funnel_id': funnel_id,
+            'sent_count': sent,
+            'failed_count': failed,
+            'recipient_mode': recipient_mode,
+            'sent_by': 'pepperwahl_auto',
+            'status': 'sent',
+            'created_at': datetime.utcnow(),
+        })
+        logger.info(f'Pepperwahl auto-email: {sent} sent, {failed} failed for offer {offer_id}')
+
+    except Exception as e:
+        logger.error(f'_send_pepperwahl_offer_email error: {e}', exc_info=True)
 
 
 # ═════════════════════════════════════════════════════════════════════════════

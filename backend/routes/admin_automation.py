@@ -210,6 +210,12 @@ def get_automation_status():
                 'description': 'Fetches & updates Voqall surveys every 23 hours with lookup enrichment'
             },
             {
+                'name': 'Voqall Sub-Wall Automation',
+                'status': 'running',
+                'type': 'background',
+                'description': 'After each Voqall sync: renames surveys to "YIS Survey", marks subwall-exclusive, adds to Moustache Survey\'s sub-wall'
+            },
+            {
                 'name': 'Offer Inactivity Check',
                 'status': 'manual',
                 'type': 'button',
@@ -282,3 +288,22 @@ def get_voqall_sync_status():
         return jsonify({'success': True, 'status': svc.get_status()}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@admin_automation_bp.route('/api/admin/automation/voqall-subwall/run', methods=['POST'])
+@token_required
+@admin_required
+def run_voqall_subwall_automation():
+    """
+    Manually trigger the Voqall sub-wall automation:
+    - Rename all active Voqall offers to "YIS Survey"
+    - Mark them as subwall_exclusive
+    - Add them to the "Moustache Survey's" sub-wall (slug: moustache-survey-s)
+    """
+    try:
+        from services.voqall_subwall_service import run_voqall_subwall_automation as _run
+        result = _run()
+        return jsonify({'success': True, 'result': result}), 200
+    except Exception as e:
+        logger.error(f"Voqall sub-wall automation manual run failed: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500

@@ -274,6 +274,17 @@ class VoqallSyncService:
             offers, display_name, db_instance
         )
 
+        # 7. Post-sync automation — rename to "YIS Survey" + add to Moustache Survey's sub-wall
+        try:
+            from services.voqall_subwall_service import run_voqall_subwall_automation
+            subwall_result = run_voqall_subwall_automation(db_instance)
+            logger.info(
+                f"Voqall sub-wall automation: renamed={subwall_result.get('renamed', 0)}, "
+                f"added_to_subwall={subwall_result.get('added_to_subwall', 0)}"
+            )
+        except Exception as e:
+            logger.warning(f"Voqall sub-wall automation error (non-fatal): {e}")
+
         return {
             'fetched': len(offers),
             'created': created,

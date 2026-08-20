@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { Play, CheckCircle, XCircle, Clock, Loader2, Zap, AlertTriangle } from 'lucide-react';
+import { Play, CheckCircle, XCircle, Clock, Loader2, Zap, AlertTriangle, Layers } from 'lucide-react';
 import { getApiBaseUrl } from '@/services/apiConfig';
 import { getAuthToken } from '@/utils/cookies';
 
@@ -26,6 +26,8 @@ export default function AdminAutomation() {
   const [runningInvoice, setRunningInvoice] = useState(false);
   const [lastInactivityResult, setLastInactivityResult] = useState<any>(null);
   const [lastInvoiceResult, setLastInvoiceResult] = useState<any>(null);
+  const [runningVoqallSubwall, setRunningVoqallSubwall] = useState(false);
+  const [lastVoqallSubwallResult, setLastVoqallSubwallResult] = useState<any>(null);
 
   const baseUrl = getApiBaseUrl();
   const token = getAuthToken();
@@ -89,6 +91,31 @@ export default function AdminAutomation() {
       toast.error('Network error: ' + e.message);
     } finally {
       setRunningInvoice(false);
+    }
+  };
+
+  const runVoqallSubwall = async () => {
+    setRunningVoqallSubwall(true);
+    setLastVoqallSubwallResult(null);
+    try {
+      const res = await fetch(`${baseUrl}/api/admin/automation/voqall-subwall/run`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const r = data.result || {};
+        setLastVoqallSubwallResult(r);
+        toast.success(
+          `Done: ${r.renamed ?? 0} renamed, ${r.added_to_subwall ?? 0} added to sub-wall`
+        );
+      } else {
+        toast.error(data.error || data.result?.error || 'Failed to run Voqall sub-wall automation');
+      }
+    } catch (e: any) {
+      toast.error('Network error: ' + e.message);
+    } finally {
+      setRunningVoqallSubwall(false);
     }
   };
 
@@ -182,6 +209,47 @@ export default function AdminAutomation() {
               <div className="bg-muted/50 rounded-md p-3 text-sm">
                 <div><strong>Status:</strong> {lastInvoiceResult.message}</div>
                 <div><strong>Run at:</strong> {new Date(lastInvoiceResult.run_at).toLocaleString()}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Voqall Sub-Wall Automation Button */}
+          <div className="border rounded-lg p-5 space-y-3 border-violet-200 bg-violet-50/30 dark:bg-violet-950/10">
+            <div className="flex items-center gap-2">
+              <Layers className="h-5 w-5 text-violet-500" />
+              <h3 className="font-semibold">Voqall Sub-Wall Automation</h3>
+              <span className="text-[10px] bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full">Auto runs after sync</span>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Renames all active Voqall surveys to <strong>"YIS Survey"</strong>, marks them sub-wall exclusive,
+              and adds them to the <strong>Moustache Survey's</strong> sub-wall. Runs automatically after every 23-hour Voqall sync.
+            </p>
+            <button
+              onClick={runVoqallSubwall}
+              disabled={runningVoqallSubwall}
+              className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {runningVoqallSubwall ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              {runningVoqallSubwall ? 'Running...' : 'Run Now'}
+            </button>
+            {lastVoqallSubwallResult && (
+              <div className="bg-violet-50 dark:bg-violet-950/30 border border-violet-200 rounded-md p-3 text-sm space-y-1">
+                <div><strong>Total Voqall offers:</strong> {lastVoqallSubwallResult.total_voqall_offers ?? 0}</div>
+                <div><strong>Renamed to "YIS Survey":</strong> {lastVoqallSubwallResult.renamed ?? 0}</div>
+                <div><strong>Already named:</strong> {lastVoqallSubwallResult.already_named ?? 0}</div>
+                <div><strong>Added to sub-wall:</strong> {lastVoqallSubwallResult.added_to_subwall ?? 0}</div>
+                <div><strong>Already in sub-wall:</strong> {lastVoqallSubwallResult.already_in_subwall ?? 0}</div>
+                {(lastVoqallSubwallResult.stale_removed_from_wall ?? 0) > 0 && (
+                  <div><strong>Stale removed:</strong> {lastVoqallSubwallResult.stale_removed_from_wall}</div>
+                )}
+                {lastVoqallSubwallResult.run_at && (
+                  <div className="text-xs text-muted-foreground">
+                    Run at: {new Date(lastVoqallSubwallResult.run_at).toLocaleString()}
+                  </div>
+                )}
+                {lastVoqallSubwallResult.error && (
+                  <div className="text-red-600 font-medium">⚠ {lastVoqallSubwallResult.error}</div>
+                )}
               </div>
             )}
           </div>

@@ -240,3 +240,32 @@ export async function fetchPepperwahlStats() {
   const res = await fetch(`${PW_BASE()}/stats`, { headers: headers() });
   return res.json();
 }
+
+// ── Pepperwahl Email Settings ──────────────────────────────────────────────
+
+export interface PepperwahlEmailSettings {
+  enabled: boolean;
+  template_style: 'table' | 'card';
+  payout_type: 'publisher' | 'admin';
+  visible_fields: string[];
+  see_more_fields: string[];
+  default_image: string;
+  payment_terms: string;
+  recipient_mode: 'all' | 'include' | 'exclude';
+  recipient_ids: string[];
+  custom_message: string;
+}
+
+export async function fetchPepperwahlEmailSettings(): Promise<{ success: boolean; settings: PepperwahlEmailSettings }> {
+  const res = await fetch(`${PW_BASE()}/email-settings`, { headers: headers() });
+  return res.json();
+}
+
+export async function savePepperwahlEmailSettings(settings: Partial<PepperwahlEmailSettings>) {
+  const res = await fetch(`${PW_BASE()}/email-settings`, {
+    method: 'PUT',
+    headers: headers(),
+    body: JSON.stringify(settings),
+  });
+  return res.json();
+}
