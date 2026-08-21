@@ -170,6 +170,17 @@ def _process_inbox_entry(inbox_id: str):
     loi = payload.get('loi_minutes')
     topic = payload.get('topic', survey_name)
 
+    # ── Map all incoming fields ───────────────────────────────────────────────
+    payout      = float(payload.get('payout_usd') or payload.get('payout') or inbox.get('payout') or 0)
+    description = payload.get('description', '')
+    survey_type = payload.get('survey_type', '')   # e.g. product_interest, consumer_research
+    min_age     = payload.get('min_age')
+    max_age     = payload.get('max_age')
+
+    # Normalise country — WW / empty means worldwide (no geo restriction)
+    if not country or country.upper() in ('WW', 'WORLDWIDE', 'ALL', 'GLOBAL'):
+        country = ''
+
     now = datetime.utcnow()
 
     # ── Check for existing processed entry for this pw_survey_id (update flow) ──
@@ -221,7 +232,7 @@ def _process_inbox_entry(inbox_id: str):
 
     funnel_doc = {
         'name': funnel_name,
-        'description': f'Auto-created from Pepperwahl survey {pw_survey_id}. Topic: {topic}.',
+        'description': description or f'Auto-created from Pepperwahl survey {pw_survey_id}. Topic: {topic}.',
         'status': 'active',
         'placement': 'everywhere',
         'survey_template': 'modern-card',
@@ -232,19 +243,23 @@ def _process_inbox_entry(inbox_id: str):
         'fail_message': "Thank you for your time! Unfortunately you don't qualify for this survey.",
         'display_title': survey_name,
         'display_description': (
+            description or
             f'Answer a few quick questions to see if you qualify.'
             f'{" Estimated time: " + str(loi) + " minutes." if loi else ""}'
         ),
-        'display_payout': float(inbox.get('payout', 0)),
-        'display_category': 'SURVEY',
+        'display_payout': payout,
+        'display_category': survey_type.upper() if survey_type else 'SURVEY',
         # Pepperwahl metadata
         'source': 'pepperwahl',
         'pepperwahl_survey_id': pw_survey_id,
+        'pepperwahl_survey_type': survey_type,
         'pepperwahl_redirect_url': survey_link,   # stored for reference — NOT the offer URL
         'target_country': country,
         'countries': [country] if country else [],
         'loi_minutes': loi,
         'topic': topic,
+        'min_age': min_age,
+        'max_age': max_age,
         'updated_at': now,
         'stats': {'total_starts': 0, 'total_passes': 0, 'total_fails': 0},
     }
@@ -274,18 +289,17 @@ def _process_inbox_entry(inbox_id: str):
     funnel_url = f'https://survey.moustacheleads.com/funnel/{ml_funnel_id}'
 
     offer_fields = {
-        'name': funnel_name,
-        'description': funnel_doc['description'],
-        'vertical': 'SURVEY',
-        'category': 'SURVEY',
-        'categories': ['SURVEY'],
+        'name': 'YIS Survey',
+        'description': description or funnel_doc['description'],
+        'vertical': survey_type.upper() if survey_type else 'SURVEY',
+        'category': survey_type.upper() if survey_type else 'SURVEY',
+        'categories': [survey_type.upper() if survey_type else 'SURVEY'],
         'status': 'active',
         'network': 'Pepperwahl',
         'partner_id': pw_survey_id,
-        # ✅ Correct: Moustache funnel URL — NOT the Pepperwahl link
-        'target_url': funnel_url,
-        'preview_url': funnel_url,
-        'payout': float(inbox.get('payout', 0)),
+        'target_url': funnel_url,     # Moustache funnel URL
+        'preview_url': '',            # intentionally blank — no external preview link
+        'payout': payout,
         'currency': 'USD',
         'payout_type': 'CPA',
         'incentive_type': 'Incent',
@@ -299,6 +313,13 @@ def _process_inbox_entry(inbox_id: str):
         'is_survey_funnel': True,
         'source_funnel_id': ml_funnel_id,
         'pepperwahl_survey_id': pw_survey_id,
+        'pepperwahl_survey_type': survey_type,
+        'min_age': min_age,
+        'max_age': max_age,
+        'loi_minutes': loi,
+        # Subwall automation — auto-mark as exclusive for Moustache Survey's sub-wall
+        'subwall_exclusive': True,
+        'show_in_offerwall': False,
         'is_active': True,
         'affiliates': 'all',
         'access_type': 'public',
@@ -343,10 +364,27 @@ def _process_inbox_entry(inbox_id: str):
             'moustache_offer_id': ml_offer_id,
             'funnel_action': funnel_action,
             'offer_action': offer_action,
-            # Keep for backwards compat display
+            'payout': payout,             # store resolved payout so UI shows correct value
             'moustache_survey_id': ml_funnel_id,
         }},
     )
+
+    # ── Auto-add to Moustache Survey's sub-wall ───────────────────────────────
+    try:
+        from services.voqall_subwall_service import TARGET_SUBWALL_SLUG
+        sub_walls_col = db_instance.get_collection('sub_walls')
+        sub_wall = sub_walls_col.find_one({'slug': TARGET_SUBWALL_SLUG})
+        if sub_wall:
+            sub_walls_col.update_one(
+                {'slug': TARGET_SUBWALL_SLUG},
+                {'$addToSet': {'offer_ids': ml_offer_id},
+                 '$set': {'updated_at': now}}
+            )
+            logger.info(f'Pepperwahl offer {ml_offer_id} added to sub-wall {TARGET_SUBWALL_SLUG}')
+        else:
+            logger.warning(f'Sub-wall {TARGET_SUBWALL_SLUG} not found — skipping sub-wall add')
+    except Exception as e:
+        logger.warning(f'Sub-wall auto-add failed (non-fatal): {e}')
 
     # ── Auto-send email notification if toggle is ON and this is a new offer ──
     if offer_action == 'created':
@@ -440,7 +478,7 @@ def pepperwahl_publish():
             'received_at': now,
             'moustache_survey_id': None,
             'moustache_offer_id': None,
-            'payout': 0,
+            'payout': float(data.get('payout_usd') or data.get('payout') or 0),
             'source_ip': request.headers.get('X-Forwarded-For', request.remote_addr),
         })
         inbox_id = str(result.inserted_id)

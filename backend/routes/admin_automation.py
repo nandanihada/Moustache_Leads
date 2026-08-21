@@ -216,6 +216,18 @@ def get_automation_status():
                 'description': 'After each Voqall sync: renames surveys to "YIS Survey", marks subwall-exclusive, adds to Moustache Survey\'s sub-wall'
             },
             {
+                'name': 'MarketXcel Auto-Sync',
+                'status': 'running',
+                'type': 'background',
+                'description': 'Fetches & updates MarketXcel surveys every 23 hours'
+            },
+            {
+                'name': 'MarketXcel Sub-Wall Automation',
+                'status': 'running',
+                'type': 'background',
+                'description': 'After each MarketXcel sync: renames surveys to "YIS Survey", marks subwall-exclusive, adds to Moustache Survey\'s sub-wall'
+            },
+            {
                 'name': 'Offer Inactivity Check',
                 'status': 'manual',
                 'type': 'button',
@@ -306,4 +318,51 @@ def run_voqall_subwall_automation():
         return jsonify({'success': True, 'result': result}), 200
     except Exception as e:
         logger.error(f"Voqall sub-wall automation manual run failed: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_automation_bp.route('/api/admin/automation/market-excel-sync/run', methods=['POST'])
+@token_required
+@admin_required
+def run_market_excel_sync_now():
+    """Manually trigger a MarketXcel sync right now."""
+    try:
+        from services.market_excel_sync_service import get_market_excel_sync_service
+        svc = get_market_excel_sync_service()
+        result = svc.run_now()
+        return jsonify({'success': True, 'result': result}), 200
+    except Exception as e:
+        logger.error(f"Manual MarketXcel sync failed: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_automation_bp.route('/api/admin/automation/market-excel-sync/status', methods=['GET'])
+@token_required
+@admin_required
+def get_market_excel_sync_status():
+    """Get MarketXcel auto-sync service status (last run, next run, last result)."""
+    try:
+        from services.market_excel_sync_service import get_market_excel_sync_service
+        svc = get_market_excel_sync_service()
+        return jsonify({'success': True, 'status': svc.get_status()}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_automation_bp.route('/api/admin/automation/market-excel-subwall/run', methods=['POST'])
+@token_required
+@admin_required
+def run_market_excel_subwall_automation():
+    """
+    Manually trigger the MarketXcel sub-wall automation:
+    - Rename all active MarketXcel offers to "YIS Survey"
+    - Mark them as subwall_exclusive
+    - Add them to the "Moustache Survey's" sub-wall
+    """
+    try:
+        from services.voqall_subwall_service import run_marketxcel_subwall_automation as _run
+        result = _run()
+        return jsonify({'success': True, 'result': result}), 200
+    except Exception as e:
+        logger.error(f"MarketXcel sub-wall automation manual run failed: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
