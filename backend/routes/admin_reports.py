@@ -2557,3 +2557,178 @@ def admin_advertiser_reports():
         logger.error(f"Error in admin advertiser reports endpoint: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SUB-WALL ANALYTICS
+# ═══════════════════════════════════════════════════════════════════════════
+
+@admin_reports_bp.route('/api/admin/reports/subwall-analytics', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def subwall_analytics():
+    """
+    Sub-wall click + conversion analytics.
+
+    Query params:
+        slug        — filter to a single sub-wall (optional)
+        start_date  — ISO date (default: last 30 days)
+        end_date    — ISO date
+        per_page    — rows per page (default 50, max 200)
+        page        — page number
+
+    Returns:
+        summary     — total_clicks, total_conversions, total_revenue across all walls
+        walls       — per-sub-wall breakdown [ {slug, name, clicks, conversions, revenue, top_offers} ]
+        clicks      — raw click rows for the selected slug (only when slug is provided)
+    """
+    try:
+        start_date_str = request.args.get('start_date')
+        end_date_str   = request.args.get('end_date')
+        slug_filter    = request.args.get('slug', '').strip()
+        page           = int(request.args.get('page', 1))
+        per_page       = min(int(request.args.get('per_page', 50)), 200)
+
+        if start_date_str:
+            start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00'))
+            if len(start_date_str) == 10:
+                start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        else:
+            start_date = datetime.utcnow() - timedelta(days=30)
+
+        if end_date_str:
+            end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
+            if len(end_date_str) == 10:
+                end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+        else:
+            end_date = datetime.utcnow()
+
+        clicks_col    = db_instance.get_collection('clicks')
+        sub_walls_col = db_instance.get_collection('sub_walls')
+        offers_col    = db_instance.get_collection('offers')
+
+        if clicks_col is None:
+            return jsonify({'error': 'Database not available'}), 503
+
+        # ── Base query: only sub-wall clicks ────────────────────────────────
+        base_query = {
+            'traffic_source': 'subwall',
+            'timestamp': {'$gte': start_date, '$lte': end_date},
+        }
+        if slug_filter:
+            base_query['subwall_slug'] = slug_filter
+
+        # ── Summary counts ───────────────────────────────────────────────────
+        total_clicks = clicks_col.count_documents(base_query)
+
+        conv_query = {**base_query, 'converted': True}
+        total_conversions = clicks_col.count_documents(conv_query)
+
+        revenue_pipeline = [
+            {'$match': conv_query},
+            {'$group': {'_id': None, 'total': {'$sum': '$payout'}}},
+        ]
+        rev_result = list(clicks_col.aggregate(revenue_pipeline))
+        total_revenue = round(rev_result[0]['total'] if rev_result else 0, 4)
+
+        summary = {
+            'total_clicks': total_clicks,
+            'total_conversions': total_conversions,
+            'total_revenue': total_revenue,
+            'conversion_rate': round(total_conversions / total_clicks * 100, 2) if total_clicks else 0,
+        }
+
+        # ── Per-wall breakdown ───────────────────────────────────────────────
+        walls_pipeline = [
+            {'$match': {
+                'traffic_source': 'subwall',
+                'timestamp': {'$gte': start_date, '$lte': end_date},
+                'subwall_slug': {'$nin': [None, '']},
+            }},
+            {'$group': {
+                '_id': '$subwall_slug',
+                'clicks': {'$sum': 1},
+                'conversions': {'$sum': {'$cond': ['$converted', 1, 0]}},
+                'revenue': {'$sum': {'$cond': ['$converted', '$payout', 0]}},
+                'unique_offers': {'$addToSet': '$offer_id'},
+                'countries': {'$addToSet': '$country'},
+                'last_click': {'$max': '$timestamp'},
+            }},
+            {'$sort': {'clicks': -1}},
+        ]
+        walls_raw = list(clicks_col.aggregate(walls_pipeline))
+
+        # Enrich with sub-wall names from sub_walls collection
+        slug_to_name = {}
+        if sub_walls_col is not None:
+            all_slugs = [w['_id'] for w in walls_raw]
+            for sw in sub_walls_col.find({'slug': {'$in': all_slugs}}, {'slug': 1, 'name': 1}):
+                slug_to_name[sw['slug']] = sw.get('name', sw['slug'])
+
+        walls = []
+        for w in walls_raw:
+            slug = w['_id']
+            # Top 5 offers by click count for this wall
+            top_offers_pipeline = [
+                {'$match': {
+                    'traffic_source': 'subwall',
+                    'subwall_slug': slug,
+                    'timestamp': {'$gte': start_date, '$lte': end_date},
+                }},
+                {'$group': {'_id': '$offer_id', 'clicks': {'$sum': 1}, 'offer_name': {'$first': '$offer_name'}}},
+                {'$sort': {'clicks': -1}},
+                {'$limit': 5},
+            ]
+            top_offers = list(clicks_col.aggregate(top_offers_pipeline))
+
+            walls.append({
+                'slug': slug,
+                'name': slug_to_name.get(slug, slug),
+                'clicks': w['clicks'],
+                'conversions': w['conversions'],
+                'revenue': round(w['revenue'], 4),
+                'conversion_rate': round(w['conversions'] / w['clicks'] * 100, 2) if w['clicks'] else 0,
+                'unique_offers': len(w['unique_offers']),
+                'unique_countries': len([c for c in w['countries'] if c and c != 'Unknown']),
+                'last_click': w['last_click'].isoformat() + 'Z' if w.get('last_click') else None,
+                'top_offers': [{'offer_id': o['_id'], 'offer_name': o.get('offer_name', o['_id']), 'clicks': o['clicks']} for o in top_offers],
+            })
+
+        # ── Raw clicks for a specific sub-wall ───────────────────────────────
+        clicks_list = []
+        clicks_total = 0
+        if slug_filter:
+            clicks_total = total_clicks
+            skip = (page - 1) * per_page
+            raw = list(clicks_col.find(base_query).sort('timestamp', -1).skip(skip).limit(per_page))
+            for c in raw:
+                ts = c.get('timestamp')
+                clicks_list.append({
+                    'click_id': c.get('click_id', ''),
+                    'offer_id': c.get('offer_id', ''),
+                    'offer_name': c.get('offer_name', ''),
+                    'user_id': c.get('user_id', ''),
+                    'country': c.get('country', 'Unknown'),
+                    'device_type': c.get('device_type', 'unknown'),
+                    'converted': c.get('converted', False),
+                    'payout': c.get('payout', 0),
+                    'fraud_score': c.get('fraud_score', 0),
+                    'timestamp': ts.isoformat() + 'Z' if ts and hasattr(ts, 'isoformat') else str(ts or ''),
+                })
+
+        return jsonify({
+            'success': True,
+            'summary': summary,
+            'walls': walls,
+            'clicks': clicks_list,
+            'clicks_total': clicks_total,
+            'page': page,
+            'per_page': per_page,
+            'date_range': {
+                'start': start_date.isoformat() + 'Z',
+                'end': end_date.isoformat() + 'Z',
+            },
+        }), 200
+
+    except Exception as e:
+        logger.error(f'subwall_analytics error: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500

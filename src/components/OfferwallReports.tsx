@@ -18,12 +18,13 @@ import {
   TrendingUp, FileText, MousePointerClick, BarChart3, Activity,
   Search, RefreshCw, Download, Filter, ChevronLeft, ChevronRight,
   ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, CheckCircle,
-  Clock, XCircle, AlertCircle, Loader2, Flame
+  Clock, XCircle, AlertCircle, Loader2, Flame, Layers, DollarSign
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, Line } from 'recharts';
 import { ColumnSelector, ColumnDefinition } from '@/components/reports/ColumnSelector';
 import { Checkbox } from '@/components/ui/checkbox';
+import { fetchSubWallAnalytics, type SubWallAnalyticsResponse, type SubWallClick } from '@/services/adminReportsApi';
 
 // ===================== HELPERS =====================
 
@@ -1311,7 +1312,7 @@ const ClickTrackingSubTab: React.FC<ClickTrackingProps> = ({ filters, dateRange,
 // ===================== MAIN COMPONENT =====================
 
 export const OfferwallReports: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'performance' | 'conversions' | 'clicks' | 'insights' | 'activity'>('performance');
+  const [activeTab, setActiveTab] = useState<'performance' | 'conversions' | 'clicks' | 'insights' | 'activity' | 'subwalls'>('performance');
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
   const [showFilters, setShowFilters] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -1322,6 +1323,39 @@ export const OfferwallReports: React.FC = () => {
   const [dateRange, setDateRange] = useState({ start: formatDate(30), end: formatDate(0) });
   const [drillFilter, setDrillFilter] = useState<{ key: string; value: string } | null>(null);
   const [globalRefresh, setGlobalRefresh] = useState(0);
+
+  // Sub-walls analytics state
+  const [swData, setSwData] = useState<SubWallAnalyticsResponse | null>(null);
+  const [swLoading, setSwLoading] = useState(false);
+  const [swSelectedSlug, setSwSelectedSlug] = useState<string | null>(null);
+  const [swDrillPage, setSwDrillPage] = useState(1);
+  const [swDrillData, setSwDrillData] = useState<SubWallAnalyticsResponse | null>(null);
+  const [swDrillLoading, setSwDrillLoading] = useState(false);
+
+  const loadSwOverview = useCallback(async () => {
+    setSwLoading(true);
+    try {
+      const data = await fetchSubWallAnalytics({ start_date: formatDate(30), end_date: formatDate(0) });
+      setSwData(data);
+    } catch { /* silent */ } finally {
+      setSwLoading(false);
+    }
+  }, []);
+
+  const loadSwDrill = useCallback(async (slug: string, page = 1) => {
+    setSwDrillLoading(true);
+    setSwDrillPage(page);
+    try {
+      const data = await fetchSubWallAnalytics({ slug, start_date: formatDate(30), end_date: formatDate(0), page, per_page: 20 });
+      setSwDrillData(data);
+    } catch { /* silent */ } finally {
+      setSwDrillLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'subwalls' && !swData) loadSwOverview();
+  }, [activeTab, swData, loadSwOverview]);
 
   // Load filter options from the real reports API
   const loadFilterOptions = useCallback(async () => {
@@ -1460,6 +1494,12 @@ export const OfferwallReports: React.FC = () => {
         >
           <Activity className="h-4 w-4" /> Activity log
         </button>
+        <button
+          onClick={() => setActiveTab('subwalls')}
+          className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${activeTab === 'subwalls' ? 'border-purple-600 text-purple-700' : 'border-transparent text-muted-foreground hover:text-foreground hover:border-gray-300'}`}
+        >
+          <Layers className="h-4 w-4" /> Sub-Walls
+        </button>
       </div>
 
       {/* Tab Content */}
@@ -1478,6 +1518,202 @@ export const OfferwallReports: React.FC = () => {
           <Activity className="h-10 w-10 mx-auto mb-3 text-gray-300" />
           <p className="font-medium">Activity Log</p>
           <p className="text-sm">Admin actions on offerwall tracking (mark completed, reverse, block, etc.) will appear here.</p>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════
+          SUB-WALLS TAB
+          Shows aggregate click/conversion stats per sub-wall.
+          Click a row to drill into raw clicks for that wall.
+      ══════════════════════════════════════════════════════════ */}
+      {activeTab === 'subwalls' && (
+        <div className="space-y-5">
+
+          {/* Top-level summary */}
+          {swData?.summary && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[
+                { label: 'Total Clicks', value: swData.summary.total_clicks, color: 'text-blue-600' },
+                { label: 'Conversions', value: swData.summary.total_conversions, color: 'text-green-600' },
+                { label: 'Revenue', value: `$${swData.summary.total_revenue.toFixed(2)}`, color: 'text-violet-600' },
+                { label: 'Conv. Rate', value: `${swData.summary.conversion_rate}%`, color: 'text-orange-600' },
+              ].map(s => (
+                <div key={s.label} className="bg-muted/30 rounded-xl p-4">
+                  <p className="text-xs text-muted-foreground mb-1">{s.label}</p>
+                  <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+                  <p className="text-[10px] text-muted-foreground mt-1">last 30 days · all sub-walls</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Per-wall table — left side */}
+          <div className={`grid ${swSelectedSlug ? 'grid-cols-1 lg:grid-cols-5' : 'grid-cols-1'} gap-5`}>
+
+            {/* Wall list */}
+            <div className={swSelectedSlug ? 'lg:col-span-2' : 'col-span-1'}>
+              <div className="border rounded-xl overflow-hidden">
+                <div className="bg-muted/40 px-4 py-2.5 flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    All Sub-Walls
+                  </p>
+                  <button onClick={loadSwOverview} className="p-1 hover:bg-muted rounded">
+                    <RefreshCw className={`h-3.5 w-3.5 ${swLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+
+                {swLoading && !swData ? (
+                  <div className="text-center py-10 text-muted-foreground text-sm">Loading...</div>
+                ) : !swData?.walls?.length ? (
+                  <div className="text-center py-10 text-muted-foreground">
+                    <Layers className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm font-medium">No sub-wall clicks yet</p>
+                    <p className="text-xs mt-1">Sub-wall clicks will appear here once traffic is recorded.</p>
+                  </div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/20">
+                      <tr>
+                        <th className="text-left px-4 py-2.5 font-medium text-xs">Sub-Wall</th>
+                        <th className="text-right px-3 py-2.5 font-medium text-xs">Clicks</th>
+                        <th className="text-right px-3 py-2.5 font-medium text-xs">Conv.</th>
+                        <th className="text-right px-3 py-2.5 font-medium text-xs">Revenue</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {swData.walls.map(w => (
+                        <tr
+                          key={w.slug}
+                          onClick={() => { setSwSelectedSlug(w.slug); loadSwDrill(w.slug); }}
+                          className={`cursor-pointer hover:bg-muted/30 transition-colors ${swSelectedSlug === w.slug ? 'bg-purple-50 dark:bg-purple-950/20' : ''}`}
+                        >
+                          <td className="px-4 py-3">
+                            <p className="font-medium truncate max-w-[160px]">{w.name}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{w.slug}</p>
+                          </td>
+                          <td className="px-3 py-3 text-right font-mono text-blue-600">{w.clicks}</td>
+                          <td className="px-3 py-3 text-right font-mono text-green-600">{w.conversions}</td>
+                          <td className="px-3 py-3 text-right font-mono text-violet-600">${w.revenue.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+
+            {/* Drill-down panel */}
+            {swSelectedSlug && (
+              <div className="lg:col-span-3 border rounded-xl overflow-hidden">
+                <div className="bg-muted/40 px-4 py-2.5 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      {swData?.walls.find(w => w.slug === swSelectedSlug)?.name || swSelectedSlug}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground font-mono">{swSelectedSlug}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => loadSwDrill(swSelectedSlug, swDrillPage)} className="p-1 hover:bg-muted rounded">
+                      <RefreshCw className={`h-3.5 w-3.5 ${swDrillLoading ? 'animate-spin' : ''}`} />
+                    </button>
+                    <button onClick={() => { setSwSelectedSlug(null); setSwDrillData(null); }} className="p-1 hover:bg-muted rounded text-muted-foreground">
+                      ✕
+                    </button>
+                  </div>
+                </div>
+
+                {swDrillLoading && !swDrillData ? (
+                  <div className="text-center py-10 text-muted-foreground text-sm">Loading clicks...</div>
+                ) : !swDrillData?.clicks?.length ? (
+                  <div className="text-center py-10 text-muted-foreground text-sm">No clicks recorded</div>
+                ) : (
+                  <>
+                    {/* Mini stats */}
+                    {swDrillData.summary && (
+                      <div className="grid grid-cols-3 gap-px bg-border">
+                        {[
+                          { label: 'Clicks', value: swDrillData.summary.total_clicks },
+                          { label: 'Conversions', value: swDrillData.summary.total_conversions },
+                          { label: 'Revenue', value: `$${swDrillData.summary.total_revenue.toFixed(2)}` },
+                        ].map(s => (
+                          <div key={s.label} className="bg-white dark:bg-card px-4 py-2.5 text-center">
+                            <p className="text-[10px] text-muted-foreground">{s.label}</p>
+                            <p className="text-base font-bold">{s.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Top offers for this wall */}
+                    {(swDrillData.walls[0]?.top_offers?.length ?? 0) > 0 && (
+                      <div className="px-4 py-3 border-b">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Top Offers</p>
+                        <div className="space-y-1">
+                          {swDrillData.walls[0].top_offers.map(o => (
+                            <div key={o.offer_id} className="flex items-center justify-between text-xs">
+                              <span className="truncate max-w-[220px] font-medium">{o.offer_name || o.offer_id}</span>
+                              <span className="text-muted-foreground font-mono ml-2">{o.clicks}c</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Clicks table */}
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted/20">
+                        <tr>
+                          <th className="text-left px-3 py-2 font-medium">Offer</th>
+                          <th className="text-left px-3 py-2 font-medium">Country</th>
+                          <th className="text-left px-3 py-2 font-medium">Device</th>
+                          <th className="text-left px-3 py-2 font-medium">Conv.</th>
+                          <th className="text-left px-3 py-2 font-medium">Time</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {swDrillData.clicks.map((c: SubWallClick) => (
+                          <tr key={c.click_id} className="hover:bg-muted/20">
+                            <td className="px-3 py-2 max-w-[160px] truncate font-medium">{c.offer_name || c.offer_id}</td>
+                            <td className="px-3 py-2">{c.country}</td>
+                            <td className="px-3 py-2 capitalize">{c.device_type}</td>
+                            <td className="px-3 py-2">
+                              {c.converted
+                                ? <span className="text-green-600 font-bold">✓</span>
+                                : <span className="text-muted-foreground">—</span>}
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
+                              {c.timestamp ? new Date(c.timestamp).toLocaleString() : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+
+                    {/* Pagination */}
+                    {swDrillData.clicks_total > 20 && (
+                      <div className="px-4 py-2.5 border-t flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">
+                          Page {swDrillPage} / {Math.ceil(swDrillData.clicks_total / 20)}
+                        </p>
+                        <div className="flex gap-1">
+                          <button disabled={swDrillPage <= 1}
+                            onClick={() => loadSwDrill(swSelectedSlug, swDrillPage - 1)}
+                            className="p-1 border rounded disabled:opacity-40 hover:bg-muted">
+                            <ChevronLeft className="h-3.5 w-3.5" />
+                          </button>
+                          <button disabled={swDrillPage >= Math.ceil(swDrillData.clicks_total / 20)}
+                            onClick={() => loadSwDrill(swSelectedSlug, swDrillPage + 1)}
+                            className="p-1 border rounded disabled:opacity-40 hover:bg-muted">
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

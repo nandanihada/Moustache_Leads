@@ -382,6 +382,7 @@ def track_offer_click(offer_id):
         sub3 = request.args.get('sub3', '')
         sub4 = request.args.get('sub4', '')
         sub5 = request.args.get('sub5', '')
+        traffic_source = request.args.get('source', '')  # e.g. 'subwall'
         
         # Get user info
         ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
@@ -586,7 +587,7 @@ def track_offer_click(offer_id):
             survey = survey_model.get_survey_for_offer(offer)
             if survey:
                 # Survey needs click saved synchronously
-                _save_click_sync(click_id, offer_id, offer, user_id, ip_address, user_agent, referer, sub1, sub2, sub3, sub4, sub5)
+                _save_click_sync(click_id, offer_id, offer, user_id, ip_address, user_agent, referer, sub1, sub2, sub3, sub4, sub5, traffic_source)
                 clicks_collection = db_instance.get_collection('clicks')
                 clicks_collection.update_one(
                     {'click_id': click_id},
@@ -598,7 +599,7 @@ def track_offer_click(offer_id):
             logger.warning(f"⚠️ Survey gateway check failed (non-critical): {survey_err}")
         
         # Fire background processing (non-blocking)
-        _process_click_background(click_id, offer_id, offer, user_id, ip_address, user_agent, referer, sub1, sub2, sub3, sub4, sub5)
+        _process_click_background(click_id, offer_id, offer, user_id, ip_address, user_agent, referer, sub1, sub2, sub3, sub4, sub5, traffic_source)
         
         logger.info(f"↗️  Redirecting to: {redirect_url}")
         return redirect(redirect_url, code=302)
@@ -618,26 +619,21 @@ def track_offer_click(offer_id):
         return jsonify({'error': 'Tracking error'}), 500
 
 
-def _process_click_background(click_id, offer_id, offer, user_id, ip_address, user_agent, referer, sub1, sub2, sub3, sub4, sub5):
+def _process_click_background(click_id, offer_id, offer, user_id, ip_address, user_agent, referer, sub1, sub2, sub3, sub4, sub5, traffic_source=''):
     """Fire click processing in a background thread so the redirect returns instantly."""
-    # RATE LIMIT: Skip DB insert if user has too many clicks (>10/minute)
-    # Still redirects the user, just doesn't waste DB resources on spam
     from services.fraud_scoring_service import _get_user_count, _record_click
     _record_click(ip_address, user_id, offer_id)
-    
-    # If user has more than 10 clicks in the last 5 minutes, skip processing entirely
     if user_id and _get_user_count(user_id) > 50:
-        return  # Don't even spawn a thread — save CPU + DB
-    
+        return
     thread = threading.Thread(
         target=_save_click_sync,
-        args=(click_id, offer_id, offer, user_id, ip_address, user_agent, referer, sub1, sub2, sub3, sub4, sub5),
+        args=(click_id, offer_id, offer, user_id, ip_address, user_agent, referer, sub1, sub2, sub3, sub4, sub5, traffic_source),
         daemon=True
     )
     thread.start()
 
 
-def _save_click_sync(click_id, offer_id, offer, user_id, ip_address, user_agent, referer, sub1, sub2, sub3, sub4, sub5):
+def _save_click_sync(click_id, offer_id, offer, user_id, ip_address, user_agent, referer, sub1, sub2, sub3, sub4, sub5, traffic_source=''):
     """Synchronous click processing — fraud scoring (in-memory), DB insert. Runs in background thread."""
     try:
         click_data = {
@@ -655,6 +651,9 @@ def _save_click_sync(click_id, offer_id, offer, user_id, ip_address, user_agent,
             'sub_id3': sub3,
             'sub_id4': sub4,
             'sub_id5': sub5,
+            # Sub-wall tracking — tagged when click comes from a sub-wall embed
+            'subwall_slug': sub2 if traffic_source == 'subwall' else None,
+            'traffic_source': traffic_source or 'direct',
             'click_time': datetime.utcnow(),
             'timestamp': datetime.utcnow(),
             'converted': False,

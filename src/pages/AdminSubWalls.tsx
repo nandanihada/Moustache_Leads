@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { subWallApi, SubWall } from "@/services/subWallApi";
 import { surveyBuilderApi } from "@/services/surveyBuilderApi";
+import { fetchSubWallAnalytics, type SubWallAnalyticsResponse, type SubWallClick } from "@/services/adminReportsApi";
 import { useToast } from "@/hooks/use-toast";
 import {
   Card, CardContent, CardHeader, CardTitle
@@ -22,7 +23,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from "@/components/ui/select";
 import {
-  Layers, Plus, Trash2, Edit, ExternalLink, Search, Copy, X
+  Layers, Plus, Trash2, Edit, ExternalLink, Search, Copy, X,
+  BarChart2, TrendingUp, MousePointerClick, DollarSign,
+  ChevronLeft, ChevronRight, RefreshCw,
 } from "lucide-react";
 import { getApiBaseUrl } from "@/services/apiConfig";
 import { getAuthToken } from "@/utils/cookies";
@@ -65,6 +68,39 @@ export default function AdminSubWalls() {
   const [userResults, setUserResults] = useState<any[]>([]);
   const [userSearchLoading, setUserSearchLoading] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+
+  // Tracking drawer state
+  const [trackingSlug, setTrackingSlug] = useState<string | null>(null);
+  const [trackingWallName, setTrackingWallName] = useState('');
+  const [trackingData, setTrackingData] = useState<SubWallAnalyticsResponse | null>(null);
+  const [trackingLoading, setTrackingLoading] = useState(false);
+  const [trackingPage, setTrackingPage] = useState(1);
+  const [trackingDateRange] = useState(() => {
+    const end = new Date().toISOString().split('T')[0];
+    const start = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+    return { start, end };
+  });
+
+  const openTracking = useCallback(async (slug: string, name: string, page = 1) => {
+    setTrackingSlug(slug);
+    setTrackingWallName(name);
+    setTrackingPage(page);
+    setTrackingLoading(true);
+    try {
+      const data = await fetchSubWallAnalytics({
+        slug,
+        start_date: trackingDateRange.start,
+        end_date: trackingDateRange.end,
+        page,
+        per_page: 20,
+      });
+      setTrackingData(data);
+    } catch {
+      // keep existing data
+    } finally {
+      setTrackingLoading(false);
+    }
+  }, [trackingDateRange]);
 
   // Fetch sub-walls
   const { data: subWallsData, isLoading } = useQuery({
@@ -335,6 +371,7 @@ export default function AdminSubWalls() {
                   <TableHead>Pre-Screening</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Order</TableHead>
+                  <TableHead>Tracking</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -371,6 +408,18 @@ export default function AdminSubWalls() {
                     </TableCell>
                     <TableCell>{getStatusBadge(sw.status)}</TableCell>
                     <TableCell>{sw.display_order || 0}</TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="gap-1.5 text-violet-600 hover:text-violet-800 hover:bg-violet-50"
+                        onClick={() => openTracking(sw.slug, sw.name)}
+                        title="View tracking"
+                      >
+                        <BarChart2 className="h-4 w-4" />
+                        <span className="text-xs">Stats</span>
+                      </Button>
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
                         <Button variant="ghost" size="sm" onClick={() => openEditDialog(sw)} title="Edit">

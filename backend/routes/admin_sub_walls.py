@@ -415,15 +415,25 @@ def get_public_sub_wall(slug):
                 target_url = offer.get('target_url', '')
                 if target_url:
                     offer_id = offer.get('offer_id', '')
-                    clean_url = target_url.replace('{offer_id}', offer_id) \
-                        .replace('{payout}', str(offer.get('payout', 0))) \
-                        .replace('{user_id}', 'subwall_user') \
-                        .replace('{transaction_id}', f"sw_{slug}_{offer_id}") \
-                        .replace('{sub1}', 'subwall') \
-                        .replace('{sub2}', slug) \
-                        .replace('{sub3}', '') \
-                        .replace('{aff_sub}', 'subwall_user')
-                    offer['click_url'] = clean_url
+                    # Route through the tracking endpoint so clicks are recorded in the
+                    # clicks collection with a real click_id, user_id, and sub1.
+                    # user_id and sub1 are injected by the frontend when the sub-wall
+                    # is embedded (passed as query params ?user_id=&sub1=).
+                    user_id_param  = request.args.get('user_id', 'subwall_user')
+                    sub1_param     = request.args.get('sub1', slug)
+                    tracking_base  = request.host_url.rstrip('/')
+                    # Use the offers.moustacheleads.com tracking domain in production
+                    x_forwarded    = request.headers.get('X-Forwarded-Host', '')
+                    if x_forwarded:
+                        scheme = request.headers.get('X-Forwarded-Proto', 'https')
+                        tracking_base = f"{scheme}://{x_forwarded.split(',')[0].strip()}"
+                    offer['click_url'] = (
+                        f"{tracking_base}/track/{offer_id}"
+                        f"?user_id={user_id_param}"
+                        f"&sub1={sub1_param}"
+                        f"&sub2={slug}"
+                        f"&source=subwall"
+                    )
                 offers.append(offer)
 
         # Build public response

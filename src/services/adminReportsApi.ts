@@ -356,3 +356,71 @@ export const adminReportsApi = {
     return response.json();
   },
 };
+
+// ── Sub-Wall Analytics ────────────────────────────────────────────────────
+
+export interface SubWallTopOffer {
+  offer_id: string;
+  offer_name: string;
+  clicks: number;
+}
+
+export interface SubWallRow {
+  slug: string;
+  name: string;
+  clicks: number;
+  conversions: number;
+  revenue: number;
+  conversion_rate: number;
+  unique_offers: number;
+  unique_countries: number;
+  last_click: string | null;
+  top_offers: SubWallTopOffer[];
+}
+
+export interface SubWallClick {
+  click_id: string;
+  offer_id: string;
+  offer_name: string;
+  user_id: string;
+  country: string;
+  device_type: string;
+  converted: boolean;
+  payout: number;
+  fraud_score: number;
+  timestamp: string;
+}
+
+export interface SubWallAnalyticsResponse {
+  success: boolean;
+  summary: {
+    total_clicks: number;
+    total_conversions: number;
+    total_revenue: number;
+    conversion_rate: number;
+  };
+  walls: SubWallRow[];
+  clicks: SubWallClick[];
+  clicks_total: number;
+  page: number;
+  per_page: number;
+  date_range: { start: string; end: string };
+}
+
+export async function fetchSubWallAnalytics(params: {
+  slug?: string;
+  start_date?: string;
+  end_date?: string;
+  page?: number;
+  per_page?: number;
+}): Promise<SubWallAnalyticsResponse> {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') qs.set(k, String(v));
+  });
+  const token = localStorage.getItem('token') || '';
+  const res = await fetch(`${getApiBaseUrl()}/api/admin/reports/subwall-analytics?${qs}`, {
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+  });
+  return res.json();
+}
