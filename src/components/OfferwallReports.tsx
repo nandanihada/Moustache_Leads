@@ -931,6 +931,7 @@ const ClickTrackingSubTab: React.FC<ClickTrackingProps> = ({ filters, dateRange,
   const [localDateFrom, setLocalDateFrom] = useState(filters.dateFrom || dateRange.start);
   const [localDateTo, setLocalDateTo] = useState(filters.dateTo || dateRange.end);
   const [fetchTrigger, setFetchTrigger] = useState(0);
+  const [subwallOnly, setSubwallOnly] = useState(false);
 
   // Fetch clicks from real API with source=offerwall
   const fetchClicks = useCallback(async () => {
@@ -950,6 +951,8 @@ const ClickTrackingSubTab: React.FC<ClickTrackingProps> = ({ filters, dateRange,
       if (filters.device) params.append('device_type', filters.device);
       if (filters.countries && filters.countries.length > 0) params.append('country', filters.countries[0]);
       if (filters.search) params.append('search', filters.search);
+      // Sub-wall only filter — shows YIS Survey (Voqall + MarketXcel) offers exclusively
+      if (subwallOnly) params.append('offer_name', 'YIS Survey');
       // Apply drill-down filter from Performance tab row click
       if (drillFilter) {
         if (drillFilter.key === 'publisher_id') params.set('publisher_id', drillFilter.value);
@@ -975,7 +978,7 @@ const ClickTrackingSubTab: React.FC<ClickTrackingProps> = ({ filters, dateRange,
     } finally {
       setLoading(false);
     }
-  }, [page, statusTab, filters, localDateFrom, localDateTo, drillFilter, fetchTrigger]);
+  }, [page, statusTab, filters, localDateFrom, localDateTo, drillFilter, fetchTrigger, subwallOnly]);
 
   useEffect(() => { fetchClicks(); }, [fetchClicks]);
   useEffect(() => { setPage(1); }, [statusTab]);
@@ -1050,6 +1053,27 @@ const ClickTrackingSubTab: React.FC<ClickTrackingProps> = ({ filters, dateRange,
           <Button variant="ghost" size="sm" className="h-6 text-[10px] text-purple-600 hover:text-purple-800" onClick={onClearDrill}>✕ Clear</Button>
         </div>
       )}
+
+      {/* Sub-Wall filter toggle */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => { setSubwallOnly(v => !v); setPage(1); }}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+            subwallOnly
+              ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+              : 'bg-white text-muted-foreground border-gray-200 hover:border-violet-400 hover:text-violet-600'
+          }`}
+        >
+          <Layers className="h-3.5 w-3.5" />
+          YIS Survey (Sub-Wall offers only)
+          {subwallOnly && <span className="ml-1 text-[10px]">✓ Active</span>}
+        </button>
+        {subwallOnly && (
+          <span className="text-xs text-violet-600 font-medium">
+            Showing only Voqall + MarketXcel sub-wall offers
+          </span>
+        )}
+      </div>
 
       {/* Date range + Status filter pills */}
       <div className="flex items-center gap-2 flex-wrap">
