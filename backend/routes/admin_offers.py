@@ -7823,3 +7823,336 @@ def admin_list_survey_funnels():
     except Exception as e:
         logging.error(f"Error listing admin survey funnels: {e}", exc_info=True)
         return jsonify({'success': True, 'offers': [], 'total': 0}), 200
+
+
+# ─── PepperWahl Survey / Funnel Generation ──────────────────────────────────
+
+PEPPERWAHL_API_URL = 'https://api.pepperwahl.com/api/external/generate'
+PEPPERWAHL_API_KEY = 'pw_moustache_secret_key_2025'
+
+
+def _pepperwahl_poll_and_store(poll_url: str, offer_id: str, offers_col, survey_requests_col=None, log_id: str = None):
+    """
+    Background thread: polls PepperWahl until funnel is done, then stores
+    funnel_url on the offer document and updates the survey_requests log.
+    """
+    import time as _time
+    import requests as _requests
+    from bson import ObjectId
+
+    headers = {'X-API-Key': PEPPERWAHL_API_KEY}
+    max_attempts = 60  # 5 min max (60 × 5s)
+
+    for attempt in range(max_attempts):
+        try:
+            resp = _requests.get(poll_url, headers=headers, timeout=15)
+            data = resp.json()
+            status = data.get('status', '')
+
+            if status == 'done':
+                funnel_url = data.get('funnel_url', '')
+                if funnel_url and offer_id:
+                    offers_col.update_one(
+                        {'offer_id': offer_id},
+                        {'$set': {
+                            'funnel_url': funnel_url,
+                            'survey_generated_at': datetime.utcnow(),
+                            'survey_generation_status': 'done',
+                        }}
+                    )
+                    if survey_requests_col and log_id:
+                        try:
+                            survey_requests_col.update_one(
+                                {'_id': ObjectId(log_id)},
+                                {'$set': {'status': 'done', 'funnel_url': funnel_url}}
+                            )
+                        except Exception:
+                            pass
+                    logging.info(f"[PepperWahl] Funnel done for offer {offer_id}: {funnel_url}")
+                return
+
+            elif status == 'error':
+                error_msg = data.get('error', 'Unknown error')
+                offers_col.update_one(
+                    {'offer_id': offer_id},
+                    {'$set': {
+                        'survey_generation_status': 'error',
+                        'survey_generation_error': error_msg,
+                    }}
+                )
+                if survey_requests_col and log_id:
+                    try:
+                        survey_requests_col.update_one(
+                            {'_id': ObjectId(log_id)},
+                            {'$set': {'status': 'error', 'error': error_msg}}
+                        )
+                    except Exception:
+                        pass
+                logging.error(f"[PepperWahl] Funnel error for offer {offer_id}: {error_msg}")
+                return
+
+        except Exception as poll_err:
+            logging.warning(f"[PepperWahl] Poll error (attempt {attempt+1}) for offer {offer_id}: {poll_err}")
+
+        _time.sleep(5)
+
+    # Timeout
+    offers_col.update_one(
+        {'offer_id': offer_id},
+        {'$set': {'survey_generation_status': 'timeout'}}
+    )
+    if survey_requests_col and log_id:
+        try:
+            survey_requests_col.update_one(
+                {'_id': ObjectId(log_id)},
+                {'$set': {'status': 'timeout'}}
+            )
+        except Exception:
+            pass
+    logging.warning(f"[PepperWahl] Polling timed out for offer {offer_id}")
+
+
+@admin_offers_bp.route('/offers/generate-survey', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def generate_survey():
+    """
+    Generate a PepperWahl survey or funnel for one or more offers.
+
+    Body:
+      offer_ids       [str]          required
+      type            "survey"|"funnel"  required
+      question_count  int            optional, survey only, default 10
+      additional_info str            optional
+    """
+    import requests as _requests
+
+    try:
+        data = request.get_json() or {}
+        offer_ids = data.get('offer_ids', [])
+        generation_type = data.get('type', 'survey')
+        question_count = data.get('question_count', 10)
+        additional_info = data.get('additional_info', '')
+
+        if not offer_ids:
+            return jsonify({'error': 'offer_ids is required'}), 400
+
+        if generation_type not in ('survey', 'funnel'):
+            return jsonify({'error': 'type must be "survey" or "funnel"'}), 400
+
+        # Clamp question_count
+        try:
+            question_count = int(question_count)
+            question_count = max(5, min(100, question_count))
+        except (TypeError, ValueError):
+            question_count = 10
+
+        offers_col = db_instance.get_collection('offers')
+        survey_requests_col = db_instance.get_collection('survey_requests')
+
+        # Unique batch ID groups all offers from one admin action
+        batch_id = str(uuid.uuid4())
+        current_user = getattr(request, 'current_user', {})
+        triggered_by = current_user.get('email', 'unknown') if isinstance(current_user, dict) else 'unknown'
+
+        # Fetch offer documents (need description)
+        offer_docs = list(offers_col.find(
+            {'offer_id': {'$in': offer_ids}},
+            {'offer_id': 1, 'name': 1, 'description': 1}
+        ))
+        offer_map = {o['offer_id']: o for o in offer_docs}
+
+        headers = {
+            'X-API-Key': PEPPERWAHL_API_KEY,
+            'Content-Type': 'application/json',
+        }
+
+        results = []
+
+        for oid in offer_ids:
+            offer_doc = offer_map.get(oid)
+            if not offer_doc:
+                results.append({'offer_id': oid, 'status': 'error', 'error': 'Offer not found'})
+                survey_requests_col.insert_one({
+                    'batch_id': batch_id,
+                    'offer_id': oid,
+                    'offer_name': oid,
+                    'type': generation_type,
+                    'payload_sent': None,
+                    'response_received': None,
+                    'status': 'error',
+                    'error': 'Offer not found',
+                    'survey_url': None,
+                    'funnel_url': None,
+                    'job_id': None,
+                    'triggered_by': triggered_by,
+                    'created_at': datetime.utcnow(),
+                })
+                continue
+
+            description = (offer_doc.get('description') or '').strip()
+            if not description:
+                description = offer_doc.get('name', oid)
+
+            payload = {
+                'type': generation_type,
+                'description': description,
+            }
+            if additional_info:
+                payload['additional_info'] = additional_info
+            if generation_type == 'survey':
+                payload['question_count'] = question_count
+
+            log_doc = {
+                'batch_id': batch_id,
+                'offer_id': oid,
+                'offer_name': offer_doc.get('name', oid),
+                'type': generation_type,
+                'payload_sent': payload,
+                'response_received': None,
+                'status': 'pending',
+                'error': None,
+                'survey_url': None,
+                'funnel_url': None,
+                'job_id': None,
+                'triggered_by': triggered_by,
+                'created_at': datetime.utcnow(),
+            }
+
+            try:
+                resp = _requests.post(
+                    PEPPERWAHL_API_URL,
+                    headers=headers,
+                    json=payload,
+                    timeout=30,
+                )
+                resp_data = resp.json()
+                log_doc['response_received'] = resp_data
+
+                if generation_type == 'survey':
+                    # Synchronous: done immediately
+                    if resp.ok and resp_data.get('status') == 'done':
+                        survey_url = resp_data.get('survey_url', '')
+                        title = resp_data.get('title', '')
+                        survey_id = resp_data.get('survey_id', '')
+
+                        # Persist to offer
+                        offers_col.update_one(
+                            {'offer_id': oid},
+                            {'$set': {
+                                'survey_url': survey_url,
+                                'survey_id': survey_id,
+                                'survey_generated_at': datetime.utcnow(),
+                                'survey_generation_status': 'done',
+                            }}
+                        )
+                        log_doc.update({'status': 'done', 'survey_url': survey_url})
+                        results.append({
+                            'offer_id': oid,
+                            'status': 'done',
+                            'survey_url': survey_url,
+                            'title': title,
+                        })
+                    else:
+                        err = resp_data.get('error') or resp_data.get('message') or f'HTTP {resp.status_code}'
+                        log_doc.update({'status': 'error', 'error': err})
+                        results.append({'offer_id': oid, 'status': 'error', 'error': err})
+
+                else:
+                    # Funnel: async — start background poll
+                    if resp.ok and resp_data.get('job_id'):
+                        job_id = resp_data['job_id']
+                        poll_url = resp_data.get('poll_url', '')
+
+                        # Mark offer as queued
+                        offers_col.update_one(
+                            {'offer_id': oid},
+                            {'$set': {
+                                'survey_generation_status': 'queued',
+                                'survey_job_id': job_id,
+                                'survey_generated_at': datetime.utcnow(),
+                            }}
+                        )
+                        log_doc.update({'status': 'queued', 'job_id': job_id})
+
+                        # Insert log early so polling thread can update it
+                        log_insert = survey_requests_col.insert_one(log_doc)
+                        log_doc['_inserted'] = True
+
+                        if poll_url:
+                            t = threading.Thread(
+                                target=_pepperwahl_poll_and_store,
+                                args=(poll_url, oid, offers_col, survey_requests_col, str(log_insert.inserted_id)),
+                                daemon=True,
+                            )
+                            t.start()
+
+                        results.append({
+                            'offer_id': oid,
+                            'status': 'queued',
+                            'job_id': job_id,
+                        })
+                    else:
+                        err = resp_data.get('error') or resp_data.get('message') or f'HTTP {resp.status_code}'
+                        log_doc.update({'status': 'error', 'error': err})
+                        results.append({'offer_id': oid, 'status': 'error', 'error': err})
+
+            except _requests.exceptions.Timeout:
+                log_doc.update({'status': 'error', 'error': 'PepperWahl API timed out'})
+                results.append({'offer_id': oid, 'status': 'error', 'error': 'PepperWahl API timed out'})
+            except Exception as req_err:
+                logging.error(f"[PepperWahl] Request error for offer {oid}: {req_err}", exc_info=True)
+                log_doc.update({'status': 'error', 'error': str(req_err)})
+                results.append({'offer_id': oid, 'status': 'error', 'error': str(req_err)})
+
+            # Insert log unless funnel path already inserted it
+            if not log_doc.get('_inserted'):
+                survey_requests_col.insert_one(log_doc)
+
+        return jsonify({'success': True, 'results': results}), 200
+
+    except Exception as e:
+        logging.error(f"generate_survey error: {e}", exc_info=True)
+        return jsonify({'error': f'Failed: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/survey-requests', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def list_survey_requests():
+    """
+    Return all PepperWahl generation requests, newest first.
+    Query params: page, per_page, type, status, search
+    """
+    try:
+        page = int(request.args.get('page', 1))
+        per_page = min(int(request.args.get('per_page', 50)), 200)
+        skip = (page - 1) * per_page
+
+        query = {}
+        if request.args.get('type') and request.args.get('type') != 'all':
+            query['type'] = request.args.get('type')
+        if request.args.get('status') and request.args.get('status') != 'all':
+            query['status'] = request.args.get('status')
+        if request.args.get('search'):
+            query['offer_name'] = {'$regex': request.args.get('search'), '$options': 'i'}
+
+        col = db_instance.get_collection('survey_requests')
+        total = col.count_documents(query)
+        docs = list(col.find(query, {'_id': 0}).sort('created_at', -1).skip(skip).limit(per_page))
+
+        for d in docs:
+            if d.get('created_at'):
+                d['created_at'] = d['created_at'].isoformat() + 'Z'
+
+        return jsonify({
+            'success': True,
+            'requests': docs,
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+        }), 200
+
+    except Exception as e:
+        logging.error(f"list_survey_requests error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500

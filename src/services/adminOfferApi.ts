@@ -1124,6 +1124,54 @@ class AdminOfferApi {
     return this.handleResponse(response);
   }
 
+  async generateSurvey(payload: {
+    offer_ids: string[];
+    type: 'survey' | 'funnel';
+    question_count?: number;
+    additional_info?: string;
+  }): Promise<{ success: boolean; results: Array<{ offer_id: string; status: string; survey_url?: string; funnel_url?: string; title?: string; job_id?: string; error?: string }> }> {
+    const response = await fetch(`${API_BASE_URL}/offers/generate-survey`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+    return this.handleResponse(response);
+  }
+
+  async listSurveyRequests(params: { page?: number; per_page?: number; type?: string; status?: string; search?: string }): Promise<{
+    success: boolean;
+    requests: Array<{
+      batch_id: string;
+      offer_id: string;
+      offer_name: string;
+      type: string;
+      payload_sent: Record<string, any> | null;
+      response_received: Record<string, any> | null;
+      status: string;
+      error: string | null;
+      survey_url: string | null;
+      funnel_url: string | null;
+      job_id: string | null;
+      triggered_by: string;
+      created_at: string;
+    }>;
+    total: number;
+    page: number;
+    per_page: number;
+  }> {
+    const q = new URLSearchParams();
+    if (params.page) q.set('page', String(params.page));
+    if (params.per_page) q.set('per_page', String(params.per_page));
+    if (params.type) q.set('type', params.type);
+    if (params.status) q.set('status', params.status);
+    if (params.search) q.set('search', params.search);
+    const response = await fetch(`${API_BASE_URL}/offers/survey-requests?${q.toString()}`, {
+      method: 'GET',
+      headers: this.getAuthHeaders(),
+    });
+    return this.handleResponse(response);
+  }
+
   async unpinOffer(offerId: string): Promise<{
     success: boolean;
     message: string;

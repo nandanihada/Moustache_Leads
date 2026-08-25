@@ -22,6 +22,7 @@ import {
   LayoutGrid,
   Globe,
   Mail,
+  ClipboardList,
 } from 'lucide-react';
 
 interface ActionsDropdownProps {
@@ -40,6 +41,7 @@ interface ActionsDropdownProps {
   onMailSchedule?: () => void;
   onRefineDescription?: () => void;
   onSetFallback?: () => void;
+  onGenerateSurvey?: () => void;
 }
 
 const ActionsDropdown: React.FC<ActionsDropdownProps> = ({
@@ -58,6 +60,7 @@ const ActionsDropdown: React.FC<ActionsDropdownProps> = ({
   onMailSchedule,
   onRefineDescription,
   onSetFallback,
+  onGenerateSurvey,
 }) => {
   return (
     <DropdownMenu>
@@ -140,6 +143,15 @@ const ActionsDropdown: React.FC<ActionsDropdownProps> = ({
             <Globe className="mr-2 h-4 w-4" />
             Set Fallback URL
           </DropdownMenuItem>
+        )}
+        {onGenerateSurvey && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onGenerateSurvey}>
+              <ClipboardList className="mr-2 h-4 w-4 text-indigo-500" />
+              Generate Survey
+            </DropdownMenuItem>
+          </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

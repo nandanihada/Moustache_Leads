@@ -48,6 +48,7 @@ import {
   X,
   Megaphone,
   Sparkles,
+  ClipboardList,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -102,7 +103,7 @@ const AdminOffers = () => {
   const [recycleBinSearchTerm, setRecycleBinSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [activeTab, setActiveTab] = useState('offers');
-  const [offersSubView, setOffersSubView] = useState<'all' | 'running' | 'rotating' | 'recommended' | 'survey_funnels'>('all');
+  const [offersSubView, setOffersSubView] = useState<'all' | 'running' | 'rotating' | 'recommended' | 'survey_funnels' | 'survey_requests'>('all');
   const [addOfferModalOpen, setAddOfferModalOpen] = useState(false);
   const [editOfferModalOpen, setEditOfferModalOpen] = useState(false);
   const [linkMaskingModalOpen, setLinkMaskingModalOpen] = useState(false);
@@ -246,6 +247,16 @@ const AdminOffers = () => {
   const [surveyFunnelsTotal, setSurveyFunnelsTotal] = useState(0);
   const [surveyFunnelsPagination, setSurveyFunnelsPagination] = useState({ page: 1, per_page: 50, total: 0 });
   const [surveyFunnelsSearch, setSurveyFunnelsSearch] = useState('');
+
+  // Survey Requests log state
+  const [surveyRequests, setSurveyRequests] = useState<any[]>([]);
+  const [surveyRequestsLoading, setSurveyRequestsLoading] = useState(false);
+  const [surveyRequestsTotal, setSurveyRequestsTotal] = useState(0);
+  const [surveyRequestsPagination, setSurveyRequestsPagination] = useState({ page: 1, per_page: 50 });
+  const [surveyRequestsSearch, setSurveyRequestsSearch] = useState('');
+  const [surveyRequestsTypeFilter, setSurveyRequestsTypeFilter] = useState('all');
+  const [surveyRequestsStatusFilter, setSurveyRequestsStatusFilter] = useState('all');
+  const [surveyRequestsExpandedId, setSurveyRequestsExpandedId] = useState<string | null>(null);
 
   // Publish funnel as offer modal state
   const [publishFunnelModalOpen, setPublishFunnelModalOpen] = useState(false);
@@ -549,6 +560,28 @@ const AdminOffers = () => {
       toast({ title: "Error", description: "Failed to load survey funnels", variant: "destructive" });
     } finally {
       setSurveyFunnelsLoading(false);
+    }
+  };
+
+  const fetchSurveyRequests = async (page = 1, opts?: { search?: string; type?: string; status?: string }) => {
+    setSurveyRequestsLoading(true);
+    try {
+      const data = await adminOfferApi.listSurveyRequests({
+        page,
+        per_page: 50,
+        search: opts?.search ?? surveyRequestsSearch,
+        type: opts?.type ?? (surveyRequestsTypeFilter !== 'all' ? surveyRequestsTypeFilter : undefined),
+        status: opts?.status ?? (surveyRequestsStatusFilter !== 'all' ? surveyRequestsStatusFilter : undefined),
+      });
+      if (data.success) {
+        setSurveyRequests(data.requests || []);
+        setSurveyRequestsTotal(data.total || 0);
+        setSurveyRequestsPagination({ page, per_page: 50 });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to load survey requests', variant: 'destructive' });
+    } finally {
+      setSurveyRequestsLoading(false);
     }
   };
 
@@ -1454,6 +1487,47 @@ const AdminOffers = () => {
   const [selectiveRefineMode, setSelectiveRefineMode] = useState<'single' | 'bulk'>('single');
   const [selectiveRefineOfferIds, setSelectiveRefineOfferIds] = useState<string[]>([]);
 
+  // Generate Survey Modal state
+  const [generateSurveyOpen, setGenerateSurveyOpen] = useState(false);
+  const [generateSurveyType, setGenerateSurveyType] = useState<'survey' | 'funnel'>('survey');
+  const [generateSurveyQuestionCount, setGenerateSurveyQuestionCount] = useState<string>('10');
+  const [generateSurveyAdditionalInfo, setGenerateSurveyAdditionalInfo] = useState('');
+  const [generateSurveyLoading, setGenerateSurveyLoading] = useState(false);
+  const [generateSurveyResults, setGenerateSurveyResults] = useState<Array<{ offer_id: string; name: string; status: string; survey_url?: string; funnel_url?: string; title?: string; error?: string }> | null>(null);
+
+  const handleGenerateSurveySubmit = async () => {
+    const ids = Array.from(selectedOffers);
+    if (ids.length === 0) {
+      toast({ title: 'No Selection', description: 'Select at least one offer to generate a survey', variant: 'destructive' });
+      return;
+    }
+    setGenerateSurveyLoading(true);
+    setGenerateSurveyResults(null);
+    try {
+      const payload: { offer_ids: string[]; type: 'survey' | 'funnel'; question_count?: number; additional_info?: string } = {
+        offer_ids: ids,
+        type: generateSurveyType,
+        ...(generateSurveyAdditionalInfo.trim() && { additional_info: generateSurveyAdditionalInfo.trim() }),
+      };
+      if (generateSurveyType === 'survey') {
+        const qc = parseInt(generateSurveyQuestionCount, 10);
+        if (!isNaN(qc) && qc >= 5 && qc <= 100) payload.question_count = qc;
+      }
+      const result = await adminOfferApi.generateSurvey(payload);
+      const enriched = (result.results || []).map(r => ({
+        ...r,
+        name: offers.find(o => o.offer_id === r.offer_id)?.name || r.offer_id,
+      }));
+      setGenerateSurveyResults(enriched);
+      const done = enriched.filter(r => r.status === 'done' || r.status === 'queued').length;
+      toast({ title: 'Survey Generation', description: `${done} of ${ids.length} offer(s) processed successfully` });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message || 'Failed to generate surveys', variant: 'destructive' });
+    } finally {
+      setGenerateSurveyLoading(false);
+    }
+  };
+
   const handleBulkMarkStarter = async () => {
     const ids = Array.from(selectedOffers);
     if (ids.length === 0) {
@@ -2234,6 +2308,9 @@ const AdminOffers = () => {
     if (offersSubView === 'survey_funnels') {
       fetchSurveyFunnels(1, surveyFunnelsSearch);
     }
+    if (offersSubView === 'survey_requests') {
+      fetchSurveyRequests(1);
+    }
   }, [offersSubView]);
 
   // Debounced search for survey funnels
@@ -2606,12 +2683,23 @@ const AdminOffers = () => {
               setSelectiveRefineMode(ids.length === 1 ? 'single' : 'bulk');
               setSelectiveRefineOpen(true);
             }}
+            onGenerateSurvey={() => {
+              if (selectedOffers.size === 0) {
+                toast({ title: 'No Selection', description: 'Select offers first to generate a survey', variant: 'destructive' });
+                return;
+              }
+              setGenerateSurveyResults(null);
+              setGenerateSurveyType('survey');
+              setGenerateSurveyQuestionCount('10');
+              setGenerateSurveyAdditionalInfo('');
+              setGenerateSurveyOpen(true);
+            }}
           />
         </div>
       </TooltipProvider>
 
       {/* Collapsible Filter Panel - only show for main offers view, not running offers */}
-      {offersSubView !== 'running' && offersSubView !== 'survey_funnels' && (
+      {offersSubView !== 'running' && offersSubView !== 'survey_funnels' && offersSubView !== 'survey_requests' && (
       <FilterPanel
         statusFilter={statusFilter}
         onStatusChange={(v) => { setStatusFilter(v); setPagination(prev => ({ ...prev, page: 1 })); }}
@@ -2636,7 +2724,7 @@ const AdminOffers = () => {
           <TabsList className="flex-wrap h-auto">
             <TabsTrigger value="offers" className="flex items-center gap-2">
               <Globe className="h-4 w-4" />
-              {offersSubView === 'running' ? `Running Offers (${runningPagination.total})` : offersSubView === 'rotating' ? `Rotating Offers (${rotatingPagination.total})` : offersSubView === 'recommended' ? `Recommended (${recommendedTotal})` : offersSubView === 'survey_funnels' ? `Survey Funnels (${surveyFunnelsTotal})` : `Active Offers (${pagination.total})`}
+              {offersSubView === 'running' ? `Running Offers (${runningPagination.total})` : offersSubView === 'rotating' ? `Rotating Offers (${rotatingPagination.total})` : offersSubView === 'recommended' ? `Recommended (${recommendedTotal})` : offersSubView === 'survey_funnels' ? `Survey Funnels (${surveyFunnelsTotal})` : offersSubView === 'survey_requests' ? `Survey Requests (${surveyRequestsTotal})` : `Active Offers (${pagination.total})`}
             </TabsTrigger>
             <TabsTrigger value="ad-campaigns" className="flex items-center gap-2">
               <Megaphone className="h-4 w-4" />
@@ -2656,7 +2744,7 @@ const AdminOffers = () => {
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="flex items-center gap-1.5 h-9">
                   <Activity className="h-4 w-4" />
-                  {offersSubView === 'all' ? 'All Offers' : offersSubView === 'running' ? 'Running Offers' : offersSubView === 'rotating' ? 'Rotating Offers' : offersSubView === 'survey_funnels' ? 'Survey Funnels' : 'Recommended'}
+                  {offersSubView === 'all' ? 'All Offers' : offersSubView === 'running' ? 'Running Offers' : offersSubView === 'rotating' ? 'Rotating Offers' : offersSubView === 'survey_funnels' ? 'Survey Funnels' : offersSubView === 'survey_requests' ? 'Survey Requests' : 'Recommended'}
                   <ChevronDown className="h-3.5 w-3.5 opacity-60" />
                 </Button>
               </DropdownMenuTrigger>
@@ -2680,6 +2768,10 @@ const AdminOffers = () => {
                 <DropdownMenuItem onClick={() => { setOffersSubView('survey_funnels'); fetchSurveyFunnels(1, ''); }} className={offersSubView === 'survey_funnels' ? 'bg-accent' : ''}>
                   <Sparkles className="h-4 w-4 mr-2 text-purple-500" />
                   Survey Funnels ({surveyFunnelsTotal})
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { setOffersSubView('survey_requests'); fetchSurveyRequests(1); }} className={offersSubView === 'survey_requests' ? 'bg-accent' : ''}>
+                  <ClipboardList className="h-4 w-4 mr-2 text-indigo-500" />
+                  Survey Requests ({surveyRequestsTotal})
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -3433,6 +3525,207 @@ const AdminOffers = () => {
                 )}
               </CardContent>
             </Card>
+          </div>
+          ) : offersSubView === 'survey_requests' ? (
+          /* ── Survey Requests Log Sub-View ── */
+          <div className="space-y-4">
+            {/* Header + filters bar */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="relative flex-1 min-w-[200px] max-w-xs">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search offer name..."
+                  value={surveyRequestsSearch}
+                  onChange={e => {
+                    setSurveyRequestsSearch(e.target.value);
+                    fetchSurveyRequests(1, { search: e.target.value });
+                  }}
+                  className="pl-9 h-9"
+                />
+              </div>
+              {/* Type filter */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-1.5 h-9 capitalize">
+                    {surveyRequestsTypeFilter === 'all' ? 'All Types' : surveyRequestsTypeFilter}
+                    <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {['all', 'survey', 'funnel'].map(t => (
+                    <DropdownMenuItem key={t} onClick={() => { setSurveyRequestsTypeFilter(t); fetchSurveyRequests(1, { type: t }); }} className={surveyRequestsTypeFilter === t ? 'bg-accent' : ''}>
+                      {t === 'all' ? 'All Types' : t.charAt(0).toUpperCase() + t.slice(1)}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {/* Status filter */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-1.5 h-9 capitalize">
+                    {surveyRequestsStatusFilter === 'all' ? 'All Statuses' : surveyRequestsStatusFilter}
+                    <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {['all', 'done', 'queued', 'error', 'timeout', 'pending'].map(s => (
+                    <DropdownMenuItem key={s} onClick={() => { setSurveyRequestsStatusFilter(s); fetchSurveyRequests(1, { status: s }); }} className={surveyRequestsStatusFilter === s ? 'bg-accent' : ''}>
+                      {s === 'all' ? 'All Statuses' : s.charAt(0).toUpperCase() + s.slice(1)}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button variant="outline" size="sm" onClick={() => fetchSurveyRequests(surveyRequestsPagination.page)} className="h-9">
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+              <span className="text-sm text-muted-foreground ml-auto">
+                {surveyRequestsTotal} total request{surveyRequestsTotal !== 1 ? 's' : ''}
+              </span>
+            </div>
+
+            {surveyRequestsLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="h-6 w-6 animate-spin text-indigo-500" />
+                <span className="ml-2 text-muted-foreground">Loading requests...</span>
+              </div>
+            ) : surveyRequests.length === 0 ? (
+              <div className="text-center py-16 text-muted-foreground">
+                <ClipboardList className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                <p className="font-medium">No survey requests yet</p>
+                <p className="text-sm mt-1">Select offers and use Actions → Generate Survey to get started</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {surveyRequests.map((req, idx) => {
+                  const isExpanded = surveyRequestsExpandedId === (req.batch_id + req.offer_id + idx);
+                  const expandKey = req.batch_id + req.offer_id + idx;
+                  const statusColor = req.status === 'done'
+                    ? 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400'
+                    : req.status === 'queued' || req.status === 'pending'
+                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400'
+                    : req.status === 'error' || req.status === 'timeout'
+                    ? 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400'
+                    : 'bg-gray-100 text-gray-600';
+                  return (
+                    <div key={expandKey} className="border rounded-lg overflow-hidden">
+                      {/* Row header — always visible */}
+                      <div
+                        className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/40 transition-colors"
+                        onClick={() => setSurveyRequestsExpandedId(isExpanded ? null : expandKey)}
+                      >
+                        <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                        {/* Type badge */}
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full capitalize ${req.type === 'survey' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400' : 'bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400'}`}>
+                          {req.type}
+                        </span>
+                        {/* Offer name */}
+                        <span className="font-medium text-sm truncate flex-1">{req.offer_name}</span>
+                        {/* Status */}
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full capitalize shrink-0 ${statusColor}`}>
+                          {req.status}
+                        </span>
+                        {/* URL preview */}
+                        {(req.survey_url || req.funnel_url) && (
+                          <a
+                            href={req.survey_url || req.funnel_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-indigo-600 hover:underline shrink-0 max-w-[160px] truncate"
+                            onClick={e => e.stopPropagation()}
+                          >
+                            {req.survey_url || req.funnel_url}
+                          </a>
+                        )}
+                        {/* Date */}
+                        <span className="text-xs text-muted-foreground shrink-0">
+                          {req.created_at ? new Date(req.created_at).toLocaleString() : '—'}
+                        </span>
+                        {/* Who triggered */}
+                        <span className="text-xs text-muted-foreground shrink-0 hidden md:block max-w-[120px] truncate">
+                          {req.triggered_by}
+                        </span>
+                      </div>
+
+                      {/* Expanded details */}
+                      {isExpanded && (
+                        <div className="border-t bg-muted/20 px-4 py-4 space-y-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* Payload Sent */}
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Payload Sent to PepperWahl</p>
+                              {req.payload_sent ? (
+                                <div className="bg-background border rounded-md p-3 space-y-2 text-sm">
+                                  <div className="flex gap-2">
+                                    <span className="text-muted-foreground w-28 shrink-0">type</span>
+                                    <span className="font-mono font-medium capitalize">{req.payload_sent.type}</span>
+                                  </div>
+                                  {req.payload_sent.question_count != null && (
+                                    <div className="flex gap-2">
+                                      <span className="text-muted-foreground w-28 shrink-0">question_count</span>
+                                      <span className="font-mono font-medium">{req.payload_sent.question_count}</span>
+                                    </div>
+                                  )}
+                                  {req.payload_sent.additional_info && (
+                                    <div className="flex gap-2">
+                                      <span className="text-muted-foreground w-28 shrink-0">additional_info</span>
+                                      <span className="text-xs">{req.payload_sent.additional_info}</span>
+                                    </div>
+                                  )}
+                                  <div>
+                                    <span className="text-muted-foreground text-xs block mb-1">description</span>
+                                    <p className="text-xs bg-muted/50 rounded p-2 leading-relaxed whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                                      {req.payload_sent.description}
+                                    </p>
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="text-sm text-muted-foreground italic">No payload recorded</p>
+                              )}
+                            </div>
+
+                            {/* Response Received */}
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Response from PepperWahl</p>
+                              {req.response_received ? (
+                                <pre className="text-xs bg-background border rounded-md p-3 overflow-auto max-h-48 whitespace-pre-wrap break-all">
+                                  {JSON.stringify(req.response_received, null, 2)}
+                                </pre>
+                              ) : (
+                                <p className="text-sm text-muted-foreground italic">{req.error || 'No response recorded'}</p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Meta row */}
+                          <div className="flex flex-wrap gap-4 text-xs text-muted-foreground border-t pt-3">
+                            <span>Batch: <code className="font-mono text-foreground">{req.batch_id?.slice(0, 8)}…</code></span>
+                            <span>Offer ID: <code className="font-mono text-foreground">{req.offer_id}</code></span>
+                            {req.job_id && <span>Job ID: <code className="font-mono text-foreground">{req.job_id}</code></span>}
+                            <span>By: <strong>{req.triggered_by}</strong></span>
+                            <span>At: {req.created_at ? new Date(req.created_at).toLocaleString() : '—'}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Pagination */}
+            {surveyRequestsTotal > 50 && (
+              <div className="flex items-center justify-center gap-2 pt-2">
+                <Button variant="outline" size="sm" disabled={surveyRequestsPagination.page <= 1} onClick={() => fetchSurveyRequests(surveyRequestsPagination.page - 1)}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Page {surveyRequestsPagination.page} · {Math.ceil(surveyRequestsTotal / 50)} pages
+                </span>
+                <Button variant="outline" size="sm" disabled={surveyRequestsPagination.page >= Math.ceil(surveyRequestsTotal / 50)} onClick={() => fetchSurveyRequests(surveyRequestsPagination.page + 1)}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
           </div>
           ) : (
           <>
@@ -5983,6 +6276,133 @@ const AdminOffers = () => {
         mode={selectiveRefineMode}
         onComplete={() => fetchOffers()}
       />
+
+      {/* ── GENERATE SURVEY / FUNNEL MODAL ── */}
+      <Dialog open={generateSurveyOpen} onOpenChange={(open) => { if (!generateSurveyLoading) setGenerateSurveyOpen(open); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardList className="h-5 w-5 text-indigo-500" />
+              Generate Survey / Funnel
+            </DialogTitle>
+            <DialogDescription>
+              Generating for <strong>{selectedOffers.size}</strong> selected offer(s). Each offer's description will be sent to PepperWahl AI.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!generateSurveyResults ? (
+            <div className="space-y-4 pt-2">
+              {/* Type selector */}
+              <div>
+                <Label className="text-sm font-medium">Type</Label>
+                <div className="flex gap-3 mt-2">
+                  {(['survey', 'funnel'] as const).map(t => (
+                    <button
+                      key={t}
+                      onClick={() => setGenerateSurveyType(t)}
+                      className={`flex-1 py-2 px-4 rounded-lg border-2 text-sm font-medium transition-colors capitalize ${
+                        generateSurveyType === t
+                          ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
+                          : 'border-border text-muted-foreground hover:border-indigo-300'
+                      }`}
+                    >
+                      {t === 'survey' ? '📋 Survey' : '🔀 Funnel'}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {generateSurveyType === 'survey'
+                    ? 'Survey results come back immediately with a live URL.'
+                    : 'Funnel generation is async — result URL will be saved to each offer once ready.'}
+                </p>
+              </div>
+
+              {/* Question count — only for survey */}
+              {generateSurveyType === 'survey' && (
+                <div>
+                  <Label className="text-sm font-medium">Number of Questions <span className="text-muted-foreground font-normal">(5–100, default 10)</span></Label>
+                  <Input
+                    type="number"
+                    min={5}
+                    max={100}
+                    value={generateSurveyQuestionCount}
+                    onChange={e => setGenerateSurveyQuestionCount(e.target.value)}
+                    className="mt-1 w-32"
+                    placeholder="10"
+                  />
+                </div>
+              )}
+
+              {/* Additional info */}
+              <div>
+                <Label className="text-sm font-medium">Additional Info <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                <textarea
+                  value={generateSurveyAdditionalInfo}
+                  onChange={e => setGenerateSurveyAdditionalInfo(e.target.value)}
+                  placeholder="e.g. Focus on US users aged 25–45, exclude competitor brands"
+                  className="w-full mt-1 text-sm border rounded-md p-2 resize-none min-h-[70px] bg-background"
+                  rows={3}
+                />
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setGenerateSurveyOpen(false)} disabled={generateSurveyLoading}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleGenerateSurveySubmit}
+                  disabled={generateSurveyLoading}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                >
+                  {generateSurveyLoading
+                    ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Generating...</>
+                    : <><ClipboardList className="h-4 w-4 mr-2" />Generate</>
+                  }
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            /* Results view */
+            <div className="space-y-3 pt-2">
+              <p className="text-sm text-muted-foreground">Results for {generateSurveyResults.length} offer(s):</p>
+              <div className="max-h-80 overflow-y-auto space-y-2">
+                {generateSurveyResults.map(r => (
+                  <div key={r.offer_id} className={`rounded-lg border p-3 text-sm ${r.error ? 'border-red-200 bg-red-50 dark:bg-red-950/20' : 'border-green-200 bg-green-50 dark:bg-green-950/20'}`}>
+                    <div className="font-medium truncate">{r.name}</div>
+                    {r.error ? (
+                      <p className="text-red-600 dark:text-red-400 text-xs mt-1">⚠ {r.error}</p>
+                    ) : (
+                      <>
+                        {r.title && <p className="text-muted-foreground text-xs mt-0.5">{r.title}</p>}
+                        {(r.survey_url || r.funnel_url) ? (
+                          <a
+                            href={r.survey_url || r.funnel_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-indigo-600 hover:underline text-xs mt-1 block truncate"
+                          >
+                            {r.survey_url || r.funnel_url}
+                          </a>
+                        ) : (
+                          <p className="text-xs text-amber-600 mt-1">⏳ {r.status === 'queued' ? 'Queued — funnel URL will be saved once ready' : r.status}</p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setGenerateSurveyResults(null); }}>
+                  Generate Again
+                </Button>
+                <Button onClick={() => { setGenerateSurveyOpen(false); setGenerateSurveyResults(null); fetchOffers(); }}>
+                  Done
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Bulk Refine Notification Popup */}
       <BulkRefineNotification
