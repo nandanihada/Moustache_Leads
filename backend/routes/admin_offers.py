@@ -7851,24 +7851,35 @@ def _pepperwahl_poll_and_store(poll_url: str, offer_id: str, offers_col, survey_
 
             if status == 'done':
                 funnel_url = data.get('funnel_url', '')
-                if funnel_url and offer_id:
+                survey_url = data.get('survey_url', '')
+                url_to_save = funnel_url or survey_url
+                if url_to_save and offer_id:
+                    update_fields = {
+                        'survey_generated_at': datetime.utcnow(),
+                        'survey_generation_status': 'done',
+                    }
+                    if funnel_url:
+                        update_fields['funnel_url'] = funnel_url
+                    if survey_url:
+                        update_fields['survey_url'] = survey_url
+                        update_fields['survey_id'] = data.get('survey_id', '')
                     offers_col.update_one(
                         {'offer_id': offer_id},
-                        {'$set': {
-                            'funnel_url': funnel_url,
-                            'survey_generated_at': datetime.utcnow(),
-                            'survey_generation_status': 'done',
-                        }}
+                        {'$set': update_fields}
                     )
                     if survey_requests_col and log_id:
                         try:
                             survey_requests_col.update_one(
                                 {'_id': ObjectId(log_id)},
-                                {'$set': {'status': 'done', 'funnel_url': funnel_url}}
+                                {'$set': {
+                                    'status': 'done',
+                                    'funnel_url': funnel_url or None,
+                                    'survey_url': survey_url or None,
+                                }}
                             )
                         except Exception:
                             pass
-                    logging.info(f"[PepperWahl] Funnel done for offer {offer_id}: {funnel_url}")
+                    logging.info(f"[PepperWahl] Done for offer {offer_id}: {url_to_save}")
                 return
 
             elif status == 'error':
@@ -8030,13 +8041,11 @@ def generate_survey():
                 log_doc['response_received'] = resp_data
 
                 if generation_type == 'survey':
-                    # Synchronous: done immediately
                     if resp.ok and resp_data.get('status') == 'done':
+                        # Synchronous: returned immediately
                         survey_url = resp_data.get('survey_url', '')
                         title = resp_data.get('title', '')
                         survey_id = resp_data.get('survey_id', '')
-
-                        # Persist to offer
                         offers_col.update_one(
                             {'offer_id': oid},
                             {'$set': {
@@ -8053,15 +8062,42 @@ def generate_survey():
                             'survey_url': survey_url,
                             'title': title,
                         })
+                    elif resp.ok and resp_data.get('status') in ('queued', 'pending') or (resp.ok and resp_data.get('poll_url')):
+                        # Survey also queued — treat same as funnel async flow
+                        job_id = resp_data.get('job_id', '')
+                        poll_url = resp_data.get('poll_url', '')
+                        offers_col.update_one(
+                            {'offer_id': oid},
+                            {'$set': {
+                                'survey_generation_status': 'queued',
+                                'survey_job_id': job_id,
+                                'survey_generated_at': datetime.utcnow(),
+                            }}
+                        )
+                        log_doc.update({'status': 'queued', 'job_id': job_id})
+                        log_insert = survey_requests_col.insert_one(log_doc)
+                        log_doc['_inserted'] = True
+                        if poll_url:
+                            t = threading.Thread(
+                                target=_pepperwahl_poll_and_store,
+                                args=(poll_url, oid, offers_col, survey_requests_col, str(log_insert.inserted_id)),
+                                daemon=True,
+                            )
+                            t.start()
+                        results.append({
+                            'offer_id': oid,
+                            'status': 'queued',
+                            'job_id': job_id,
+                        })
                     else:
-                        err = resp_data.get('error') or resp_data.get('message') or f'HTTP {resp.status_code}'
+                        err = resp_data.get('error') or f'HTTP {resp.status_code}'
                         log_doc.update({'status': 'error', 'error': err})
                         results.append({'offer_id': oid, 'status': 'error', 'error': err})
 
                 else:
                     # Funnel: async — start background poll
-                    if resp.ok and resp_data.get('job_id'):
-                        job_id = resp_data['job_id']
+                    if resp.ok and (resp_data.get('job_id') or resp_data.get('poll_url') or resp_data.get('status') in ('queued', 'pending')):
+                        job_id = resp_data.get('job_id', '')
                         poll_url = resp_data.get('poll_url', '')
 
                         # Mark offer as queued

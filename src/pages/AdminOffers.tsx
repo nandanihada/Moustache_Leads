@@ -6384,7 +6384,7 @@ const AdminOffers = () => {
                             {r.survey_url || r.funnel_url}
                           </a>
                         ) : (
-                          <p className="text-xs text-amber-600 mt-1">⏳ {r.status === 'queued' ? 'Queued — funnel URL will be saved once ready' : r.status}</p>
+                          <p className="text-xs text-amber-600 mt-1">⏳ {r.status === 'queued' ? 'Queued — URL will be saved to this offer automatically once ready' : r.status}</p>
                         )}
                       </>
                     )}
