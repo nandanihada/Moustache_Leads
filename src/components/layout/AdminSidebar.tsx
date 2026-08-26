@@ -34,7 +34,8 @@ import {
   Link2,
   CheckCircle,
   FileText,
-  Radio
+  Radio,
+  Send,
 } from "lucide-react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -223,6 +224,13 @@ const adminMenuStructure = [
     title: "Automation",
     url: "/admin/automation",
     icon: Zap,
+    tab: "automation",
+    type: "single" as const,
+  },
+  {
+    title: "Telegram Settings",
+    url: "/admin/telegram-settings",
+    icon: Send,
     tab: "automation",
     type: "single" as const,
   },

@@ -128,6 +128,7 @@ const AdminOfferwallManager = lazy(() => import("./pages/AdminOfferwallManager")
 const AdminSurveyBuilder = lazy(() => import("./pages/AdminSurveyBuilder"));
 const AdminSubWalls = lazy(() => import("./pages/AdminSubWalls"));
 const AdminRedirectRouter = lazy(() => import("./pages/AdminRedirectRouter"));
+const AdminTelegramSettings = lazy(() => import("./pages/AdminTelegramSettings"));
 import SubWallPage from "./pages/SubWallPage";
 import SurveyFunnelPage from "./pages/SurveyFunnelPage";
 import SurveyPage from "./pages/SurveyPage";
@@ -283,6 +284,7 @@ const App = () => (
                 <Route path="sub-walls" element={<AdminSubWalls />} />
                 <Route path="redirect-router" element={<AdminRedirectRouter />} />
                 <Route path="link-health" element={<AdminLinkHealth />} />
+                <Route path="telegram-settings" element={<AdminTelegramSettings />} />
               </Route>
 
               {/* Advertiser Dashboard routes */}

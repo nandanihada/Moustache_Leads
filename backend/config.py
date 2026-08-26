@@ -60,3 +60,7 @@ class Config:
     # MarketXcel API key for S2S callback (respondent status updates)
     MARKETXCEL_API_KEY = os.getenv('MARKETXCEL_API_KEY', '')
 
+    # Telegram bot credentials
+    TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
+    TELEGRAM_CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL_ID', '')
+

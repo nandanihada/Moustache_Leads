@@ -12,7 +12,7 @@ from typing import Dict, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')
-GROQ_MODEL = 'llama-3.1-8b-instant'  # Fast and cheap
+GROQ_MODEL = 'openai/gpt-oss-20b'  # Fast and cheap
 
 
 def refine_offer_description(name: str, description: str, payout: float = 0, payout_type: str = 'cpa') -> Dict:

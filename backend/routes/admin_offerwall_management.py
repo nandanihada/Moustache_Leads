@@ -1975,30 +1975,70 @@ Return ONLY valid JSON (no markdown, no explanation):
         last_error = None
         result_text = None
         for api_key in keys:
-            try:
-                client = Groq(api_key=api_key)
-                response = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.3,
-                    max_tokens=800,
-                    response_format={"type": "json_object"}
-                )
-                result_text = response.choices[0].message.content.strip()
-                break  # Success
-            except (GroqAuthError, GroqRateLimitError) as key_err:
-                # Invalid key (401) or rate limit (429) — try next key
-                logger.warning(f"Groq key rotation triggered for refine-description ({type(key_err).__name__})")
-                last_error = key_err
-                continue
-            except Exception as key_err:
-                logger.error(f"Groq non-retryable error in refine-description: {str(key_err)[:100]}")
-                raise
+            for _attempt in range(3):  # Retry up to 3x on empty response
+                try:
+                    client = Groq(api_key=api_key)
+                    response = client.chat.completions.create(
+                        model="openai/gpt-oss-20b",
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.3,
+                        max_tokens=2000,
+                    )
+                    candidate = response.choices[0].message.content.strip()
+                    if candidate:
+                        result_text = candidate
+                        break  # Got content — stop retrying
+                    # Empty response — retry with different temp
+                    prompt_tmp = prompt  # same prompt, model may give content on retry
+                except (GroqAuthError, GroqRateLimitError) as key_err:
+                    logger.warning(f"Groq key rotation triggered for refine-description ({type(key_err).__name__})")
+                    last_error = key_err
+                    break  # try next key
+                except Exception as key_err:
+                    logger.error(f"Groq non-retryable error in refine-description: {str(key_err)[:100]}")
+                    raise
+            if result_text:
+                break  # Got content from this key
 
         if result_text is None:
             raise last_error or Exception("All Groq API keys exhausted")
 
-        result = json_module.loads(result_text)
+        # Strip markdown code fences if present (```json ... ```)
+        if result_text.startswith('```'):
+            result_text = result_text.split('\n', 1)[-1]
+            if result_text.endswith('```'):
+                result_text = result_text[:-3].strip()
+
+        # If still empty after stripping, the model returned nothing useful
+        if not result_text.strip():
+            return jsonify({'error': 'AI returned an empty response. Please try again.'}), 500
+
+        # Find the JSON object boundaries in case the model wrapped it in prose
+        json_start = result_text.find('{')
+        json_end = result_text.rfind('}')
+        if json_start != -1 and json_end != -1 and json_end > json_start:
+            result_text = result_text[json_start:json_end + 1]
+
+        try:
+            result = json_module.loads(result_text)
+        except json_module.JSONDecodeError:
+            # Model returned truncated/malformed JSON — try line-by-line truncation repair:
+            # walk backwards dropping last line until valid or exhausted
+            lines = result_text.splitlines()
+            result = None
+            for i in range(len(lines), 0, -1):
+                candidate = '\n'.join(lines[:i]).strip().rstrip(',')
+                # Close any open array brackets
+                open_braces = candidate.count('{') - candidate.count('}')
+                open_brackets = candidate.count('[') - candidate.count(']')
+                candidate += ']' * max(0, open_brackets) + '}' * max(0, open_braces)
+                try:
+                    result = json_module.loads(candidate)
+                    break
+                except json_module.JSONDecodeError:
+                    continue
+            if result is None:
+                return jsonify({'error': 'AI returned malformed JSON. Please try again.'}), 500
 
         # Validate and clean
         refined = {
@@ -2450,16 +2490,24 @@ def refine_single_field():
             try:
                 client = Groq(api_key=api_key)
                 response = client.chat.completions.create(
-                    model="llama-3.1-8b-instant",  # Faster model for single-field
+                    model="openai/gpt-oss-20b",  # Faster model for single-field
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_content}
                     ],
                     temperature=0.3,
                     max_tokens=300,
-                    response_format={"type": "json_object"}
                 )
-                result = json_module.loads(response.choices[0].message.content.strip())
+                raw = response.choices[0].message.content.strip()
+                if raw.startswith('```'):
+                    raw = raw.split('\n', 1)[-1]
+                    if raw.endswith('```'):
+                        raw = raw[:-3].strip()
+                j_start = raw.find('{')
+                j_end = raw.rfind('}')
+                if j_start != -1 and j_end > j_start:
+                    raw = raw[j_start:j_end + 1]
+                result = json_module.loads(raw)
                 break  # Success — stop trying keys
             except (GroqAuthError, GroqRateLimitError) as key_err:
                 # Invalid key (401) or rate limit (429) — try next key
@@ -2701,16 +2749,24 @@ Return JSON: {"daily_cap": 100, "monthly_cap": 2000, "reasoning": "brief explana
                 try:
                     client = Groq(api_key=api_key)
                     response = client.chat.completions.create(
-                        model="llama-3.1-8b-instant",
+                        model="openai/gpt-oss-20b",
                         messages=[
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_content}
                         ],
                         temperature=0.3,
                         max_tokens=300,
-                        response_format={"type": "json_object"}
                     )
-                    result = json_module.loads(response.choices[0].message.content.strip())
+                    raw = response.choices[0].message.content.strip()
+                    if raw.startswith('```'):
+                        raw = raw.split('\n', 1)[-1]
+                        if raw.endswith('```'):
+                            raw = raw[:-3].strip()
+                    j_start = raw.find('{')
+                    j_end = raw.rfind('}')
+                    if j_start != -1 and j_end > j_start:
+                        raw = raw[j_start:j_end + 1]
+                    result = json_module.loads(raw)
                     break
                 except (GroqAuthError, GroqRateLimitError) as key_err:
                     last_error = key_err

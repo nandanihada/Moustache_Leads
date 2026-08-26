@@ -21,7 +21,7 @@ extended_offer_model = OfferExtended()  # For schedule + smart rules operations
 
 
 # ─── Groq Multi-Key Helper ──────────────────────────────────────────────────
-def _groq_completion_with_rotation(messages, model="llama-3.1-8b-instant", temperature=0.1, max_tokens=2000):
+def _groq_completion_with_rotation(messages, model="openai/gpt-oss-20b", temperature=0.1, max_tokens=2000):
     """
     Call Groq API with automatic key rotation on rate limits.
     Tries each configured key before waiting/retrying on the last one.
@@ -2518,7 +2518,7 @@ def generate_offer_description():
             {"role": "system", "content": "You are an affiliate network manager. Write a concise 1-2 sentence offer description. Be factual, clear, mention the GEO and conversion action if known. No hype, no emojis."},
             {"role": "user", "content": user_prompt},
         ]
-        completion, err = _groq_completion_with_rotation(messages, model="llama-3.3-70b-versatile", temperature=0.3, max_tokens=200)
+        completion, err = _groq_completion_with_rotation(messages, model="openai/gpt-oss-20b", temperature=0.3, max_tokens=200)
         
         if not completion:
             status = 429 if 'rate limit' in (err or '').lower() else 500
@@ -2551,7 +2551,7 @@ def suggest_offer_vertical():
             {"role": "system", "content": "You categorize affiliate marketing offers. Return ONLY one category from this list: HEALTH, SURVEY, SWEEPSTAKES, EDUCATION, INSURANCE, LOAN, FINANCE, DATING, FREE_TRIAL, INSTALLS, GAMES_INSTALL. No explanation, just the category name."},
             {"role": "user", "content": f"Offer: {offer_name}\nDescription: {description}"},
         ]
-        completion, err = _groq_completion_with_rotation(messages, model="llama-3.1-8b-instant", temperature=0.1, max_tokens=20)
+        completion, err = _groq_completion_with_rotation(messages, model="openai/gpt-oss-20b", temperature=0.1, max_tokens=20)
         
         if not completion:
             status = 429 if 'rate limit' in (err or '').lower() else 500
@@ -2634,7 +2634,7 @@ Return a JSON array with {len(offers)} objects, one per offer, in the same order
             {"role": "system", "content": "You are a precise data extraction assistant. Return only valid JSON arrays. No markdown, no explanation, no code fences."},
             {"role": "user", "content": prompt}
         ]
-        completion, err = _groq_completion_with_rotation(messages, model="llama-3.1-8b-instant", temperature=0.1, max_tokens=2000)
+        completion, err = _groq_completion_with_rotation(messages, model="openai/gpt-oss-20b", temperature=0.1, max_tokens=2000)
         
         if not completion:
             status = 429 if 'rate limit' in (err or '').lower() else 500
@@ -7060,7 +7060,7 @@ Offers:
             {"role": "system", "content": "You are a precise data auditor. Return only valid JSON. No markdown, no explanation, no code fences."},
             {"role": "user", "content": prompt}
         ]
-        completion, err = _groq_completion_with_rotation(messages, model="llama-3.3-70b-versatile", temperature=0.1, max_tokens=4000)
+        completion, err = _groq_completion_with_rotation(messages, model="openai/gpt-oss-20b", temperature=0.1, max_tokens=4000)
         
         if not completion:
             status = 429 if 'rate limit' in (err or '').lower() else 500
@@ -7201,7 +7201,7 @@ Return ONLY a JSON array like: [{{"offer_id": "...", "vertical": "FINANCE"}}]
             {"role": "system", "content": "Return only valid JSON arrays. No markdown, no explanation."},
             {"role": "user", "content": prompt}
         ]
-        completion, err = _groq_completion_with_rotation(messages, model="llama-3.1-8b-instant", temperature=0.1, max_tokens=2000)
+        completion, err = _groq_completion_with_rotation(messages, model="openai/gpt-oss-20b", temperature=0.1, max_tokens=2000)
         
         if not completion:
             status = 429 if 'rate limit' in (err or '').lower() else 500
@@ -7271,7 +7271,7 @@ Return ONLY a JSON array like: [{{"offer_id": "...", "description": "..."}}]
             {"role": "system", "content": "You are an affiliate network manager. Return only valid JSON arrays. No markdown, no explanation."},
             {"role": "user", "content": prompt}
         ]
-        completion, err = _groq_completion_with_rotation(messages, model="llama-3.3-70b-versatile", temperature=0.3, max_tokens=3000)
+        completion, err = _groq_completion_with_rotation(messages, model="openai/gpt-oss-20b", temperature=0.3, max_tokens=3000)
         
         if not completion:
             status = 429 if 'rate limit' in (err or '').lower() else 500
