@@ -225,6 +225,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
     if (networkType === 'marketxcel') return networkId;
     if (networkType === 'lootably') return networkId;
     if (networkType === 'voqall') return 'voqall';  // no network_id needed — auth is via API key only
+    if (networkType === 'opinionspark') return 'opinionspark';  // auth is via API key only
     return networkId;
   };
 
@@ -246,7 +247,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
   const handleTestConnection = async () => {
     const effectiveId = getEffectiveNetworkId();
     if (!effectiveId || !apiKey) {
-      toast({ title: 'Error', description: networkType === 'everflow' || networkType === 'mobplus' ? 'Please enter API URL and API Key' : networkType === 'marketxcel' ? 'Please enter Supplier ID and Salt|Hashing Key' : networkType === 'lootably' ? 'Please enter Placement ID and API Key' : networkType === 'voqall' ? 'Please enter your EQ-PARTNER-ACCESS-KEY' : 'Please enter Network ID/Publisher ID and API Key', variant: 'destructive' });
+      toast({ title: 'Error', description: networkType === 'everflow' || networkType === 'mobplus' ? 'Please enter API URL and API Key' : networkType === 'marketxcel' ? 'Please enter Supplier ID and Salt|Hashing Key' : networkType === 'lootably' ? 'Please enter Placement ID and API Key' : networkType === 'voqall' ? 'Please enter your EQ-PARTNER-ACCESS-KEY' : networkType === 'opinionspark' ? 'Please enter your ob-partner-access-key' : 'Please enter Network ID/Publisher ID and API Key', variant: 'destructive' });
       return;
     }
     setTesting(true);
@@ -702,6 +703,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
                   <SelectItem value="marketxcel">MarketXcel (Surveys)</SelectItem>
                   <SelectItem value="lootably">Lootably</SelectItem>
                   <SelectItem value="voqall">Voqall (Surveys)</SelectItem>
+                  <SelectItem value="opinionspark">OpinionSpark (Surveys)</SelectItem>
                   <SelectItem value="cj" disabled>Commission Junction (Coming Soon)</SelectItem>
                   <SelectItem value="shareasale" disabled>ShareASale (Coming Soon)</SelectItem>
                 </SelectContent>
@@ -739,10 +741,13 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
               </div>
             )}
 
-            {networkType === 'voqall' && (
+            {(networkType === 'voqall' || networkType === 'opinionspark') && (
               <div className="space-y-2">
                 <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-                  ℹ️ For Voqall, only the <strong>EQ-PARTNER-ACCESS-KEY</strong> below is needed to fetch surveys. Leave the field above empty or enter any placeholder.
+                  {networkType === 'voqall'
+                    ? <>ℹ️ For Voqall, only the <strong>EQ-PARTNER-ACCESS-KEY</strong> below is needed. Leave the field above empty or enter any placeholder.</>
+                    : <>ℹ️ For OpinionSpark, only the <strong>ob-partner-access-key</strong> below is needed. Leave the field above empty or enter any placeholder.</>
+                  }
                 </p>
               </div>
             )}
@@ -766,7 +771,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
             <div className="space-y-2">
               <Label>{networkType === 'marketxcel' ? 'Salt | Hashing Key *' : 'API Key *'}</Label>
               <div className="relative">
-                <Input type={showApiKey ? 'text' : 'password'} placeholder={networkType === 'everflow' ? 'Enter your x-eflow-api-key' : networkType === 'mobplus' ? 'Enter your MobPlus Authorization token' : networkType === 'adscendmedia' ? 'Enter your AdscendMedia API Key' : networkType === 'marketxcel' ? 'Paste your token (salt value)' : networkType === 'lootably' ? 'Enter your Lootably API Key' : networkType === 'voqall' ? 'Enter your EQ-PARTNER-ACCESS-KEY' : 'Enter your API key'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="pr-10" />
+                <Input type={showApiKey ? 'text' : 'password'} placeholder={networkType === 'everflow' ? 'Enter your x-eflow-api-key' : networkType === 'mobplus' ? 'Enter your MobPlus Authorization token' : networkType === 'adscendmedia' ? 'Enter your AdscendMedia API Key' : networkType === 'marketxcel' ? 'Paste your token (salt value)' : networkType === 'lootably' ? 'Enter your Lootably API Key' : networkType === 'voqall' ? 'Enter your EQ-PARTNER-ACCESS-KEY' : networkType === 'opinionspark' ? 'Enter your ob-partner-access-key' : 'Enter your API key'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="pr-10" />
                 <Button type="button" variant="ghost" size="sm" className="absolute right-0 top-0 h-full px-3" onClick={() => setShowApiKey(!showApiKey)}>
                   {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
@@ -800,7 +805,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
               </div>
             )}
             
-            <Button onClick={handleTestConnection} disabled={testing || (networkType === 'voqall' ? false : networkType === 'hasoffers' || networkType === 'adscendmedia' || networkType === 'marketxcel' || networkType === 'lootably' ? !networkId : !apiUrl) || !apiKey}>
+            <Button onClick={handleTestConnection} disabled={testing || (networkType === 'voqall' || networkType === 'opinionspark' ? false : networkType === 'hasoffers' || networkType === 'adscendmedia' || networkType === 'marketxcel' || networkType === 'lootably' ? !networkId : !apiUrl) || !apiKey}>
               {testing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Test Connection
             </Button>
             
@@ -813,7 +818,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
             
             <div className="flex justify-end gap-2 pt-4">
               <Button variant="outline" onClick={handleClose}>Cancel</Button>
-              <Button onClick={handleFetchFullPreview} disabled={loading || (networkType === 'voqall' ? false : networkType === 'hasoffers' || networkType === 'adscendmedia' || networkType === 'marketxcel' || networkType === 'lootably' ? !networkId : !apiUrl) || !apiKey}>
+              <Button onClick={handleFetchFullPreview} disabled={loading || (networkType === 'voqall' || networkType === 'opinionspark' ? false : networkType === 'hasoffers' || networkType === 'adscendmedia' || networkType === 'marketxcel' || networkType === 'lootably' ? !networkId : !apiUrl) || !apiKey}>
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Next: Fetch & Preview Offers
               </Button>
             </div>

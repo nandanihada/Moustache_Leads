@@ -374,10 +374,10 @@ def apply_network_offer_params(offer_data: dict) -> dict:
         logger.info("apply_network_offer_params: No target_url in offer data — skipping")
         return offer_data
 
-    # Short-circuit for Voqall — rf.voqall.com / rf-sandbox.voqall.com never match
-    # a partner, so skip the 2 DB queries per offer (saves ~1000 queries on a 504-survey sync)
+    # Short-circuit for Voqall and OpinionSpark — their survey domains never match
+    # a partner config, so skip the 2 DB queries per offer (saves ~1000 queries on a bulk sync)
     import_source = offer_data.get('import_source', '') or offer_data.get('network_type', '')
-    if import_source == 'voqall' or 'voqall.com' in target_url:
+    if import_source in ('voqall', 'opinionspark') or 'voqall.com' in target_url or 'opinionspark.co' in target_url:
         return offer_data
 
     logger.info(f"apply_network_offer_params: Processing target_url='{target_url}'")

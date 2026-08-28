@@ -137,7 +137,7 @@ def run_voqall_subwall_automation(db_instance=None) -> dict:
     paused_voqall = list(offers_col.find(
         {
             'import_source': VOQALL_IMPORT_SOURCE,
-            'status': {'$in': ['paused', 'inactive']},
+            'status': {'$in': ['paused', 'inactive', 'expired']},
         },
         {'offer_id': 1}
     ))
@@ -289,7 +289,7 @@ def run_marketxcel_subwall_automation(db_instance=None) -> dict:
     paused_mx = list(offers_col.find(
         {
             'import_source': MARKETXCEL_IMPORT_SOURCE,
-            'status': {'$in': ['paused', 'inactive']},
+            'status': {'$in': ['paused', 'inactive', 'expired']},
         },
         {'offer_id': 1}
     ))
@@ -320,4 +320,157 @@ def run_marketxcel_subwall_automation(db_instance=None) -> dict:
         'run_at': now.isoformat() + 'Z',
     }
     logger.info(f'✅ run_marketxcel_subwall_automation complete: {summary}')
+    return summary
+
+
+# ── OpinionSpark Sub-Wall Automation ──────────────────────────────────────────
+# Same 4-step pattern as Voqall / MarketXcel.
+# import_source = 'opinionspark', same sub-wall (moustache-survey-s), same display name.
+
+OPINIONSPARK_IMPORT_SOURCE = 'opinionspark'
+
+
+def run_opinionspark_subwall_automation(db_instance=None) -> dict:
+    """
+    After each OpinionSpark sync:
+    1. Find all active OpinionSpark offers (import_source='opinionspark').
+    2. Rename them to "YIS Survey".
+    3. Mark subwall_exclusive=True, show_in_offerwall=False (hidden from main wall).
+    4. Add their offer_ids to the "Moustache Survey's" sub-wall (no admin approval).
+    5. Remove paused/stale OpinionSpark offers from the sub-wall.
+
+    Returns a summary dict.
+    """
+    if db_instance is None:
+        from database import db_instance as _db
+        db_instance = _db
+
+    offers_col    = db_instance.get_collection('offers')
+    sub_walls_col = db_instance.get_collection('sub_walls')
+
+    if offers_col is None or sub_walls_col is None:
+        logger.error('run_opinionspark_subwall_automation: DB collections not available')
+        return {'success': False, 'error': 'DB not available', 'renamed': 0, 'added_to_subwall': 0}
+
+    now = datetime.utcnow()
+
+    # ── STEP 1: Find all active OpinionSpark offers ───────────────────────────
+    os_offers = list(offers_col.find(
+        {
+            'import_source': OPINIONSPARK_IMPORT_SOURCE,
+            'status': {'$in': ['active', 'running']},
+            '$or': [{'deleted': {'$exists': False}}, {'deleted': False}],
+        },
+        {'offer_id': 1, 'name': 1, 'subwall_exclusive': 1}
+    ))
+
+    if not os_offers:
+        logger.info('run_opinionspark_subwall_automation: No active OpinionSpark offers found')
+        return {
+            'success': True,
+            'message': 'No active OpinionSpark offers found',
+            'renamed': 0,
+            'already_named': 0,
+            'added_to_subwall': 0,
+            'already_in_subwall': 0,
+            'run_at': now.isoformat() + 'Z',
+        }
+
+    os_offer_ids = [o['offer_id'] for o in os_offers if o.get('offer_id')]
+    logger.info(f'run_opinionspark_subwall_automation: Processing {len(os_offer_ids)} offers')
+
+    # ── STEP 2: Rename to "YIS Survey" + mark subwall_exclusive ──────────────
+    needs_rename = [
+        o for o in os_offers
+        if o.get('name') != YIS_SURVEY_NAME or not o.get('subwall_exclusive')
+    ]
+    already_named = len(os_offers) - len(needs_rename)
+
+    renamed = 0
+    if needs_rename:
+        rename_ids = [o['offer_id'] for o in needs_rename if o.get('offer_id')]
+        result = offers_col.update_many(
+            {'offer_id': {'$in': rename_ids}},
+            {'$set': {
+                'name': YIS_SURVEY_NAME,
+                'subwall_exclusive': True,
+                'show_in_offerwall': False,
+                'opinionspark_subwall_tagged': True,
+                'opinionspark_subwall_tagged_at': now,
+                'updated_at': now,
+            }}
+        )
+        renamed = result.modified_count
+        logger.info(f'run_opinionspark_subwall_automation: Renamed {renamed} offers to "{YIS_SURVEY_NAME}"')
+
+    # ── STEP 3: Add to "Moustache Survey's" sub-wall ─────────────────────────
+    sub_wall = sub_walls_col.find_one({'slug': TARGET_SUBWALL_SLUG})
+
+    if not sub_wall:
+        logger.warning(
+            f'run_opinionspark_subwall_automation: Sub-wall "{TARGET_SUBWALL_SLUG}" not found.'
+        )
+        return {
+            'success': False,
+            'error': f'Sub-wall "{TARGET_SUBWALL_SLUG}" not found',
+            'renamed': renamed,
+            'already_named': already_named,
+            'added_to_subwall': 0,
+            'already_in_subwall': 0,
+            'total_opinionspark_offers': len(os_offer_ids),
+            'run_at': now.isoformat() + 'Z',
+        }
+
+    existing_ids_in_wall = set(sub_wall.get('offer_ids', []))
+    new_ids = [oid for oid in os_offer_ids if oid not in existing_ids_in_wall]
+    already_in_subwall = len(os_offer_ids) - len(new_ids)
+
+    added_to_subwall = 0
+    if new_ids:
+        sub_walls_col.update_one(
+            {'slug': TARGET_SUBWALL_SLUG},
+            {'$addToSet': {'offer_ids': {'$each': new_ids}},
+             '$set': {'updated_at': now}}
+        )
+        added_to_subwall = len(new_ids)
+        logger.info(
+            f'run_opinionspark_subwall_automation: Added {added_to_subwall} offers to '
+            f'sub-wall "{TARGET_SUBWALL_SLUG}"'
+        )
+
+    # ── STEP 4: Remove stale/paused OpinionSpark offers from sub-wall ─────────
+    paused_os = list(offers_col.find(
+        {
+            'import_source': OPINIONSPARK_IMPORT_SOURCE,
+            'status': {'$in': ['paused', 'inactive', 'expired']},
+        },
+        {'offer_id': 1}
+    ))
+    paused_ids = [o['offer_id'] for o in paused_os if o.get('offer_id')]
+    removed_from_wall = 0
+    if paused_ids:
+        result = sub_walls_col.update_one(
+            {'slug': TARGET_SUBWALL_SLUG},
+            {'$pull': {'offer_ids': {'$in': paused_ids}}}
+        )
+        removed_from_wall = result.modified_count
+        if removed_from_wall:
+            logger.info(
+                f'run_opinionspark_subwall_automation: Removed {len(paused_ids)} stale '
+                f'OpinionSpark offers from sub-wall'
+            )
+
+    summary = {
+        'success': True,
+        'total_opinionspark_offers': len(os_offer_ids),
+        'renamed': renamed,
+        'already_named': already_named,
+        'added_to_subwall': added_to_subwall,
+        'already_in_subwall': already_in_subwall,
+        'stale_removed_from_wall': removed_from_wall,
+        'subwall_slug': TARGET_SUBWALL_SLUG,
+        'offer_name': YIS_SURVEY_NAME,
+        'run_at': now.isoformat() + 'Z',
+    }
+    logger.info(f'✅ run_opinionspark_subwall_automation complete: {summary}')
     return summary

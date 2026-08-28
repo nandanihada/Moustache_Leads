@@ -1129,6 +1129,8 @@ class AdminOfferApi {
     type: 'survey' | 'funnel';
     question_count?: number;
     additional_info?: string;
+    redirect: boolean;
+    offer_urls: Record<string, string>;
   }): Promise<{ success: boolean; results: Array<{ offer_id: string; status: string; survey_url?: string; funnel_url?: string; title?: string; job_id?: string; error?: string }> }> {
     const response = await fetch(`${API_BASE_URL}/offers/generate-survey`, {
       method: 'POST',

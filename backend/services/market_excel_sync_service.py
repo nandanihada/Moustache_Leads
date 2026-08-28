@@ -294,14 +294,14 @@ class MarketExcelSyncService:
             offers_col.update_many(
                 {'offer_id': {'$in': stale_offer_ids}},
                 {'$set': {
-                    'status': 'paused',
+                    'status': 'expired',
                     'is_active': False,
                     'market_excel_stale_at': datetime.utcnow(),
                     'market_excel_stale_reason': 'Not returned by MarketXcel API',
                     'updated_at': datetime.utcnow(),
                 }}
             )
-            logger.info(f'MarketXcel stale detection: deactivated {len(stale)} surveys')
+            logger.info(f'MarketXcel stale detection: expired {len(stale)} surveys')
             return len(stale)
 
         except Exception as e:

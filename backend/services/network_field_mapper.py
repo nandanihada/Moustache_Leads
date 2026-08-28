@@ -139,6 +139,8 @@ class NetworkFieldMapper:
                 return self._map_lootably_offer(offer_data, network_id)
             elif network_type == 'voqall':
                 return self._map_voqall_offer(offer_data, network_id)
+            elif network_type == 'opinionspark':
+                return self._map_opinionspark_offer(offer_data, network_id)
             elif network_type == 'cj':
                 return self._map_cj_offer(offer_data, network_id)
             elif network_type == 'shareasale':
@@ -2044,7 +2046,10 @@ class NetworkFieldMapper:
             resolved_industry = offer_data.get('_resolved_industry', 'SURVEY') or 'SURVEY'
 
             # Map resolved industry → platform vertical
+            # Covers both Voqall industry names (from their lookup) and
+            # OpinionSpark industry names (from collection/industries endpoint)
             industry_to_vertical = {
+                # Voqall names
                 'Technology': 'TECH',
                 'Finance': 'FINANCE',
                 'Healthcare': 'HEALTH',
@@ -2060,6 +2065,39 @@ class NetworkFieldMapper:
                 'Home & Garden': 'HOME',
                 'Pets': 'PETS',
                 'Gaming': 'GAMING',
+                # OpinionSpark industry names (from collection/industries)
+                'Automotive': 'AUTOMOTIVE',
+                'Beauty/Cosmetics': 'BEAUTY',
+                'Beverages - Alcoholic': 'FOOD',
+                'Beverages - Non Alcoholic': 'FOOD',
+                'Education': 'EDUCATION',
+                'Electronics/Computer/Software': 'TECH',
+                'Entertainment (Movies, Music, TV, etc)': 'ENTERTAINMENT',
+                'Fashion/Clothing': 'SHOPPING',
+                'Financial Services/Insurance': 'FINANCE',
+                'Food/Snacks': 'FOOD',
+                'Gambling/Lottery': 'GAMBLING',
+                'Healthcare/Pharmaceuticals': 'HEALTH',
+                'Home (Utilities, Appliances, ...)': 'HOME',
+                'Home Entertainment': 'ENTERTAINMENT',
+                'Home Improvement/RealEstates/Construction': 'HOME',
+                'IT (Servers, Databases, etc)': 'TECH',
+                'Personal Care/Toiletries': 'HEALTH',
+                'Pets': 'PETS',
+                'Politics': 'POLITICS',
+                'Publishing(Newspapers,magazines,Books)': 'EDUCATION',
+                'Restaurants': 'FOOD',
+                'Sports': 'SPORTS',
+                'Telecommunications': 'TECH',
+                'Tobacco': 'HEALTH',
+                'Toys': 'ENTERTAINMENT',
+                'Transportation/Shipping': 'TRAVEL',
+                'Travel': 'TRAVEL',
+                'Video Games': 'GAMING',
+                'Websites/Internet/Ecommerce': 'SHOPPING',
+                'Other': 'SURVEY',
+                'Sensitive Content': 'SURVEY',
+                'Explicit Content': 'SURVEY',
             }
             platform_vertical = industry_to_vertical.get(resolved_industry, 'SURVEY')
 
@@ -2138,6 +2176,72 @@ class NetworkFieldMapper:
 
         except Exception as e:
             logger.error(f"Error mapping Voqall offer: {e}", exc_info=True)
+            return {}
+
+    def _map_opinionspark_offer(self, offer_data: Dict, network_id: str = None) -> Dict[str, Any]:
+        """Map an OpinionSpark survey to the platform offer schema.
+
+        OpinionSpark uses the same response structure as Voqall (SurveyId, Name, Cpi,
+        Ir, Loi, SurveyUrl, DesktopAllowed, MobileAllowed, TabletAllowed, etc.) but
+        its SurveyUrl contains DIFFERENT macro placeholders:
+
+          OpinionSpark URL format:
+            https://survey.opinionspark.co/init/<uuid1>/<uuid2>
+              ?transactionId=[#transaction_id#]
+              &rid=[#userid#]
+
+          Macro mapping:
+            [#transaction_id#]  →  {click_id}   (unique click/conversion token)
+            [#userid#]          →  {user_id}    (respondent's platform user ID)
+
+        These are completely different from Voqall's [#vq_tid#] / [#vq_tuid#],
+        so we must apply our own URL substitution AFTER the Voqall base mapping.
+        """
+        try:
+            # Delegate to the Voqall mapper for all shared field logic
+            # (payout, loi, ir, completes, devices, dates, country, vertical, etc.)
+            mapped = self._map_voqall_offer(offer_data, network_id)
+            if not mapped:
+                return {}
+
+            # ── Fix the target URL with OpinionSpark's actual macros ───────────
+            # The Voqall mapper will have tried [#vq_tid#] → {click_id} which
+            # won't match OpinionSpark's placeholders — so we re-derive from raw URL.
+            raw_url = str(offer_data.get('SurveyUrl', '') or '').strip()
+            if raw_url:
+                target_url = (
+                    raw_url
+                    .replace('[#transaction_id#]', '{click_id}')
+                    .replace('[#userid#]',         '{user_id}')
+                    # Belt-and-suspenders: handle any Voqall-style leftover too
+                    .replace('[#vq_tid#]',         '{click_id}')
+                    .replace('[#vq_tuid#]',        '{user_id}')
+                )
+            else:
+                # Fallback construction using survey ID
+                survey_id = offer_data.get('SurveyId', '')
+                target_url = (
+                    f'https://survey.opinionspark.co/take/{survey_id}'
+                    f'?transactionId={{click_id}}&rid={{user_id}}'
+                )
+            mapped['target_url'] = target_url
+
+            # ── Override network identifiers ───────────────────────────────────
+            mapped['network']       = 'opinionspark'
+            mapped['network_type']  = 'opinionspark'
+            mapped['import_source'] = 'opinionspark'
+
+            # Rename voqall_* metadata keys to opinionspark_* equivalents
+            for vk in [k for k in mapped if k.startswith('voqall_')]:
+                mapped[vk.replace('voqall_', 'opinionspark_', 1)] = mapped.pop(vk)
+
+            # Preview URL points to OpinionSpark domain
+            mapped['preview_url'] = 'https://opinionspark.co'
+
+            return mapped
+
+        except Exception as e:
+            logger.error(f"Error mapping OpinionSpark offer: {e}", exc_info=True)
             return {}
 
     def _map_cj_offer(self, offer_data: Dict, network_id: str = None) -> Dict[str, Any]:

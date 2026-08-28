@@ -326,6 +326,18 @@ def get_available_offers():
         
         # Get all offer IDs for batch queries
         offer_ids = [offer['offer_id'] for offer in offers]
+
+        # BATCH QUERY 0: Get all offer_ids that belong to active subwalls.
+        # Offers in a subwall bypass approval — they are directly accessible.
+        subwall_offer_ids = set()
+        try:
+            sw_col = db_instance.get_collection('sub_walls')
+            if sw_col is not None:
+                for sw in sw_col.find({'status': 'active'}, {'offer_ids': 1}):
+                    for oid in sw.get('offer_ids', []):
+                        subwall_offer_ids.add(str(oid))
+        except Exception as sw_err:
+            logger.warning(f"Failed to fetch subwall offer ids: {sw_err}")
         
         # BATCH QUERY 1: Get all affiliate_requests for this user and these offers (single query)
         requests_collection = db_instance.get_collection('affiliate_requests')
@@ -435,12 +447,13 @@ def get_available_offers():
                 
                 if affiliates == 'all' and approval_type == 'auto_approve':
                     is_locked = False
+                elif offer.get('offer_id') in subwall_offer_ids:
+                    # Offer is in an active subwall — bypass approval entirely
+                    is_locked = False
+                    if not has_access:
+                        has_access = True
+                        access_reason = 'Subwall access'
                 elif approval_type == 'time_based':
-                    if request_status == 'approved':
-                        is_locked = False
-                    else:
-                        delay_minutes = approval_settings.get('auto_approve_delay', 60)
-                        created_at = offer.get('created_at', datetime.utcnow())
                         if isinstance(created_at, str):
                             try:
                                 created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
@@ -804,12 +817,30 @@ def get_offer_details(offer_id):
         approval_type = approval_settings.get('type') or offer.get('approval_type', 'auto_approve')
         affiliates = offer.get('affiliates', 'all')
 
+        # Check if this offer is in any active subwall — subwall offers bypass approval
+        is_in_subwall = False
+        try:
+            sw_col = db_instance.get_collection('sub_walls')
+            if sw_col is not None:
+                offer_id_str = str(offer_id)
+                sw_match = sw_col.find_one({'status': 'active', 'offer_ids': offer_id_str})
+                if sw_match:
+                    is_in_subwall = True
+        except Exception:
+            pass
+
         is_locked = False
         lock_reason = None
         estimated_approval_time = 'Immediate'
 
         if affiliates == 'all' and approval_type == 'auto_approve':
             is_locked = False
+        elif is_in_subwall:
+            # Offer is in an active subwall — directly accessible, no approval needed
+            is_locked = False
+            if not has_access:
+                has_access = True
+                access_reason = 'Subwall access'
         elif approval_type == 'time_based':
             if request_status == 'approved':
                 is_locked = False

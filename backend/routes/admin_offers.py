@@ -4968,6 +4968,8 @@ def import_api_offers():
                     oid = str(offer_data.get('offerID', '') or offer_data.get('offer_id', '') or offer_data.get('id', ''))
                 elif network_type == 'voqall':
                     oid = str(offer_data.get('SurveyId', '') or offer_data.get('survey_id', '') or offer_data.get('id', ''))
+                elif network_type == 'opinionspark':
+                    oid = str(offer_data.get('SurveyId', '') or offer_data.get('survey_id', '') or offer_data.get('id', ''))
                 else:  # hasoffers — offers are wrapped: {"Offer": {"id": "2816", ...}}
                     if isinstance(offer_data, dict) and 'Offer' in offer_data:
                         oid = str(offer_data['Offer'].get('id', '') or offer_data['Offer'].get('offer_id', ''))
@@ -5000,6 +5002,9 @@ def import_api_offers():
             elif network_type == 'lootably':
                 network_match_values.append('lootably')
                 network_match_values.append('Lootably')
+            elif network_type == 'opinionspark':
+                network_match_values.append('opinionspark')
+                network_match_values.append('OpinionSpark')
             
             # Build network regex for case-insensitive match
             # Use alternation pattern that matches all variations (with/without spaces)
@@ -7944,6 +7949,9 @@ def generate_survey():
         generation_type = data.get('type', 'survey')
         question_count = data.get('question_count', 10)
         additional_info = data.get('additional_info', '')
+        redirect = data.get('redirect', False)
+        offer_urls = data.get('offer_urls', {})  # dict: offer_id → tracking link
+        logging.info(f"[generate_survey] received: type={generation_type} redirect={redirect} offer_urls_count={len(offer_urls)}")
 
         if not offer_ids:
             return jsonify({'error': 'offer_ids is required'}), 400
@@ -8013,6 +8021,12 @@ def generate_survey():
                 payload['additional_info'] = additional_info
             if generation_type == 'survey':
                 payload['question_count'] = question_count
+            # Include offer tracking URL if provided
+            offer_url = offer_urls.get(oid, '')
+            if offer_url:
+                payload['offer_url'] = offer_url
+            # Always include redirect flag so it appears in logs
+            payload['redirect'] = bool(redirect)
 
             log_doc = {
                 'batch_id': batch_id,
@@ -8066,6 +8080,9 @@ def generate_survey():
                         # Survey also queued — treat same as funnel async flow
                         job_id = resp_data.get('job_id', '')
                         poll_url = resp_data.get('poll_url', '')
+                        # Ensure poll_url is absolute
+                        if poll_url and not poll_url.startswith('http'):
+                            poll_url = 'https://api.pepperwahl.com/' + poll_url.lstrip('/')
                         offers_col.update_one(
                             {'offer_id': oid},
                             {'$set': {
@@ -8099,6 +8116,9 @@ def generate_survey():
                     if resp.ok and (resp_data.get('job_id') or resp_data.get('poll_url') or resp_data.get('status') in ('queued', 'pending')):
                         job_id = resp_data.get('job_id', '')
                         poll_url = resp_data.get('poll_url', '')
+                        # Ensure poll_url is absolute
+                        if poll_url and not poll_url.startswith('http'):
+                            poll_url = 'https://api.pepperwahl.com/' + poll_url.lstrip('/')
 
                         # Mark offer as queued
                         offers_col.update_one(

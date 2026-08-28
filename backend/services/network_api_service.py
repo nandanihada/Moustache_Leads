@@ -50,6 +50,8 @@ class NetworkAPIService:
                 return self._test_lootably_connection(network_id, api_key)
             elif network_type == 'voqall':
                 return self._test_voqall_connection(network_id, api_key)
+            elif network_type == 'opinionspark':
+                return self._test_opinionspark_connection(network_id, api_key)
             elif network_type == 'cj':
                 return self._test_cj_connection(network_id, api_key)
             elif network_type == 'shareasale':
@@ -92,6 +94,8 @@ class NetworkAPIService:
                 return self._fetch_lootably_offers(network_id, api_key, filters, limit)
             elif network_type == 'voqall':
                 return self._fetch_voqall_offers(network_id, api_key, filters, limit)
+            elif network_type == 'opinionspark':
+                return self._fetch_opinionspark_offers(network_id, api_key, filters, limit)
             elif network_type == 'cj':
                 return self._fetch_cj_offers(network_id, api_key, filters, limit)
             elif network_type == 'shareasale':
@@ -1092,6 +1096,149 @@ class NetworkAPIService:
             logger.error(f"Error fetching Lootably offers: {str(e)}", exc_info=True)
             return [], f"Error: {str(e)}"
     
+    # ==================== OpinionSpark Implementation ====================
+    # OpinionSpark uses the same API structure as Voqall (same platform, white-label).
+    # Differences: different base URL and header key (ob-partner-access-key).
+
+    OPINIONSPARK_PROD_BASE = 'https://supplier-api.opinionspark.co/api/v1'
+    OPINIONSPARK_SANDBOX_BASE = 'https://supplier-api-sandbox.opinionspark.co/api/v1'
+
+    def _opinionspark_base_url(self, network_id: str) -> str:
+        """Return sandbox or production base URL.
+        
+        Convention: if network_id starts with 'sandbox' use sandbox, else production.
+        """
+        if network_id.startswith('sandbox'):
+            return self.OPINIONSPARK_SANDBOX_BASE
+        return self.OPINIONSPARK_PROD_BASE
+
+    def _opinionspark_resolve_base_url(self, network_id: str, api_key: str) -> str:
+        """Auto-detect which environment (sandbox vs production) an API key belongs to.
+        
+        Tries production first; if it returns 401/403 falls back to sandbox.
+        """
+        if network_id.startswith('sandbox'):
+            return self.OPINIONSPARK_SANDBOX_BASE
+
+        try:
+            probe = self.session.get(
+                f"{self.OPINIONSPARK_PROD_BASE}/health/check",
+                headers={'ob-partner-access-key': api_key},
+                timeout=10
+            )
+            if probe.status_code not in (401, 403):
+                return self.OPINIONSPARK_PROD_BASE
+        except Exception:
+            pass
+
+        return self.OPINIONSPARK_SANDBOX_BASE
+
+    def _test_opinionspark_connection(self, network_id: str, api_key: str) -> Tuple[bool, Optional[int], Optional[str]]:
+        """Test OpinionSpark Supplier API connection by fetching the survey list.
+        
+        Args:
+            network_id: Any value; prefix with 'sandbox' to force sandbox env.
+            api_key:    ob-partner-access-key header value.
+        """
+        try:
+            base_url = self._opinionspark_resolve_base_url(network_id, api_key)
+            url = f"{base_url}/surveys"
+            response = self.session.get(
+                url,
+                headers={
+                    'ob-partner-access-key': api_key,
+                    'Accept': 'application/json',
+                },
+                timeout=self.timeout
+            )
+            if response.status_code == 401:
+                return False, None, "Invalid API key (401 Unauthorized) — check your ob-partner-access-key"
+            if response.status_code == 403:
+                return False, None, "Access forbidden (403) — check your supplier account status"
+            response.raise_for_status()
+
+            data = response.json()
+            if data.get('hasError'):
+                err_code = data.get('error', {}).get('errorCode', '')
+                msgs = ', '.join(data.get('messages', []))
+                return False, None, f"OpinionSpark API error [{err_code}]: {msgs}"
+
+            surveys = data.get('Surveys', [])
+            count = len(surveys)
+            env = 'sandbox' if 'sandbox' in base_url else 'production'
+            logger.info(f"✅ OpinionSpark connection OK ({env}) — {count} surveys found")
+            return True, count, None
+
+        except requests.exceptions.ConnectionError:
+            return False, None, "Cannot connect to OpinionSpark API — check network"
+        except requests.exceptions.Timeout:
+            return False, None, "OpinionSpark API timed out"
+        except Exception as e:
+            logger.error(f"OpinionSpark connection test failed: {e}", exc_info=True)
+            return False, None, str(e)
+
+    def _fetch_opinionspark_offers(self, network_id: str, api_key: str,
+                                   filters: Optional[Dict] = None,
+                                   limit: Optional[int] = None) -> Tuple[List[Dict], Optional[str]]:
+        """Fetch all allocated surveys from the OpinionSpark Supplier API.
+        
+        Response schema is identical to Voqall:
+          { Surveys: [ { SurveyId, Name, Cpi, Ir, Loi, SurveyUrl,
+                         DesktopAllowed, MobileAllowed, TabletAllowed,
+                         StudyTypeId, LanguageId, IndustryId, ... } ] }
+        
+        Args:
+            network_id: Supplier identifier (prefix 'sandbox' for sandbox env).
+            api_key:    ob-partner-access-key value.
+            filters:    Optional — currently supports 'country' (ISO-2).
+            limit:      Optional — truncate result set for preview.
+        """
+        try:
+            base_url = self._opinionspark_resolve_base_url(network_id, api_key)
+            url = f"{base_url}/surveys"
+            response = self.session.get(
+                url,
+                headers={
+                    'ob-partner-access-key': api_key,
+                    'Accept': 'application/json',
+                },
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            if data.get('hasError'):
+                err_code = data.get('error', {}).get('errorCode', '')
+                msgs = ', '.join(data.get('messages', []))
+                return [], f"OpinionSpark API error [{err_code}]: {msgs}"
+
+            surveys = data.get('Surveys', [])
+            logger.info(f"📡 OpinionSpark: fetched {len(surveys)} surveys")
+
+            if limit:
+                surveys = surveys[:limit]
+
+            # Enrich surveys with lookup data (same lookup endpoints as Voqall pattern)
+            try:
+                from services.opinionspark_sync_service import get_opinionspark_sync_service
+                sync_svc = get_opinionspark_sync_service()
+                lookups = sync_svc._fetch_lookups_cached(api_key, network_id)
+                surveys = [sync_svc._enrich_survey(s, lookups) for s in surveys]
+                logger.info(f"📡 OpinionSpark: enriched {len(surveys)} surveys with lookup data")
+            except Exception as enrich_err:
+                # Enrichment is best-effort — don't fail the whole fetch
+                logger.warning(f"OpinionSpark lookup enrichment failed (non-critical): {enrich_err}")
+
+            return surveys, None
+
+        except requests.exceptions.Timeout:
+            return [], "OpinionSpark API timed out"
+        except requests.exceptions.HTTPError as e:
+            return [], f"OpinionSpark HTTP error: {e}"
+        except Exception as e:
+            logger.error(f"OpinionSpark fetch failed: {e}", exc_info=True)
+            return [], str(e)
+
     # ==================== CJ Implementation ====================
     
     def _test_cj_connection(self, network_id: str, api_key: str) -> Tuple[bool, Optional[int], Optional[str]]:

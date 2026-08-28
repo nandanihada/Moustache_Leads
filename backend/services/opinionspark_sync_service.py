@@ -1,14 +1,20 @@
 """
-Voqall Auto-Sync Service
-========================
-Background service that:
-1. Fetches Voqall lookup tables (languages, industries, study types) once per session,
-   caching them for 24 hours.
-2. Every 23 hours, reads all network_presets with network_type='voqall' and
-   auto-imports/updates surveys into the offers collection.
-3. Deactivates surveys that are no longer returned by the Voqall API (stale detection).
+OpinionSpark Auto-Sync Service
+==============================
+Background service that mirrors the Voqall sync pattern for the OpinionSpark
+Supplier API (same wire format, different base URL and auth header).
 
-The service runs as a daemon thread started once per worker process.
+Key differences from Voqall:
+  - Base URL:  https://supplier-api.opinionspark.co/api/v1  (prod)
+               https://supplier-api-sandbox.opinionspark.co/api/v1  (sandbox)
+  - Auth header: ob-partner-access-key  (instead of EQ-PARTNER-ACCESS-KEY)
+  - network_type stored as 'opinionspark' in network_presets and offers collections
+
+The sync service:
+1. Fetches lookup tables (languages, industries, study types) — same endpoints as Voqall.
+2. Every 23 hours reads all network_presets with network_type='opinionspark' and
+   auto-imports / updates surveys in the offers collection.
+3. Deactivates surveys no longer returned by the API (stale detection).
 """
 
 import logging
@@ -16,38 +22,54 @@ import threading
 import time
 import concurrent.futures
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# ── Lookup cache (in-memory, shared across calls within the same process) ──────
-_LOOKUP_CACHE: Dict[str, dict] = {}       # key → {data, expires}
-_LOOKUP_CACHE_TTL = 24 * 3600             # 24 hours
+# ── Lookup cache shared with the OpinionSpark process ─────────────────────────
+_OS_LOOKUP_CACHE: Dict[str, dict] = {}
+_OS_LOOKUP_CACHE_TTL = 24 * 3600   # 24 hours
 
-
-# ── Industry ID → vertical/category mapping (from Voqall docs) ─────────────────
-# These are stable IDs; enriched further from /collection/industries at runtime
+# ── Industry ID → vertical/category mapping (from OpinionSpark collection/industries) ─────
+# These are the REAL IDs from the live API — different from Voqall's IDs
 _INDUSTRY_VERTICAL_FALLBACK = {
-    1:  'Technology',
-    2:  'Finance',
-    3:  'Healthcare',
-    4:  'Retail',
-    5:  'Automotive',
-    6:  'Travel',
-    7:  'Entertainment',
-    8:  'Education',
-    9:  'Food & Beverage',
-    10: 'Politics',
-    11: 'Sports',
-    12: 'Beauty',
-    13: 'Home & Garden',
-    14: 'Pets',
-    15: 'Gaming',
+    1:  'Automotive',
+    2:  'Beauty/Cosmetics',
+    3:  'Beverages - Alcoholic',
+    4:  'Beverages - Non Alcoholic',
+    5:  'Education',
+    6:  'Electronics/Computer/Software',
+    7:  'Entertainment (Movies, Music, TV, etc)',
+    8:  'Fashion/Clothing',
+    9:  'Financial Services/Insurance',
+    10: 'Food/Snacks',
+    11: 'Gambling/Lottery',
+    12: 'Healthcare/Pharmaceuticals',
+    13: 'Home (Utilities, Appliances, ...)',
+    14: 'Home Entertainment',
+    15: 'Home Improvement/RealEstates/Construction',
+    16: 'IT (Servers, Databases, etc)',
+    17: 'Personal Care/Toiletries',
+    18: 'Pets',
+    19: 'Politics',
+    20: 'Publishing(Newspapers,magazines,Books)',
+    21: 'Restaurants',
+    22: 'Sports',
+    23: 'Telecommunications',
+    24: 'Tobacco',
+    25: 'Toys',
+    26: 'Transportation/Shipping',
+    27: 'Travel',
+    28: 'Video Games',
+    29: 'Websites/Internet/Ecommerce',
+    30: 'Other',
+    31: 'Sensitive Content',
+    32: 'Explicit Content',
 }
 
 
-class VoqallSyncService:
-    """Singleton background service for Voqall offer auto-sync."""
+class OpinionSparkSyncService:
+    """Singleton background service for OpinionSpark offer auto-sync."""
 
     _instance = None
     _lock = threading.Lock()
@@ -66,27 +88,27 @@ class VoqallSyncService:
         self._initialized = True
         self._running = False
         self._thread = None
-        self._interval = 23 * 3600          # 23 hours in seconds
+        self._interval = 23 * 3600
         self._last_run: Optional[datetime] = None
         self._last_result: Optional[dict] = None
-        logger.info("VoqallSyncService initialized")
+        logger.info("OpinionSparkSyncService initialized")
 
     # ── Public API ───────────────────────────────────────────────────────────────
 
     def start(self):
         if self._running:
-            logger.warning("VoqallSyncService is already running")
+            logger.warning("OpinionSparkSyncService is already running")
             return
         self._running = True
         self._thread = threading.Thread(
-            target=self._loop, daemon=True, name='voqall-sync'
+            target=self._loop, daemon=True, name='opinionspark-sync'
         )
         self._thread.start()
-        logger.info("✅ Voqall auto-sync service started (every 23 hours)")
+        logger.info("✅ OpinionSpark auto-sync service started (every 23 hours)")
 
     def stop(self):
         self._running = False
-        logger.info("VoqallSyncService stopped")
+        logger.info("OpinionSparkSyncService stopped")
 
     def get_status(self) -> dict:
         return {
@@ -102,64 +124,57 @@ class VoqallSyncService:
 
     def run_now(self) -> dict:
         """Manual trigger — run the sync immediately and return results."""
-        logger.info("🔄 Voqall sync triggered manually")
-        return self._sync_all_voqall_presets()
+        logger.info("🔄 OpinionSpark sync triggered manually")
+        return self._sync_all_opinionspark_presets()
 
     # ── Background loop ──────────────────────────────────────────────────────────
 
     def _loop(self):
-        logger.info("🔄 Voqall sync loop started")
+        logger.info("🔄 OpinionSpark sync loop started")
         while self._running:
             try:
-                result = self._sync_all_voqall_presets()
+                result = self._sync_all_opinionspark_presets()
                 self._last_run = datetime.utcnow()
                 self._last_result = result
             except Exception as e:
-                logger.error(f"Voqall sync loop error: {e}", exc_info=True)
-            # Sleep for 23 hours before next run
+                logger.error(f"OpinionSpark sync loop error: {e}", exc_info=True)
             time.sleep(self._interval)
 
     # ── Core sync logic ──────────────────────────────────────────────────────────
 
-    def _sync_all_voqall_presets(self) -> dict:
-        """
-        Read all network_presets with network_type='voqall' and sync each one.
-        Returns a summary dict.
-        """
+    def _sync_all_opinionspark_presets(self) -> dict:
+        """Read all network_presets with network_type='opinionspark' and sync each."""
         from database import db_instance
 
         presets_col = db_instance.get_collection('network_presets')
         if presets_col is None:
-            logger.warning("Voqall sync: DB not available")
+            logger.warning("OpinionSpark sync: DB not available")
             return {'error': 'DB not available', 'synced': 0}
 
-        voqall_presets = list(presets_col.find({'network_type': 'voqall'}))
-        if not voqall_presets:
-            logger.info("Voqall sync: No voqall presets configured — skipping")
-            return {'message': 'No voqall presets configured', 'synced': 0}
+        os_presets = list(presets_col.find({'network_type': 'opinionspark'}))
+        if not os_presets:
+            logger.info("OpinionSpark sync: No opinionspark presets configured — skipping")
+            return {'message': 'No opinionspark presets configured', 'synced': 0}
 
-        logger.info(f"🔄 Voqall sync: found {len(voqall_presets)} preset(s)")
+        logger.info(f"🔄 OpinionSpark sync: found {len(os_presets)} preset(s)")
 
-        total_created = 0
-        total_updated = 0
-        total_deactivated = 0
-        total_errors = 0
+        total_created = total_updated = total_deactivated = total_errors = 0
         preset_results = []
 
-        for preset in voqall_presets:
+        for preset in os_presets:
             try:
                 result = self._sync_single_preset(preset)
-                total_created    += result.get('created', 0)
-                total_updated    += result.get('updated', 0)
+                total_created     += result.get('created', 0)
+                total_updated     += result.get('updated', 0)
                 total_deactivated += result.get('deactivated', 0)
-                total_errors     += result.get('errors', 0)
+                total_errors      += result.get('errors', 0)
                 preset_results.append({
                     'preset': preset.get('display_name', str(preset.get('_id'))),
                     **result,
                 })
             except Exception as e:
                 logger.error(
-                    f"Voqall sync error for preset {preset.get('display_name')}: {e}",
+                    f"OpinionSpark sync error for preset {preset.get('display_name')}: {e}",
                     exc_info=True
                 )
                 total_errors += 1
@@ -170,7 +185,7 @@ class VoqallSyncService:
 
         summary = {
             'run_at': datetime.utcnow().isoformat() + 'Z',
-            'presets_synced': len(voqall_presets),
+            'presets_synced': len(os_presets),
             'total_created': total_created,
             'total_updated': total_updated,
             'total_deactivated': total_deactivated,
@@ -178,48 +193,48 @@ class VoqallSyncService:
             'preset_details': preset_results,
         }
         logger.info(
-            f"✅ Voqall sync complete: created={total_created}, "
+            f"✅ OpinionSpark sync complete: created={total_created}, "
             f"updated={total_updated}, deactivated={total_deactivated}, "
             f"errors={total_errors}"
         )
         return summary
 
     def _sync_single_preset(self, preset: dict) -> dict:
-        """Sync surveys for a single network preset."""
+        """Sync surveys for a single OpinionSpark network preset."""
         from services.network_api_service import network_api_service
         from services.network_field_mapper import network_field_mapper
         from utils.bulk_operations import get_bulk_offer_processor
         from services.tracking_link_generator import apply_network_offer_params
         from database import db_instance
 
-        network_id   = preset.get('network_id', 'voqall')
+        network_id   = preset.get('network_id', 'opinionspark')
         api_key      = preset.get('api_key', '')
         fetch_mode   = preset.get('fetch_mode', 'my_offers')
-        display_name = preset.get('display_name', 'voqall')
+        display_name = preset.get('display_name', 'opinionspark')
 
         if not api_key:
             return {'error': 'No api_key in preset', 'created': 0, 'updated': 0, 'deactivated': 0, 'errors': 1}
 
-        logger.info(f"🔄 Syncing Voqall preset: {display_name}")
+        logger.info(f"🔄 Syncing OpinionSpark preset: {display_name}")
 
         # 1. Fetch lookup tables (cached for 24h)
         lookups = self._fetch_lookups_cached(api_key, network_id)
 
-        # 2. Fetch surveys from Voqall
+        # 2. Fetch surveys from OpinionSpark
         offers, error = network_api_service.fetch_offers(
-            network_id, api_key, 'voqall', {}, None, fetch_mode
+            network_id, api_key, 'opinionspark', {}, None, fetch_mode
         )
         if error:
-            logger.error(f"Voqall fetch error for {display_name}: {error}")
+            logger.error(f"OpinionSpark fetch error for {display_name}: {error}")
             return {'error': error, 'created': 0, 'updated': 0, 'deactivated': 0, 'errors': 1}
 
         if not offers:
-            logger.info(f"Voqall sync: No surveys returned for {display_name}")
+            logger.info(f"OpinionSpark sync: No surveys returned for {display_name}")
             return {'created': 0, 'updated': 0, 'deactivated': 0, 'errors': 0, 'fetched': 0}
 
-        logger.info(f"Voqall sync: {len(offers)} surveys fetched for {display_name}")
+        logger.info(f"OpinionSpark sync: {len(offers)} surveys fetched for {display_name}")
 
-        # 3. Enrich raw offer data with lookups before mapping
+        # 3. Enrich raw survey data with lookups before mapping
         enriched_offers = [self._enrich_survey(o, lookups) for o in offers]
 
         # 4. Map to DB format
@@ -227,17 +242,16 @@ class VoqallSyncService:
         mapping_errors = []
         for idx, offer_data in enumerate(enriched_offers):
             try:
-                mapped = network_field_mapper.map_to_db_format(offer_data, 'voqall', network_id)
+                mapped = network_field_mapper.map_to_db_format(offer_data, 'opinionspark', network_id)
                 if not mapped:
                     mapping_errors.append(f"Row {idx+1}: failed to map")
                     continue
-                # Use display_name as the network label (lowercased)
                 mapped['network'] = display_name.lower()
                 mapped['show_in_offerwall'] = True
                 mapped['status'] = 'active'
                 mapped['show_in_offerwall_source'] = 'api_import'
                 mapped['show_in_offerwall_added_at'] = datetime.utcnow()
-                mapped['show_in_offerwall_added_by'] = 'voqall_auto_sync'
+                mapped['show_in_offerwall_added_by'] = 'opinionspark_auto_sync'
                 mapped['approval_settings'] = {
                     'type': 'auto_approve',
                     'require_approval': False,
@@ -247,43 +261,42 @@ class VoqallSyncService:
                 }
                 mapped['approval_type'] = 'auto_approve'
                 mapped['require_approval'] = False
-                # Preserve any custom name the admin may have set — don't overwrite with Voqall API name
                 mapped['_preserve_name'] = True
-                # Apply partner network params to URL
                 mapped.update(apply_network_offer_params(mapped))
                 mapped_offers.append(mapped)
             except Exception as e:
                 mapping_errors.append(f"Row {idx+1}: {e}")
 
         if mapping_errors:
-            logger.warning(f"Voqall mapping errors for {display_name}: {mapping_errors[:5]}")
+            logger.warning(f"OpinionSpark mapping errors for {display_name}: {mapping_errors[:5]}")
 
-        # 5. Bulk upsert (update existing, create new)
+        if not mapped_offers:
+            return {'fetched': len(offers), 'created': 0, 'updated': 0, 'deactivated': 0, 'errors': len(mapping_errors)}
+
+        # 5. Bulk upsert
         bulk_processor = get_bulk_offer_processor(db_instance)
         result = bulk_processor.bulk_create_offers_optimized(
             mapped_offers,
-            created_by='voqall_auto_sync',
-            duplicate_strategy='update',  # update existing surveys with fresh data
+            created_by='opinionspark_auto_sync',
+            duplicate_strategy='update',
         )
 
         created = result['stats'].get('created', 0)
         updated = result['stats'].get('updated', 0)
 
-        # 6. Stale detection — deactivate surveys no longer in the API response
-        deactivated = self._deactivate_stale_surveys(
-            offers, display_name, db_instance
-        )
+        # 6. Stale detection
+        deactivated = self._deactivate_stale_surveys(offers, display_name, db_instance)
 
-        # 7. Post-sync automation — rename to "YIS Survey" + add to Moustache Survey's sub-wall
+        # 7. Post-sync automation — rename to "YIS Survey" + add to Moustache Survey sub-wall
         try:
-            from services.voqall_subwall_service import run_voqall_subwall_automation
-            subwall_result = run_voqall_subwall_automation(db_instance)
+            from services.voqall_subwall_service import run_opinionspark_subwall_automation
+            subwall_result = run_opinionspark_subwall_automation(db_instance)
             logger.info(
-                f"Voqall sub-wall automation: renamed={subwall_result.get('renamed', 0)}, "
-                f"added_to_subwall={subwall_result.get('added_to_subwall', 0)}"
+                f'OpinionSpark sub-wall automation: renamed={subwall_result.get("renamed", 0)}, '
+                f'added_to_subwall={subwall_result.get("added_to_subwall", 0)}'
             )
         except Exception as e:
-            logger.warning(f"Voqall sub-wall automation error (non-fatal): {e}")
+            logger.warning(f'OpinionSpark sub-wall automation error (non-fatal): {e}')
 
         return {
             'fetched': len(offers),
@@ -296,21 +309,20 @@ class VoqallSyncService:
     # ── Lookup fetching with 24h cache ───────────────────────────────────────────
 
     def _fetch_lookups_cached(self, api_key: str, network_id: str) -> dict:
+        """Fetch /collection/languages, /collection/industries, /collection/studytypes.
+        Results cached for 24 hours per api_key.
         """
-        Fetch /collection/languages, /collection/industries, /collection/studytypes
-        in parallel.  Results are cached for 24 hours per api_key.
-        """
-        cache_key = f"voqall_lookups_{api_key[:12]}"
+        cache_key = f"os_lookups_{api_key[:12]}"
         now = time.time()
 
-        if cache_key in _LOOKUP_CACHE:
-            entry = _LOOKUP_CACHE[cache_key]
+        if cache_key in _OS_LOOKUP_CACHE:
+            entry = _OS_LOOKUP_CACHE[cache_key]
             if entry['expires'] > now:
-                logger.debug("Voqall lookups: using cached data")
+                logger.debug("OpinionSpark lookups: using cached data")
                 return entry['data']
 
         from services.network_api_service import network_api_service
-        base_url = network_api_service._voqall_resolve_base_url(network_id, api_key)
+        base_url = network_api_service._opinionspark_resolve_base_url(network_id, api_key)
 
         endpoints = {
             'languages':  f"{base_url}/collection/languages",
@@ -324,7 +336,7 @@ class VoqallSyncService:
                 key: executor.submit(
                     network_api_service.session.get,
                     url,
-                    headers={'EQ-PARTNER-ACCESS-KEY': api_key},
+                    headers={'ob-partner-access-key': api_key},
                     timeout=12,
                 )
                 for key, url in endpoints.items()
@@ -335,19 +347,18 @@ class VoqallSyncService:
                     resp.raise_for_status()
                     raw[key] = resp.json()
                 except Exception as e:
-                    logger.warning(f"Voqall lookup fetch failed for {key}: {e}")
+                    logger.warning(f"OpinionSpark lookup fetch failed for {key}: {e}")
                     raw[key] = {}
 
-        # Build usable lookup dicts
         lookups = {
             'language_map': self._build_language_map(raw.get('languages', {})),
             'industry_map': self._build_industry_map(raw.get('industries', {})),
             'studytype_map': self._build_studytype_map(raw.get('studytypes', {})),
         }
 
-        _LOOKUP_CACHE[cache_key] = {'data': lookups, 'expires': now + _LOOKUP_CACHE_TTL}
+        _OS_LOOKUP_CACHE[cache_key] = {'data': lookups, 'expires': now + _OS_LOOKUP_CACHE_TTL}
         logger.info(
-            f"Voqall lookups fetched: "
+            f"OpinionSpark lookups fetched: "
             f"{len(lookups['language_map'])} languages, "
             f"{len(lookups['industry_map'])} industries, "
             f"{len(lookups['studytype_map'])} study types"
@@ -355,12 +366,6 @@ class VoqallSyncService:
         return lookups
 
     def _build_language_map(self, raw: dict) -> Dict[int, dict]:
-        """
-        Build {language_id: {'name': str, 'country_code': str}} from
-        GET /collection/languages response.
-
-        Response shape: {"Languages": [{"Id": 1, "Name": "English - United Kingdom", "CountryCode": "GB"}, ...]}
-        """
         result = {}
         for item in raw.get('Languages', []):
             lid = item.get('Id')
@@ -372,11 +377,6 @@ class VoqallSyncService:
         return result
 
     def _build_industry_map(self, raw: dict) -> Dict[int, str]:
-        """
-        Build {industry_id: industry_name} from GET /collection/industries response.
-
-        Response shape: {"Industries": [{"Id": 1, "Name": "Technology"}, ...]}
-        """
         result = {}
         for item in raw.get('Industries', []):
             iid = item.get('Id')
@@ -385,11 +385,6 @@ class VoqallSyncService:
         return result
 
     def _build_studytype_map(self, raw: dict) -> Dict[int, str]:
-        """
-        Build {study_type_id: study_type_name} from GET /collection/studytypes.
-
-        Response shape: {"StudyTypes": [{"Id": 1, "Name": "Online Survey"}, ...]}
-        """
         result = {}
         for item in raw.get('StudyTypes', []):
             sid = item.get('Id')
@@ -400,10 +395,7 @@ class VoqallSyncService:
     # ── Survey enrichment ────────────────────────────────────────────────────────
 
     def _enrich_survey(self, survey: dict, lookups: dict) -> dict:
-        """
-        Inject resolved country/language/industry data into the raw survey dict
-        so _map_voqall_offer can use it directly.
-        """
+        """Inject resolved country/language/industry data into the raw survey dict."""
         survey = dict(survey)  # don't mutate original
 
         language_map = lookups.get('language_map', {})
@@ -443,11 +435,7 @@ class VoqallSyncService:
     def _deactivate_stale_surveys(
         self, live_surveys: List[dict], network_name: str, db_instance
     ) -> int:
-        """
-        Surveys in our DB from this network that were NOT returned by the latest
-        API call get marked as 'paused' (stale).
-        Returns count of deactivated surveys.
-        """
+        """Mark surveys no longer returned by the API as 'paused' (stale)."""
         try:
             offers_col = db_instance.get_collection('offers')
             if offers_col is None:
@@ -455,48 +443,52 @@ class VoqallSyncService:
 
             live_ids = set(str(s.get('SurveyId', '')) for s in live_surveys if s.get('SurveyId'))
 
-            # Find all active/running Voqall offers in our DB from this network
-            # Use import_source to catch ALL voqall offers regardless of network display name
             existing = list(offers_col.find(
                 {
-                    'import_source': 'voqall',
+                    'import_source': 'opinionspark',
                     'status': {'$in': ['active', 'running']},
-                    '$or': [{'deleted': {'$exists': False}}, {'deleted': False}],
                 },
-                {'offer_id': 1, 'campaign_id': 1, 'name': 1}
+                {'campaign_id': 1, '_id': 1}
             ))
 
             stale = [
                 o for o in existing
-                if str(o.get('campaign_id', '')) not in live_ids
+                if str(o.get('campaign_id', '')).strip() not in live_ids
             ]
 
             if not stale:
                 return 0
 
-            stale_offer_ids = [o['offer_id'] for o in stale if o.get('offer_id')]
-            offers_col.update_many(
-                {'offer_id': {'$in': stale_offer_ids}},
+            stale_ids = [o['_id'] for o in stale]
+            result = offers_col.update_many(
+                {'_id': {'$in': stale_ids}},
                 {'$set': {
                     'status': 'expired',
                     'is_active': False,
-                    'voqall_stale_at': datetime.utcnow(),
-                    'voqall_stale_reason': 'Not returned by Voqall API',
+                    'opinionspark_stale_at': datetime.utcnow(),
+                    'opinionspark_stale_reason': 'Not returned by OpinionSpark API',
                     'updated_at': datetime.utcnow(),
                 }}
             )
-            logger.info(
-                f"Voqall stale detection: expired {len(stale)} surveys "
-                f"for network '{network_name}'"
-            )
-            return len(stale)
+            deactivated = result.modified_count
+            logger.info(f"OpinionSpark stale detection: expired {deactivated} surveys for {network_name}")
+            return deactivated
 
         except Exception as e:
-            logger.error(f"Voqall stale detection error: {e}", exc_info=True)
+            logger.error(f"OpinionSpark stale detection error: {e}", exc_info=True)
             return 0
 
 
-# ── Singleton accessor ────────────────────────────────────────────────────────
+# ── Module-level singleton accessor ─────────────────────────────────────────────
 
-def get_voqall_sync_service() -> VoqallSyncService:
-    return VoqallSyncService()
+_sync_service: Optional[OpinionSparkSyncService] = None
+_sync_service_lock = threading.Lock()
+
+
+def get_opinionspark_sync_service() -> OpinionSparkSyncService:
+    global _sync_service
+    if _sync_service is None:
+        with _sync_service_lock:
+            if _sync_service is None:
+                _sync_service = OpinionSparkSyncService()
+    return _sync_service

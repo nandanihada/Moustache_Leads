@@ -770,6 +770,15 @@ def start_background_services():
         except Exception as e:
             logging.warning(f"⚠️ Voqall auto-sync service failed to start: {str(e)}")
 
+        # OpinionSpark Auto-Sync — imports/updates surveys every 23 hours
+        try:
+            from services.opinionspark_sync_service import get_opinionspark_sync_service
+            os_sync_svc = get_opinionspark_sync_service()
+            os_sync_svc.start()
+            logging.info("✅ OpinionSpark auto-sync service started (every 23 hours)")
+        except Exception as e:
+            logging.warning(f"⚠️ OpinionSpark auto-sync service failed to start: {str(e)}")
+
         # RE-ENABLED: MarketXcel Auto-Sync — imports/updates surveys every 23 hours
         try:
             from services.market_excel_sync_service import get_market_excel_sync_service

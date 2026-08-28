@@ -1493,6 +1493,7 @@ const AdminOffers = () => {
   const [generateSurveyQuestionCount, setGenerateSurveyQuestionCount] = useState<string>('10');
   const [generateSurveyAdditionalInfo, setGenerateSurveyAdditionalInfo] = useState('');
   const [generateSurveyLoading, setGenerateSurveyLoading] = useState(false);
+  const [generateSurveyRedirect, setGenerateSurveyRedirect] = useState(false);
   const [generateSurveyResults, setGenerateSurveyResults] = useState<Array<{ offer_id: string; name: string; status: string; survey_url?: string; funnel_url?: string; title?: string; error?: string }> | null>(null);
 
   const handleGenerateSurveySubmit = async () => {
@@ -1504,15 +1505,37 @@ const AdminOffers = () => {
     setGenerateSurveyLoading(true);
     setGenerateSurveyResults(null);
     try {
-      const payload: { offer_ids: string[]; type: 'survey' | 'funnel'; question_count?: number; additional_info?: string } = {
+      const payload: {
+        offer_ids: string[];
+        type: 'survey' | 'funnel';
+        question_count?: number;
+        additional_info?: string;
+        redirect: boolean;
+        offer_urls: Record<string, string>;
+      } = {
         offer_ids: ids,
         type: generateSurveyType,
+        redirect: generateSurveyRedirect,
+        offer_urls: {},
         ...(generateSurveyAdditionalInfo.trim() && { additional_info: generateSurveyAdditionalInfo.trim() }),
       };
       if (generateSurveyType === 'survey') {
         const qc = parseInt(generateSurveyQuestionCount, 10);
         if (!isNaN(qc) && qc >= 5 && qc <= 100) payload.question_count = qc;
       }
+      // Build offer_url map: offer_id → tracking link
+      // Build directly from offer_id so it works even if offer is not in current page
+      const trackingBase = getTrackingBaseUrl();
+      ids.forEach(id => {
+        // Try to get from loaded offers first, fall back to direct URL construction
+        const offer = offers.find(o => o.offer_id === id);
+        if (offer) {
+          payload.offer_urls[id] = generateTrackingLink(offer);
+        } else {
+          payload.offer_urls[id] = `${trackingBase}/track/${id}`;
+        }
+      });
+
       const result = await adminOfferApi.generateSurvey(payload);
       const enriched = (result.results || []).map(r => ({
         ...r,
@@ -2692,6 +2715,7 @@ const AdminOffers = () => {
               setGenerateSurveyType('survey');
               setGenerateSurveyQuestionCount('10');
               setGenerateSurveyAdditionalInfo('');
+              setGenerateSurveyRedirect(false);
               setGenerateSurveyOpen(true);
             }}
           />
@@ -3669,6 +3693,22 @@ const AdminOffers = () => {
                                     <div className="flex gap-2">
                                       <span className="text-muted-foreground w-28 shrink-0">additional_info</span>
                                       <span className="text-xs">{req.payload_sent.additional_info}</span>
+                                    </div>
+                                  )}
+                                  {'redirect' in req.payload_sent && (
+                                    <div className="flex gap-2">
+                                      <span className="text-muted-foreground w-28 shrink-0">redirect</span>
+                                      <span className={`font-mono font-medium text-xs px-1.5 py-0.5 rounded ${req.payload_sent.redirect ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                                        {String(req.payload_sent.redirect)}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {req.payload_sent.offer_url && (
+                                    <div className="flex gap-2">
+                                      <span className="text-muted-foreground w-28 shrink-0">offer_url</span>
+                                      <a href={req.payload_sent.offer_url} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-600 hover:underline truncate">
+                                        {req.payload_sent.offer_url}
+                                      </a>
                                     </div>
                                   )}
                                   <div>
@@ -6343,6 +6383,25 @@ const AdminOffers = () => {
                   className="w-full mt-1 text-sm border rounded-md p-2 resize-none min-h-[70px] bg-background"
                   rows={3}
                 />
+              </div>
+
+              {/* Redirect toggle */}
+              <div className="flex items-start gap-3 p-3 rounded-lg border bg-muted/30">
+                <input
+                  id="survey-redirect"
+                  type="checkbox"
+                  checked={generateSurveyRedirect}
+                  onChange={e => setGenerateSurveyRedirect(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 cursor-pointer"
+                />
+                <div>
+                  <label htmlFor="survey-redirect" className="text-sm font-medium cursor-pointer">
+                    Enable Redirect
+                  </label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    When checked, sends <code className="bg-muted rounded px-1">redirect: true</code> to PepperWahl. The offer's tracking link (<code className="bg-muted rounded px-1">offers.moustacheleads.com/track/…</code>) is included in the request automatically.
+                  </p>
+                </div>
               </div>
 
               <DialogFooter>
