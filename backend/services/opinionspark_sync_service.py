@@ -298,11 +298,38 @@ class OpinionSparkSyncService:
         except Exception as e:
             logger.warning(f'OpinionSpark sub-wall automation error (non-fatal): {e}')
 
+        # 8. Delta detection — reset description_refined flag if key metrics changed
+        desc_reset = 0
+        try:
+            from services.survey_description_refiner import get_refiner
+            refiner = get_refiner()
+            desc_reset = refiner.check_delta_and_reset(mapped_offers)
+            if desc_reset:
+                logger.info(f'OpinionSpark delta check: {desc_reset} offer(s) reset to unrefined')
+        except Exception as e:
+            logger.warning(f'OpinionSpark delta check error (non-fatal): {e}')
+            refiner = None
+
+        # 9. Auto-refine — generate friendly descriptions for all unrefined offers
+        desc_refined = 0
+        try:
+            if refiner is None:
+                from services.survey_description_refiner import get_refiner
+                refiner = get_refiner()
+            refine_result = refiner.refine_all(refined_by='opinionspark_auto_sync')
+            desc_refined = refine_result.get('refined', 0)
+            if desc_refined:
+                logger.info(f'OpinionSpark auto-refine: {desc_refined} description(s) refined')
+        except Exception as e:
+            logger.warning(f'OpinionSpark auto-refine error (non-fatal): {e}')
+
         return {
             'fetched': len(offers),
             'created': created,
             'updated': updated,
             'deactivated': deactivated,
+            'desc_reset': desc_reset,
+            'desc_refined': desc_refined,
             'errors': len(mapping_errors) + result['stats'].get('errors', 0),
         }
 

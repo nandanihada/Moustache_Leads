@@ -248,11 +248,38 @@ class MarketExcelSyncService:
         except Exception as e:
             logger.warning(f'MarketXcel sub-wall automation error (non-fatal): {e}')
 
+        # 6. Delta detection — reset description_refined flag if key metrics changed
+        desc_reset = 0
+        try:
+            from services.survey_description_refiner import get_refiner
+            refiner = get_refiner()
+            desc_reset = refiner.check_delta_and_reset(mapped_offers)
+            if desc_reset:
+                logger.info(f'MarketXcel delta check: {desc_reset} offer(s) reset to unrefined')
+        except Exception as e:
+            logger.warning(f'MarketXcel delta check error (non-fatal): {e}')
+            refiner = None
+
+        # 7. Auto-refine — generate friendly descriptions for all unrefined offers
+        desc_refined = 0
+        try:
+            if refiner is None:
+                from services.survey_description_refiner import get_refiner
+                refiner = get_refiner()
+            refine_result = refiner.refine_all(refined_by='market_excel_auto_sync')
+            desc_refined = refine_result.get('refined', 0)
+            if desc_refined:
+                logger.info(f'MarketXcel auto-refine: {desc_refined} description(s) refined')
+        except Exception as e:
+            logger.warning(f'MarketXcel auto-refine error (non-fatal): {e}')
+
         return {
             'fetched': len(offers),
             'created': created,
             'updated': updated,
             'deactivated': deactivated,
+            'desc_reset': desc_reset,
+            'desc_refined': desc_refined,
             'errors': len(mapping_errors) + result['stats'].get('errors', 0),
         }
 

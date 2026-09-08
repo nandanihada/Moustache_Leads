@@ -186,10 +186,14 @@ class OfferRotationService:
         #     These are offers that were activated by rotation in past cycles
         #     but are no longer tracked in current/previous batch state
         #     IMPORTANT: Skip offers that have approved access requests (publishers are using them)
+        #     IMPORTANT: Never touch offerwall-exclusive or subwall-exclusive offers — they
+        #     are managed manually and must never be deactivated by the rotation engine.
         orphan_query = {
             'status': 'active',
             'rotation_activated_at': {'$exists': True},
             'rotation_running': {'$ne': True},
+            'offerwall_exclusive': {'$ne': True},
+            'subwall_exclusive': {'$ne': True},
             '$or': [{'deleted': {'$exists': False}}, {'deleted': False}],
         }
         # Exclude offers in the current running list
@@ -237,10 +241,14 @@ class OfferRotationService:
             logger.info(f"🧹 Cleaned up {orphan_result.modified_count} orphaned rotation-activated offers (protected {len(protected_offer_ids)} with approved requests/recent clicks)")
 
         # 2. Get all inactive, non-deleted, non-running candidates
+        #    IMPORTANT: Never rotate offerwall-exclusive or subwall-exclusive offers —
+        #    they have dedicated placements and must be managed manually.
         query = {
             'status': 'inactive',
             'is_active': True,
             'rotation_running': {'$ne': True},
+            'offerwall_exclusive': {'$ne': True},
+            'subwall_exclusive': {'$ne': True},
             '$or': [{'deleted': {'$exists': False}}, {'deleted': False}],
         }
         # If admin selected specific networks, only rotate those networks' offers
@@ -359,12 +367,53 @@ class OfferRotationService:
         except Exception as log_err:
             logger.error(f"Failed to log rotation activity: {log_err}")
 
+    # --------------------------------------------------- recovery
+    def _recover_special_offers(self):
+        """
+        One-time recovery: re-activate any offerwall_exclusive or subwall_exclusive
+        offers that were incorrectly deactivated by a previous rotation cycle.
+        These offers are always supposed to remain active — rotation should never
+        have touched them. We identify them by the presence of rotation_deactivated_at
+        combined with the exclusive flags.
+        """
+        try:
+            recovery_query = {
+                'status': 'inactive',
+                'is_active': True,
+                '$or': [
+                    {'offerwall_exclusive': True},
+                    {'subwall_exclusive': True},
+                ],
+                'rotation_deactivated_at': {'$exists': True},
+                '$and': [{'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}],
+            }
+            result = self.offers_col.update_many(
+                recovery_query,
+                {'$set': {
+                    'status': 'active',
+                    'rotation_recovery': True,
+                    'rotation_recovered_at': datetime.utcnow(),
+                    'updated_at': datetime.utcnow(),
+                }}
+            )
+            if result.modified_count > 0:
+                logger.info(
+                    f"✅ Recovery: re-activated {result.modified_count} offerwall/subwall-exclusive offer(s) "
+                    f"that were incorrectly deactivated by rotation"
+                )
+            else:
+                logger.info("✅ Recovery check: no exclusive offers needed re-activation")
+        except Exception as e:
+            logger.error(f"Recovery step failed: {e}", exc_info=True)
+
     # --------------------------------------------------- service lifecycle
     def start(self):
         """Start the background rotation thread."""
         if self._thread and self._thread.is_alive():
             logger.warning("Rotation service already running")
             return
+        # Recover any exclusive offers that were wrongly deactivated by past rotation cycles
+        self._recover_special_offers()
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
@@ -397,11 +446,14 @@ class OfferRotationService:
             time_remaining = max(0, remaining_secs)
             next_rotation_at = window_end.isoformat() + 'Z' if remaining_secs > 0 else None
 
-        # Count inactive offers available
+        # Count inactive offers available for rotation
+        # Exclude offerwall-exclusive and subwall-exclusive — they never participate in rotation
         inactive_count = self.offers_col.count_documents({
             'status': 'inactive',
             'is_active': True,
             'rotation_running': {'$ne': True},
+            'offerwall_exclusive': {'$ne': True},
+            'subwall_exclusive': {'$ne': True},
             '$or': [{'deleted': {'$exists': False}}, {'deleted': False}],
         })
 
@@ -415,6 +467,8 @@ class OfferRotationService:
                 'status': 'inactive',
                 'is_active': True,
                 'rotation_running': {'$ne': True},
+                'offerwall_exclusive': {'$ne': True},
+                'subwall_exclusive': {'$ne': True},
                 '$and': [
                     {'$or': network_regex},
                     {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
@@ -491,10 +545,13 @@ class OfferRotationService:
             )
 
         # Also deactivate ALL orphaned rotation-activated offers
+        # Never touch offerwall-exclusive or subwall-exclusive offers on reset either
         orphan_query = {
             'status': 'active',
             'rotation_activated_at': {'$exists': True},
             'rotation_running': {'$ne': True},
+            'offerwall_exclusive': {'$ne': True},
+            'subwall_exclusive': {'$ne': True},
             '$or': [{'deleted': {'$exists': False}}, {'deleted': False}],
         }
         if running_ids:

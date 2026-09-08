@@ -386,6 +386,35 @@ def _process_inbox_entry(inbox_id: str):
     except Exception as e:
         logger.warning(f'Sub-wall auto-add failed (non-fatal): {e}')
 
+    # ── Delta detection — reset description_refined if Pepperwahl re-published with changes ──
+    if offer_action == 'updated':
+        try:
+            from services.survey_description_refiner import get_refiner
+            # Build a minimal offer dict with the fields the delta checker needs
+            _delta_offer = {
+                'offer_id': ml_offer_id,
+                'offer_source': 'pepperwahl',
+                'loi_minutes': loi,
+                'countries': [country] if country else [],
+                'vertical': survey_type.upper() if survey_type else 'SURVEY',
+                'category': survey_type or 'SURVEY',
+                'audience_type': '',
+            }
+            reset_count = get_refiner().check_delta_and_reset([_delta_offer])
+            if reset_count:
+                logger.info(f'Pepperwahl delta check: offer {ml_offer_id} reset to unrefined')
+        except Exception as e:
+            logger.warning(f'Pepperwahl delta check error (non-fatal): {e}')
+
+    # ── Auto-refine — always run after create or update ──────────────────────
+    try:
+        from services.survey_description_refiner import get_refiner
+        refine_result = get_refiner().refine_all(refined_by='pepperwahl_auto')
+        if refine_result.get('refined', 0):
+            logger.info(f'Pepperwahl auto-refine: {refine_result["refined"]} description(s) refined')
+    except Exception as e:
+        logger.warning(f'Pepperwahl auto-refine error (non-fatal): {e}')
+
     # ── Auto-send email notification if toggle is ON and this is a new offer ──
     if offer_action == 'created':
         try:

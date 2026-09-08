@@ -250,6 +250,118 @@ def seed_surveys():
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# ADMIN: Description Refinement Routes
+# ═══════════════════════════════════════════════════════════════════════
+
+@survey_gateway_bp.route('/api/admin/surveys/refine/stats', methods=['GET'])
+@_admin_guard
+def refine_stats():
+    """Return refinement stats — total, refined, unrefined, per-source breakdown."""
+    try:
+        from services.survey_description_refiner import get_refiner
+        stats = get_refiner().get_stats()
+        return jsonify({'success': True, 'stats': stats})
+    except Exception as e:
+        logger.error(f'refine_stats error: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@survey_gateway_bp.route('/api/admin/surveys/refine/unrefined', methods=['GET'])
+@_admin_guard
+def refine_list_unrefined():
+    """List offers pending refinement (paginated)."""
+    try:
+        from services.survey_description_refiner import get_refiner
+        page     = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 30))
+        docs, total = get_refiner().list_unrefined(page, per_page)
+        return jsonify({'success': True, 'offers': docs, 'total': total, 'page': page})
+    except Exception as e:
+        logger.error(f'refine_list_unrefined error: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@survey_gateway_bp.route('/api/admin/surveys/refine/refined', methods=['GET'])
+@_admin_guard
+def refine_list_refined():
+    """List offers that have already been refined (paginated)."""
+    try:
+        from services.survey_description_refiner import get_refiner
+        page     = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 30))
+        docs, total = get_refiner().list_refined(page, per_page)
+        return jsonify({'success': True, 'offers': docs, 'total': total, 'page': page})
+    except Exception as e:
+        logger.error(f'refine_list_refined error: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@survey_gateway_bp.route('/api/admin/surveys/refine/all', methods=['POST'])
+@_admin_guard
+def refine_all():
+    """
+    Refine descriptions for all unrefined survey offers.
+    Runs synchronously (typically < 1s for hundreds of offers).
+    Returns a summary of how many were processed.
+    """
+    try:
+        from services.survey_description_refiner import get_refiner
+        user = getattr(request, 'current_user', {})
+        refined_by = user.get('username', 'admin')
+        result = get_refiner().refine_all(batch_size=200, refined_by=refined_by)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'refine_all error: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@survey_gateway_bp.route('/api/admin/surveys/refine/<offer_id>', methods=['POST'])
+@_admin_guard
+def refine_one(offer_id):
+    """Refine description for a single offer by offer_id."""
+    try:
+        from services.survey_description_refiner import get_refiner
+        user = getattr(request, 'current_user', {})
+        refined_by = user.get('username', 'admin')
+        result = get_refiner().refine_one(offer_id, refined_by=refined_by)
+        if not result.get('success'):
+            return jsonify(result), 404
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'refine_one error for {offer_id}: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@survey_gateway_bp.route('/api/admin/surveys/refine/<offer_id>', methods=['DELETE'])
+@_admin_guard
+def refine_reset_one(offer_id):
+    """
+    Manually reset description_refined=False for a single offer,
+    sending it back to the unrefined queue.
+    """
+    try:
+        from database import db_instance
+        from datetime import datetime as dt
+        col = db_instance.get_collection('offers')
+        if col is None:
+            return jsonify({'success': False, 'error': 'DB not available'}), 500
+        result = col.update_one(
+            {'offer_id': offer_id},
+            {'$set': {
+                'description_refined': False,
+                'description_reset_at': dt.utcnow(),
+                'description_reset_by': getattr(request, 'current_user', {}).get('username', 'admin'),
+            }}
+        )
+        if result.matched_count == 0:
+            return jsonify({'success': False, 'error': f'Offer {offer_id} not found'}), 404
+        return jsonify({'success': True, 'message': f'{offer_id} reset to unrefined'})
+    except Exception as e:
+        logger.error(f'refine_reset_one error for {offer_id}: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # PUBLIC: Survey Gateway (served to end users before redirect)
 # ═══════════════════════════════════════════════════════════════════════
 

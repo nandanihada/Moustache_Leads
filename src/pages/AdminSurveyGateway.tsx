@@ -8,14 +8,17 @@ import {
   fetchPepperwahlInbox, fetchPepperwahlEntry, processPepperwahlEntry,
   setPepperwahlPayout, setPepperwahlStatus, deletePepperwahlEntry,
   fetchPepperwahlStats,
+  fetchRefineStats, fetchUnrefinedOffers, fetchRefinedOffers,
+  refineAllDescriptions, refineOneDescription, resetRefinement,
   type SurveyData, type SurveyQuestion, type PepperwahlInboxEntry, type PepperwahlStats,
+  type RefinementStats, type RefinementOffer,
 } from "@/services/surveyApi";
 import { TemplatePicker, TemplateName } from "@/components/survey-templates/SurveyTemplateRenderer";
 import {
   Shield, Plus, Pencil, Trash2, Eye, BarChart3, Link2, Unlink,
   ChevronDown, ChevronRight, Search, RefreshCw, Database, CheckCircle2,
   XCircle, Clock, AlertTriangle, X, Inbox, ExternalLink, DollarSign,
-  Play, Pause, RotateCcw, ChevronLeft, Globe, FileText,
+  Play, Pause, RotateCcw, ChevronLeft, Globe, FileText, Wand2, RotateCw,
 } from "lucide-react";
 
 const CATEGORIES = [
@@ -31,7 +34,7 @@ const Q_TYPES = [
 ];
 
 export default function AdminSurveyGateway() {
-  const [tab, setTab] = useState<"surveys" | "assignments" | "analytics" | "pepperwahl">("surveys");
+  const [tab, setTab] = useState<"surveys" | "assignments" | "analytics" | "pepperwahl" | "refine">("surveys");
   const [surveys, setSurveys] = useState<SurveyData[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -73,6 +76,16 @@ export default function AdminSurveyGateway() {
   const [pwDetailOpen, setPwDetailOpen] = useState(false);
   const [pwPayoutEdit, setPwPayoutEdit] = useState<string>("");
 
+  // Refine Descriptions state
+  const [refineStats, setRefineStats] = useState<RefinementStats | null>(null);
+  const [refineView, setRefineView] = useState<"unrefined" | "refined">("unrefined");
+  const [refineOffers, setRefineOffers] = useState<RefinementOffer[]>([]);
+  const [refineTotal, setRefineTotal] = useState(0);
+  const [refinePage, setRefinePage] = useState(1);
+  const [refineLoading, setRefineLoading] = useState(false);
+  const [refiningAll, setRefiningAll] = useState(false);
+  const [refiningIds, setRefiningIds] = useState<Set<string>>(new Set());
+
   const loadSurveys = useCallback(async () => {
     setLoading(true);
     try {
@@ -103,6 +116,68 @@ export default function AdminSurveyGateway() {
     if (tab === "analytics") loadAnalytics();
     if (tab === "assignments") { loadAssignments(); loadSurveys(); }
   }, [tab]);
+
+  // ── Refine tab loaders ─────────────────────────────────────────────────────
+  const loadRefineData = useCallback(async () => {
+    setRefineLoading(true);
+    try {
+      const [statsRes, listRes] = await Promise.all([
+        fetchRefineStats(),
+        refineView === "unrefined"
+          ? fetchUnrefinedOffers({ page: refinePage, per_page: 25 })
+          : fetchRefinedOffers({ page: refinePage, per_page: 25 }),
+      ]);
+      if (statsRes.success) setRefineStats(statsRes.stats);
+      if (listRes.success) { setRefineOffers(listRes.offers); setRefineTotal(listRes.total); }
+    } catch { toast.error("Failed to load refinement data"); }
+    setRefineLoading(false);
+  }, [refineView, refinePage]);
+
+  useEffect(() => {
+    if (tab === "refine") loadRefineData();
+  }, [tab, loadRefineData]);
+
+  const handleRefineAll = async () => {
+    setRefiningAll(true);
+    try {
+      const res = await refineAllDescriptions();
+      if (res.success) {
+        toast.success(`Refined ${res.refined} survey description${res.refined !== 1 ? "s" : ""}`);
+        loadRefineData();
+      } else {
+        toast.error("Refinement failed");
+      }
+    } catch { toast.error("Refinement failed"); }
+    setRefiningAll(false);
+  };
+
+  const handleRefineOne = async (offerId: string) => {
+    setRefiningIds(prev => new Set(prev).add(offerId));
+    try {
+      const res = await refineOneDescription(offerId);
+      if (res.success) {
+        toast.success("Description refined");
+        loadRefineData();
+      } else {
+        toast.error(res.error || "Failed to refine");
+      }
+    } catch { toast.error("Failed to refine"); }
+    setRefiningIds(prev => { const s = new Set(prev); s.delete(offerId); return s; });
+  };
+
+  const handleResetRefinement = async (offerId: string) => {
+    setRefiningIds(prev => new Set(prev).add(offerId));
+    try {
+      const res = await resetRefinement(offerId);
+      if (res.success) {
+        toast.success("Reset to unrefined");
+        loadRefineData();
+      } else {
+        toast.error(res.error || "Failed to reset");
+      }
+    } catch { toast.error("Failed to reset"); }
+    setRefiningIds(prev => { const s = new Set(prev); s.delete(offerId); return s; });
+  };
 
   const handleSeed = async () => {
     const res = await seedSurveys();
@@ -232,16 +307,22 @@ export default function AdminSurveyGateway() {
 
       {/* Tabs */}
       <div className="flex gap-1 bg-muted/50 p-1 rounded-lg w-fit">
-        {(["surveys", "assignments", "analytics", "pepperwahl"] as const).map(t => (
+        {(["surveys", "assignments", "analytics", "pepperwahl", "refine"] as const).map(t => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm font-medium rounded-md transition-colors capitalize flex items-center gap-1.5 ${
               tab === t ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
             }`}>
             {t === "pepperwahl" && <Inbox className="h-3.5 w-3.5" />}
-            {t === "pepperwahl" ? "Pepperwahl" : t}
+            {t === "refine" && <Wand2 className="h-3.5 w-3.5" />}
+            {t === "pepperwahl" ? "Pepperwahl" : t === "refine" ? "Refine Descriptions" : t}
             {t === "pepperwahl" && pwStats && pwStats.pending > 0 && (
               <span className="ml-1 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                 {pwStats.pending}
+              </span>
+            )}
+            {t === "refine" && refineStats && refineStats.unrefined > 0 && (
+              <span className="ml-1 bg-violet-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                {refineStats.unrefined}
               </span>
             )}
           </button>
@@ -619,6 +700,263 @@ export default function AdminSurveyGateway() {
                 Page {pwPage} of {Math.ceil(pwTotal / 15)}
               </span>
               <button disabled={pwPage >= Math.ceil(pwTotal / 15)} onClick={() => setPwPage(p => p + 1)}
+                className="px-3 py-1.5 border rounded-lg text-sm disabled:opacity-40 flex items-center gap-1">
+                Next <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══ REFINE DESCRIPTIONS TAB ═══ */}
+      {tab === "refine" && (
+        <div className="space-y-5">
+
+          {/* Stats bar */}
+          {refineStats && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="bg-white dark:bg-card border rounded-xl p-4">
+                <p className="text-xs text-muted-foreground mb-1">Total Surveys</p>
+                <p className="text-2xl font-bold">{refineStats.total}</p>
+              </div>
+              <div className="bg-white dark:bg-card border rounded-xl p-4">
+                <p className="text-xs text-muted-foreground mb-1">Refined</p>
+                <p className="text-2xl font-bold text-green-600">{refineStats.refined}</p>
+              </div>
+              <div className="bg-white dark:bg-card border rounded-xl p-4">
+                <p className="text-xs text-muted-foreground mb-1">Unrefined</p>
+                <p className="text-2xl font-bold text-amber-600">{refineStats.unrefined}</p>
+              </div>
+              <div className="bg-white dark:bg-card border rounded-xl p-4">
+                <p className="text-xs text-muted-foreground mb-1">% Refined</p>
+                <div className="flex items-end gap-2">
+                  <p className="text-2xl font-bold text-violet-600">{refineStats.pct_refined}%</p>
+                </div>
+                <div className="mt-2 h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-violet-500 rounded-full transition-all"
+                    style={{ width: `${refineStats.pct_refined}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Per-source breakdown */}
+          {refineStats?.sources && refineStats.sources.length > 0 && (
+            <div className="bg-white dark:bg-card border rounded-xl p-5">
+              <p className="text-sm font-semibold mb-3">By Source</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {refineStats.sources
+                  .filter(s => s.total > 0)
+                  .map(s => (
+                    <div key={s.source} className="bg-muted/30 rounded-lg p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 capitalize">
+                        {s.source}
+                      </p>
+                      <div className="flex justify-between text-xs mb-1.5">
+                        <span className="text-green-600">{s.refined} refined</span>
+                        <span className="text-amber-600">{s.unrefined} pending</span>
+                      </div>
+                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-green-500 rounded-full"
+                          style={{ width: s.total > 0 ? `${Math.round(s.refined / s.total * 100)}%` : "0%" }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {/* Info banner — explain what refinement does */}
+          <div className="bg-violet-50 border border-violet-200 rounded-xl px-5 py-3 flex items-start gap-3">
+            <Wand2 className="h-4 w-4 text-violet-600 mt-0.5 flex-shrink-0" />
+            <div className="text-sm">
+              <p className="font-semibold text-violet-800">Auto-refinement replaces raw metadata with readable descriptions</p>
+              <p className="text-violet-700 mt-0.5">
+                Example: <span className="font-mono text-xs bg-violet-100 px-1.5 py-0.5 rounded">
+                  "LOI: 20 min | IR: 60% | Mobile communication Hybrid, Tracker..."
+                </span>{" "}
+                becomes{" "}
+                <span className="font-mono text-xs bg-green-100 text-green-800 px-1.5 py-0.5 rounded">
+                  "Consumer Technology survey for India. Takes about 20 min, 60% qualify."
+                </span>
+              </p>
+              <p className="text-violet-600 text-xs mt-1">
+                <strong>Option B — Smart delta detection:</strong> If LOI changes by more than 5 min or IR by more than 15% on the next sync, the description resets to "unrefined" automatically.
+              </p>
+            </div>
+          </div>
+
+          {/* Actions + sub-tab toggle */}
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex gap-1 bg-muted/50 p-1 rounded-lg">
+              <button
+                onClick={() => { setRefineView("unrefined"); setRefinePage(1); }}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors flex items-center gap-1.5 ${
+                  refineView === "unrefined" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}>
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                Unrefined
+                {refineStats && refineStats.unrefined > 0 && (
+                  <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    {refineStats.unrefined}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => { setRefineView("refined"); setRefinePage(1); }}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors flex items-center gap-1.5 ${
+                  refineView === "refined" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}>
+                <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                Refined
+                {refineStats && refineStats.refined > 0 && (
+                  <span className="bg-green-100 text-green-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    {refineStats.refined}
+                  </span>
+                )}
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={loadRefineData} className="p-2 border rounded-lg hover:bg-muted" title="Refresh">
+                <RefreshCw className="h-4 w-4" />
+              </button>
+              {refineView === "unrefined" && refineStats && refineStats.unrefined > 0 && (
+                <button
+                  onClick={handleRefineAll}
+                  disabled={refiningAll}
+                  className="px-4 py-2 text-sm bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50 flex items-center gap-2">
+                  {refiningAll
+                    ? <><RotateCw className="h-4 w-4 animate-spin" /> Refining...</>
+                    : <><Wand2 className="h-4 w-4" /> Refine All ({refineStats.unrefined})</>
+                  }
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Offers list */}
+          {refineLoading ? (
+            <div className="text-center py-12 text-muted-foreground">Loading...</div>
+          ) : refineOffers.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground">
+              {refineView === "unrefined"
+                ? <><Wand2 className="h-12 w-12 mx-auto mb-3 opacity-20" /><p className="font-medium">All survey descriptions are refined</p><p className="text-sm mt-1">Nothing in the queue right now.</p></>
+                : <><CheckCircle2 className="h-12 w-12 mx-auto mb-3 opacity-20" /><p className="font-medium">No refined descriptions yet</p><p className="text-sm mt-1">Click "Refine All" to get started.</p></>
+              }
+            </div>
+          ) : (
+            <div className="bg-white dark:bg-card border rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left px-4 py-3 font-medium">Offer ID</th>
+                    <th className="text-left px-4 py-3 font-medium">Source</th>
+                    <th className="text-left px-4 py-3 font-medium">
+                      {refineView === "unrefined" ? "Current Description (raw)" : "Original Raw"}
+                    </th>
+                    <th className="text-left px-4 py-3 font-medium">
+                      {refineView === "unrefined" ? "Preview After Refinement" : "Refined Description"}
+                    </th>
+                    {refineView === "refined" && (
+                      <th className="text-left px-4 py-3 font-medium">Refined At</th>
+                    )}
+                    <th className="text-right px-4 py-3 font-medium">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {refineOffers.map(offer => {
+                    const isProcessing = refiningIds.has(offer.offer_id);
+                    const sourceLabel = (offer.import_source || offer.offer_source || offer.source || "").replace("_", " ");
+                    return (
+                      <tr key={offer.offer_id} className="hover:bg-muted/20">
+                        <td className="px-4 py-3">
+                          <p className="font-mono text-xs text-foreground font-semibold">{offer.offer_id}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[120px]">{offer.name}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-muted capitalize font-medium">
+                            {sourceLabel}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 max-w-[260px]">
+                          <p className="text-xs text-muted-foreground line-clamp-3 leading-relaxed">
+                            {refineView === "unrefined"
+                              ? (offer.description || "—")
+                              : (offer.description_raw || offer.description || "—")
+                            }
+                          </p>
+                        </td>
+                        <td className="px-4 py-3 max-w-[260px]">
+                          <p className={`text-xs leading-relaxed line-clamp-3 ${
+                            refineView === "unrefined"
+                              ? "text-violet-700 bg-violet-50 rounded px-2 py-1 italic"
+                              : "text-green-700"
+                          }`}>
+                            {refineView === "unrefined"
+                              ? (offer.description_preview || "—")
+                              : (offer.description_override || offer.description || "—")
+                            }
+                          </p>
+                        </td>
+                        {refineView === "refined" && (
+                          <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                            {offer.description_refined_at
+                              ? new Date(offer.description_refined_at).toLocaleDateString()
+                              : "—"
+                            }
+                            {offer.description_refined_by && (
+                              <p className="text-[10px] mt-0.5 opacity-60">by {offer.description_refined_by}</p>
+                            )}
+                          </td>
+                        )}
+                        <td className="px-4 py-3 text-right">
+                          {refineView === "unrefined" ? (
+                            <button
+                              onClick={() => handleRefineOne(offer.offer_id)}
+                              disabled={isProcessing}
+                              title="Refine this description"
+                              className="p-1.5 text-violet-600 border border-violet-200 rounded-lg hover:bg-violet-50 disabled:opacity-40">
+                              {isProcessing
+                                ? <RotateCw className="h-3.5 w-3.5 animate-spin" />
+                                : <Wand2 className="h-3.5 w-3.5" />
+                              }
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleResetRefinement(offer.offer_id)}
+                              disabled={isProcessing}
+                              title="Reset to unrefined queue"
+                              className="p-1.5 text-amber-600 border border-amber-200 rounded-lg hover:bg-amber-50 disabled:opacity-40">
+                              {isProcessing
+                                ? <RotateCw className="h-3.5 w-3.5 animate-spin" />
+                                : <RotateCcw className="h-3.5 w-3.5" />
+                              }
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Pagination */}
+          {refineTotal > 25 && (
+            <div className="flex justify-center gap-2">
+              <button disabled={refinePage <= 1} onClick={() => setRefinePage(p => p - 1)}
+                className="px-3 py-1.5 border rounded-lg text-sm disabled:opacity-40 flex items-center gap-1">
+                <ChevronLeft className="h-3.5 w-3.5" /> Prev
+              </button>
+              <span className="px-3 py-1.5 text-sm text-muted-foreground">
+                Page {refinePage} of {Math.ceil(refineTotal / 25)}
+              </span>
+              <button disabled={refinePage >= Math.ceil(refineTotal / 25)} onClick={() => setRefinePage(p => p + 1)}
                 className="px-3 py-1.5 border rounded-lg text-sm disabled:opacity-40 flex items-center gap-1">
                 Next <ChevronRight className="h-4 w-4" />
               </button>
