@@ -30,6 +30,11 @@ export default function AdminAutomation() {
   const [lastVoqallSubwallResult, setLastVoqallSubwallResult] = useState<any>(null);
   const [runningMarketExcel, setRunningMarketExcel] = useState(false);
   const [lastMarketExcelResult, setLastMarketExcelResult] = useState<any>(null);
+
+  const [runningOpinionSpark, setRunningOpinionSpark] = useState(false);
+  const [lastOpinionSparkResult, setLastOpinionSparkResult] = useState<any>(null);
+  const [runningOpinionSparkSubwall, setRunningOpinionSparkSubwall] = useState(false);
+  const [lastOpinionSparkSubwallResult, setLastOpinionSparkSubwallResult] = useState<any>(null);
   const [runningMarketExcelSubwall, setRunningMarketExcelSubwall] = useState(false);
   const [lastMarketExcelSubwallResult, setLastMarketExcelSubwallResult] = useState<any>(null);
 
@@ -170,6 +175,56 @@ export default function AdminAutomation() {
       toast.error('Network error: ' + e.message);
     } finally {
       setRunningMarketExcelSubwall(false);
+    }
+  };
+
+  const runOpinionSparkSync = async () => {
+    setRunningOpinionSpark(true);
+    setLastOpinionSparkResult(null);
+    try {
+      const res = await fetch(`${baseUrl}/api/admin/automation/opinionspark-sync/run`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const r = data.result || {};
+        setLastOpinionSparkResult(r);
+        toast.success(
+          `OpinionSpark sync done: ${r.total_created ?? 0} created, ${r.total_updated ?? 0} updated`
+        );
+      } else {
+        toast.error(data.error || 'OpinionSpark sync failed');
+      }
+    } catch (e: any) {
+      toast.error('Network error: ' + e.message);
+    } finally {
+      setRunningOpinionSpark(false);
+    }
+  };
+
+  const runOpinionSparkSubwall = async () => {
+    setRunningOpinionSparkSubwall(true);
+    setLastOpinionSparkSubwallResult(null);
+    try {
+      const res = await fetch(`${baseUrl}/api/admin/automation/opinionspark-subwall/run`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const r = data.result || {};
+        setLastOpinionSparkSubwallResult(r);
+        toast.success(
+          `Done: ${r.renamed ?? 0} renamed, ${r.added_to_subwall ?? 0} added to sub-wall`
+        );
+      } else {
+        toast.error(data.error || data.result?.error || 'Failed to run OpinionSpark sub-wall automation');
+      }
+    } catch (e: any) {
+      toast.error('Network error: ' + e.message);
+    } finally {
+      setRunningOpinionSparkSubwall(false);
     }
   };
 
@@ -381,6 +436,79 @@ export default function AdminAutomation() {
                 )}
                 {lastMarketExcelSubwallResult.error && (
                   <div className="text-red-600 font-medium">⚠ {lastMarketExcelSubwallResult.error}</div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* OpinionSpark Sync */}
+          <div className="border rounded-lg p-5 space-y-3 border-teal-200 bg-teal-50/30 dark:bg-teal-950/10">
+            <div className="flex items-center gap-2">
+              <RefreshCw className="h-5 w-5 text-teal-500" />
+              <h3 className="font-semibold">OpinionSpark Sync</h3>
+              <span className="text-[10px] bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full">Auto every 23h</span>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Fetches all available surveys from the OpinionSpark API, creates/updates offers, renames to <strong>"YIS Survey"</strong>, adds to sub-wall, and auto-refines descriptions.
+            </p>
+            <button
+              onClick={runOpinionSparkSync}
+              disabled={runningOpinionSpark}
+              className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {runningOpinionSpark ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              {runningOpinionSpark ? 'Syncing...' : 'Run Sync Now'}
+            </button>
+            {lastOpinionSparkResult && (
+              <div className="bg-teal-50 dark:bg-teal-950/30 border border-teal-200 rounded-md p-3 text-sm space-y-1">
+                <div><strong>Presets synced:</strong> {lastOpinionSparkResult.presets_synced ?? 0}</div>
+                <div><strong>Created:</strong> {lastOpinionSparkResult.total_created ?? 0}</div>
+                <div><strong>Updated:</strong> {lastOpinionSparkResult.total_updated ?? 0}</div>
+                <div><strong>Deactivated (stale):</strong> {lastOpinionSparkResult.total_deactivated ?? 0}</div>
+                <div><strong>Descriptions refined:</strong> {lastOpinionSparkResult.preset_details?.[0]?.desc_refined ?? 0}</div>
+                {lastOpinionSparkResult.message && (
+                  <div className="text-amber-600">{lastOpinionSparkResult.message}</div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* OpinionSpark Sub-Wall Automation */}
+          <div className="border rounded-lg p-5 space-y-3 border-teal-200 bg-teal-50/30 dark:bg-teal-950/10">
+            <div className="flex items-center gap-2">
+              <Layers className="h-5 w-5 text-teal-500" />
+              <h3 className="font-semibold">OpinionSpark Sub-Wall Automation</h3>
+              <span className="text-[10px] bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full">Auto runs after sync</span>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Renames all active OpinionSpark surveys to <strong>"YIS Survey"</strong>, marks them sub-wall exclusive,
+              and adds them to the <strong>Moustache Survey's</strong> sub-wall.
+            </p>
+            <button
+              onClick={runOpinionSparkSubwall}
+              disabled={runningOpinionSparkSubwall}
+              className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {runningOpinionSparkSubwall ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              {runningOpinionSparkSubwall ? 'Running...' : 'Run Now'}
+            </button>
+            {lastOpinionSparkSubwallResult && (
+              <div className="bg-teal-50 dark:bg-teal-950/30 border border-teal-200 rounded-md p-3 text-sm space-y-1">
+                <div><strong>Total OpinionSpark offers:</strong> {lastOpinionSparkSubwallResult.total_opinionspark_offers ?? 0}</div>
+                <div><strong>Renamed to "YIS Survey":</strong> {lastOpinionSparkSubwallResult.renamed ?? 0}</div>
+                <div><strong>Already named:</strong> {lastOpinionSparkSubwallResult.already_named ?? 0}</div>
+                <div><strong>Added to sub-wall:</strong> {lastOpinionSparkSubwallResult.added_to_subwall ?? 0}</div>
+                <div><strong>Already in sub-wall:</strong> {lastOpinionSparkSubwallResult.already_in_subwall ?? 0}</div>
+                {(lastOpinionSparkSubwallResult.stale_removed_from_wall ?? 0) > 0 && (
+                  <div><strong>Stale removed:</strong> {lastOpinionSparkSubwallResult.stale_removed_from_wall}</div>
+                )}
+                {lastOpinionSparkSubwallResult.run_at && (
+                  <div className="text-xs text-muted-foreground">
+                    Run at: {new Date(lastOpinionSparkSubwallResult.run_at).toLocaleString()}
+                  </div>
+                )}
+                {lastOpinionSparkSubwallResult.error && (
+                  <div className="text-red-600 font-medium">⚠ {lastOpinionSparkSubwallResult.error}</div>
                 )}
               </div>
             )}

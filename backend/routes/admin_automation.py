@@ -366,3 +366,52 @@ def run_market_excel_subwall_automation():
     except Exception as e:
         logger.error(f"MarketXcel sub-wall automation manual run failed: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ── OpinionSpark Manual Triggers ──────────────────────────────────────────────
+
+@admin_automation_bp.route('/api/admin/automation/opinionspark-sync/run', methods=['POST'])
+@token_required
+@admin_required
+def run_opinionspark_sync_now():
+    """Manually trigger an OpinionSpark sync right now."""
+    try:
+        from services.opinionspark_sync_service import get_opinionspark_sync_service
+        svc = get_opinionspark_sync_service()
+        result = svc.run_now()
+        return jsonify({'success': True, 'result': result}), 200
+    except Exception as e:
+        logger.error(f"Manual OpinionSpark sync failed: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_automation_bp.route('/api/admin/automation/opinionspark-sync/status', methods=['GET'])
+@token_required
+@admin_required
+def get_opinionspark_sync_status():
+    """Get OpinionSpark auto-sync service status (last run, next run, last result)."""
+    try:
+        from services.opinionspark_sync_service import get_opinionspark_sync_service
+        svc = get_opinionspark_sync_service()
+        return jsonify({'success': True, 'status': svc.get_status()}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_automation_bp.route('/api/admin/automation/opinionspark-subwall/run', methods=['POST'])
+@token_required
+@admin_required
+def run_opinionspark_subwall_automation():
+    """
+    Manually trigger the OpinionSpark sub-wall automation:
+    - Rename all active OpinionSpark offers to "YIS Survey"
+    - Mark them as subwall_exclusive
+    - Add them to the "Moustache Survey's" sub-wall
+    """
+    try:
+        from services.voqall_subwall_service import run_opinionspark_subwall_automation as _run
+        result = _run()
+        return jsonify({'success': True, 'result': result}), 200
+    except Exception as e:
+        logger.error(f"OpinionSpark sub-wall automation manual run failed: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
