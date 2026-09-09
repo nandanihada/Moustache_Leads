@@ -778,8 +778,8 @@ export default function AdminRedirectRouter() {
                       onClick={(e) => e.stopPropagation()}
                     >
                       {window.location.hostname === 'localhost'
-                        ? `${window.location.origin}/funnel/${funnel.funnel_id}`
-                        : `https://survey.moustacheleads.com/funnel/${funnel.funnel_id}`}
+                        ? `${window.location.origin}/pr/${funnel.funnel_id}`
+                        : `https://survey.moustacheleads.com/pr/${funnel.funnel_id}`}
                     </a>
                     <button
                       className="ml-2 text-xs text-gray-400 hover:text-gray-600"
@@ -787,8 +787,8 @@ export default function AdminRedirectRouter() {
                       onClick={(e) => {
                         e.stopPropagation();
                         const link = window.location.hostname === 'localhost'
-                          ? `${window.location.origin}/funnel/${funnel.funnel_id}`
-                          : `https://survey.moustacheleads.com/funnel/${funnel.funnel_id}`;
+                          ? `${window.location.origin}/pr/${funnel.funnel_id}`
+                          : `https://survey.moustacheleads.com/pr/${funnel.funnel_id}`;
                         navigator.clipboard.writeText(link);
                         toast.success('Link copied!');
                       }}

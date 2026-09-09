@@ -286,7 +286,7 @@ def _process_inbox_entry(inbox_id: str):
     # target_url = https://survey.moustacheleads.com/funnel/<funnel_id>
     # The Pepperwahl link is NEVER stored here — it lives inside the funnel step.
     # ─────────────────────────────────────────────────────────────────────────
-    funnel_url = f'https://survey.moustacheleads.com/funnel/{ml_funnel_id}'
+    funnel_url = f'https://survey.moustacheleads.com/pr/{ml_funnel_id}'
 
     offer_fields = {
         'name': 'YIS Survey',

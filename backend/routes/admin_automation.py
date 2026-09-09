@@ -415,3 +415,186 @@ def run_opinionspark_subwall_automation():
     except Exception as e:
         logger.error(f"OpinionSpark sub-wall automation manual run failed: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ── Expired Offer Cleanup ──────────────────────────────────────────────────────
+
+@admin_automation_bp.route('/api/admin/automation/expired-offers/preview', methods=['GET'])
+@token_required
+@admin_required
+def preview_expired_cleanup():
+    """
+    Preview what would be deleted — returns counts and a sample list.
+    Always call this before the actual delete to show the admin what will be removed.
+    Uses bulk $in queries — never loops per-offer.
+    """
+    try:
+        offers_col = db_instance.get_collection('offers')
+        clicks_col = db_instance.get_collection('clicks')
+        conv_col   = db_instance.get_collection('conversions')
+
+        if offers_col is None:
+            return jsonify({'success': False, 'error': 'DB not available'}), 500
+
+        # 1. Fetch all expired offers in one query
+        expired = list(offers_col.find(
+            {'status': 'expired'},
+            {'offer_id': 1, 'name': 1, 'import_source': 1, 'offer_source': 1,
+             'source': 1, 'hits': 1, 'updated_at': 1}
+        ))
+
+        if not expired:
+            return jsonify({
+                'success': True, 'total_expired': 0,
+                'safe_to_delete': 0, 'has_history': 0,
+                'sample_safe': [], 'sample_history': [],
+            })
+
+        all_ids = [o['offer_id'] for o in expired if o.get('offer_id')]
+
+        # 2. One bulk query — which offer_ids have ANY clicks?
+        ids_with_clicks = set()
+        if clicks_col is not None:
+            cursor = clicks_col.distinct('offer_id', {'offer_id': {'$in': all_ids}})
+            ids_with_clicks = set(cursor)
+
+        # 3. One bulk query — which offer_ids have ANY conversions?
+        ids_with_conv = set()
+        if conv_col is not None:
+            cursor = conv_col.distinct('offer_id', {'offer_id': {'$in': all_ids}})
+            ids_with_conv = set(cursor)
+
+        # 4. Classify in memory — no more per-offer DB calls
+        safe_to_delete = []
+        has_history    = []
+
+        for offer in expired:
+            oid = offer.get('offer_id')
+            if not oid:
+                continue
+
+            hits       = int(offer.get('hits') or 0)
+            has_clicks = oid in ids_with_clicks
+            has_conv   = oid in ids_with_conv
+            source     = (offer.get('import_source') or offer.get('offer_source') or
+                          offer.get('source') or 'unknown')
+
+            updated_at = offer.get('updated_at')
+            entry = {
+                'offer_id': oid,
+                'name':     offer.get('name', ''),
+                'source':   source,
+                'hits':     hits,
+                'has_clicks':      has_clicks,
+                'has_conversions': has_conv,
+                'updated_at': updated_at.isoformat() + 'Z' if hasattr(updated_at, 'isoformat') else '',
+            }
+
+            if hits == 0 and not has_clicks and not has_conv:
+                safe_to_delete.append(entry)
+            else:
+                has_history.append(entry)
+
+        return jsonify({
+            'success':       True,
+            'total_expired': len(expired),
+            'safe_to_delete': len(safe_to_delete),
+            'has_history':   len(has_history),
+            'sample_safe':   safe_to_delete[:20],
+            'sample_history': has_history[:10],
+        })
+
+    except Exception as e:
+        logger.error(f'preview_expired_cleanup error: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_automation_bp.route('/api/admin/automation/expired-offers/delete', methods=['DELETE'])
+@token_required
+@admin_required
+def delete_expired_offers():
+    """
+    Hard-delete all expired offers that have:
+      - hits = 0
+      - no records in clicks collection
+      - no records in conversions collection
+
+    Offers with any click/conversion history are NEVER deleted — they are kept
+    for audit trail and reporting purposes.
+    """
+    try:
+        offers_col = db_instance.get_collection('offers')
+        clicks_col = db_instance.get_collection('clicks')
+        conv_col   = db_instance.get_collection('conversions')
+
+        if offers_col is None:
+            return jsonify({'success': False, 'error': 'DB not available'}), 500
+
+        # 1. Fetch all expired offer_ids in one query
+        expired = list(offers_col.find(
+            {'status': 'expired'},
+            {'offer_id': 1, 'hits': 1}
+        ))
+
+        if not expired:
+            return jsonify({'success': True, 'deleted': 0, 'skipped': 0,
+                            'message': 'No expired offers found'})
+
+        all_ids = [o['offer_id'] for o in expired if o.get('offer_id')]
+
+        # 2. One bulk query each — which IDs have clicks / conversions?
+        ids_with_clicks = set()
+        if clicks_col is not None:
+            ids_with_clicks = set(clicks_col.distinct('offer_id', {'offer_id': {'$in': all_ids}}))
+
+        ids_with_conv = set()
+        if conv_col is not None:
+            ids_with_conv = set(conv_col.distinct('offer_id', {'offer_id': {'$in': all_ids}}))
+
+        # 3. Classify in memory
+        safe_ids    = []
+        skipped_ids = []
+
+        for offer in expired:
+            oid  = offer.get('offer_id')
+            hits = int(offer.get('hits') or 0)
+            if not oid:
+                continue
+
+            if hits == 0 and oid not in ids_with_clicks and oid not in ids_with_conv:
+                safe_ids.append(oid)
+            else:
+                skipped_ids.append(oid)
+
+        deleted = 0
+        if safe_ids:
+            # Remove from sub_walls before deleting
+            sub_walls_col = db_instance.get_collection('sub_walls')
+            if sub_walls_col is not None:
+                sub_walls_col.update_many(
+                    {},
+                    {'$pull': {'offer_ids': {'$in': safe_ids}}}
+                )
+
+            result = offers_col.delete_many({'offer_id': {'$in': safe_ids}})
+            deleted = result.deleted_count
+
+            logger.info(
+                f'Expired offer cleanup: deleted={deleted}, '
+                f'skipped_has_history={len(skipped_ids)}, '
+                f'run_by={getattr(request, "current_user", {}).get("username", "admin")}'
+            )
+
+        return jsonify({
+            'success':  True,
+            'deleted':  deleted,
+            'skipped':  len(skipped_ids),
+            'message':  (
+                f'Deleted {deleted} expired offer(s) with no history. '
+                f'Kept {len(skipped_ids)} offer(s) that have click/conversion records.'
+            ),
+        })
+
+    except Exception as e:
+        logger.error(f'delete_expired_offers error: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500

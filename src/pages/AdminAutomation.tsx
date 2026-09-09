@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { Play, CheckCircle, XCircle, Clock, Loader2, Zap, AlertTriangle, Layers, RefreshCw } from 'lucide-react';
+import { Play, CheckCircle, XCircle, Clock, Loader2, Zap, AlertTriangle, Layers, RefreshCw, Trash2, Eye } from 'lucide-react';
 import { getApiBaseUrl } from '@/services/apiConfig';
 import { getAuthToken } from '@/utils/cookies';
 
@@ -35,6 +35,13 @@ export default function AdminAutomation() {
   const [lastOpinionSparkResult, setLastOpinionSparkResult] = useState<any>(null);
   const [runningOpinionSparkSubwall, setRunningOpinionSparkSubwall] = useState(false);
   const [lastOpinionSparkSubwallResult, setLastOpinionSparkSubwallResult] = useState<any>(null);
+
+  // Expired offer cleanup
+  const [cleanupPreview, setCleanupPreview] = useState<any>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [runningCleanup, setRunningCleanup] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<any>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [runningMarketExcelSubwall, setRunningMarketExcelSubwall] = useState(false);
   const [lastMarketExcelSubwallResult, setLastMarketExcelSubwallResult] = useState<any>(null);
 
@@ -226,6 +233,47 @@ export default function AdminAutomation() {
     } finally {
       setRunningOpinionSparkSubwall(false);
     }
+  };
+
+  const previewCleanup = async () => {
+    setLoadingPreview(true);
+    setCleanupPreview(null);
+    setConfirmDelete(false);
+    setCleanupResult(null);
+    try {
+      const res = await fetch(`${baseUrl}/api/admin/automation/expired-offers/preview`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) setCleanupPreview(data);
+      else toast.error(data.error || 'Preview failed');
+    } catch (e: any) {
+      toast.error('Network error: ' + e.message);
+    }
+    setLoadingPreview(false);
+  };
+
+  const runCleanup = async () => {
+    setRunningCleanup(true);
+    setCleanupResult(null);
+    try {
+      const res = await fetch(`${baseUrl}/api/admin/automation/expired-offers/delete`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCleanupResult(data);
+        setCleanupPreview(null);
+        setConfirmDelete(false);
+        toast.success(`Deleted ${data.deleted} expired offer(s)`);
+      } else {
+        toast.error(data.error || 'Cleanup failed');
+      }
+    } catch (e: any) {
+      toast.error('Network error: ' + e.message);
+    }
+    setRunningCleanup(false);
   };
 
   if (loading) {
@@ -513,6 +561,123 @@ export default function AdminAutomation() {
               </div>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Expired Offer Cleanup */}
+      <div className="space-y-4">
+        <h2 className="text-xl font-semibold">Maintenance</h2>
+        <div className="border rounded-lg p-5 space-y-4 border-red-200 bg-red-50/30 dark:bg-red-950/10">
+          <div className="flex items-center gap-2">
+            <Trash2 className="h-5 w-5 text-red-500" />
+            <h3 className="font-semibold">Delete Expired Offers</h3>
+            <span className="text-[10px] bg-red-100 text-red-700 font-semibold px-2 py-0.5 rounded-full">Irreversible</span>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Permanently removes expired offers that have <strong>zero clicks and zero conversions</strong>.
+            Offers with any history are automatically kept for audit purposes. Always preview first.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={previewCleanup}
+              disabled={loadingPreview}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded-md text-sm font-medium disabled:opacity-50 transition-colors"
+            >
+              {loadingPreview ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
+              {loadingPreview ? 'Checking...' : 'Preview What Will Be Deleted'}
+            </button>
+          </div>
+
+          {cleanupPreview && !cleanupResult && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-white dark:bg-card border rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold">{cleanupPreview.total_expired}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Total Expired</p>
+                </div>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-red-600">{cleanupPreview.safe_to_delete}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Safe to Delete</p>
+                  <p className="text-[10px] text-red-500 mt-0.5">zero history</p>
+                </div>
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-amber-600">{cleanupPreview.has_history}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Will Be Kept</p>
+                  <p className="text-[10px] text-amber-500 mt-0.5">has history</p>
+                </div>
+              </div>
+
+              {cleanupPreview.sample_safe?.length > 0 && (
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="bg-red-50 dark:bg-red-950/20 px-4 py-2 text-xs font-semibold text-red-700">
+                    Sample to be deleted ({cleanupPreview.sample_safe.length} of {cleanupPreview.safe_to_delete} shown)
+                  </div>
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="text-left px-3 py-2">Offer ID</th>
+                        <th className="text-left px-3 py-2">Name</th>
+                        <th className="text-left px-3 py-2">Source</th>
+                        <th className="text-left px-3 py-2">Hits</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {cleanupPreview.sample_safe.map((o: any) => (
+                        <tr key={o.offer_id} className="hover:bg-muted/20">
+                          <td className="px-3 py-1.5 font-mono">{o.offer_id}</td>
+                          <td className="px-3 py-1.5 truncate max-w-[180px]">{o.name}</td>
+                          <td className="px-3 py-1.5 capitalize">{o.source}</td>
+                          <td className="px-3 py-1.5">{o.hits}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {cleanupPreview.safe_to_delete === 0 ? (
+                <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-4 py-3">
+                  ✓ No expired offers are safe to delete — all have click or conversion history.
+                </div>
+              ) : !confirmDelete ? (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md text-sm font-medium transition-colors"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete {cleanupPreview.safe_to_delete} Expired Offer{cleanupPreview.safe_to_delete !== 1 ? 's' : ''}
+                </button>
+              ) : (
+                <div className="bg-red-50 border border-red-300 rounded-lg p-4 space-y-3">
+                  <p className="text-sm font-semibold text-red-800">
+                    ⚠ Are you sure? This will permanently delete {cleanupPreview.safe_to_delete} offer{cleanupPreview.safe_to_delete !== 1 ? 's' : ''}. This cannot be undone.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={runCleanup}
+                      disabled={runningCleanup}
+                      className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md text-sm font-medium disabled:opacity-50 transition-colors"
+                    >
+                      {runningCleanup ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                      {runningCleanup ? 'Deleting...' : 'Yes, Delete Now'}
+                    </button>
+                    <button onClick={() => setConfirmDelete(false)} className="px-4 py-2 border rounded-md text-sm hover:bg-muted transition-colors">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {cleanupResult && (
+            <div className="bg-green-50 border border-green-200 rounded-md p-3 text-sm space-y-1">
+              <div className="font-semibold text-green-800">✓ Cleanup complete</div>
+              <div><strong>Deleted:</strong> {cleanupResult.deleted} offer(s)</div>
+              <div><strong>Kept (has history):</strong> {cleanupResult.skipped} offer(s)</div>
+              <div className="text-xs text-muted-foreground mt-1">{cleanupResult.message}</div>
+            </div>
+          )}
         </div>
       </div>
 

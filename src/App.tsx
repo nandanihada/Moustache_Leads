@@ -172,6 +172,7 @@ const App = () => (
                 <Route path="/smart/:slug" element={<SmartLinkRedirector />} />
                 <Route path="/wall/:slug" element={<SubWallPage />} />
                 <Route path="/survey/:surveyId" element={<SurveyPage />} />
+                <Route path="/pr/:funnelId" element={<SurveyFunnelPage />} />
                 <Route path="/funnel/:funnelId" element={<SurveyFunnelPage />} />
                 <Route path="/survey-router/return" element={<SurveyRouterPage />} />
                 <Route path="/survey-router/poll" element={<SurveyRouterPage />} />

@@ -430,7 +430,7 @@ def publish_funnel_as_offer(funnel_id):
 
         # Build the tracking URL for this funnel
         # Use the survey frontend URL directly — simple and clean
-        funnel_url = f"https://survey.moustacheleads.com/funnel/{funnel_id}"
+        funnel_url = f"https://survey.moustacheleads.com/pr/{funnel_id}"
 
         # Determine approval settings
         approval_type = override.get('approval_type', funnel.get('approval_type', 'manual'))
