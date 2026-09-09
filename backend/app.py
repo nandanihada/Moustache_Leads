@@ -129,6 +129,7 @@ link_health_bp = safe_import_blueprint('routes.link_health', 'link_health_bp')
 redirect_receiver_bp = safe_import_blueprint('routes.redirect_receiver', 'redirect_receiver_bp')
 pepperwahl_integration_bp = safe_import_blueprint('routes.pepperwahl_integration', 'pepperwahl_integration_bp')
 telegram_settings_bp = safe_import_blueprint('routes.telegram_settings', 'telegram_settings_bp')
+pepperwahl_mail_bp = safe_import_blueprint('routes.pepperwahl_mail', 'pepperwahl_mail_bp')
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
@@ -247,6 +248,7 @@ blueprints = [
     (redirect_receiver_bp, ''),
     (pepperwahl_integration_bp, ''),
     (telegram_settings_bp, '/api/admin'),
+    (pepperwahl_mail_bp, ''),
 ]
 
 def create_app():

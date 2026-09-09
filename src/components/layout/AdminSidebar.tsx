@@ -124,6 +124,7 @@ const adminMenuStructure = [
       { title: "Link Health", url: "/admin/link-health", icon: Link2, tab: "link-health" },
       { title: "Offer Insights", url: "/admin/offer-insights", icon: Sparkles, tab: "offer-insights" },
       { title: "Email Activity", url: "/admin/email-activity", icon: Mail, tab: "email-activity" },
+      { title: "Pepperwahl Mail", url: "/admin/pepperwahl-mail", icon: Mail, tab: "pepperwahl-mail" },
       { title: "Promo Codes", url: "/admin/promo-codes", icon: Zap, tab: "promo-codes" },
       { title: "Promo Analytics V2", url: "/admin/promo-analytics-v2", icon: Zap, tab: "promo-analytics-v2" },
       { title: "Gift Cards", url: "/admin/gift-cards", icon: Gift, tab: "gift-cards" },

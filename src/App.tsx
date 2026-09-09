@@ -129,6 +129,7 @@ const AdminSurveyBuilder = lazy(() => import("./pages/AdminSurveyBuilder"));
 const AdminSubWalls = lazy(() => import("./pages/AdminSubWalls"));
 const AdminRedirectRouter = lazy(() => import("./pages/AdminRedirectRouter"));
 const AdminTelegramSettings = lazy(() => import("./pages/AdminTelegramSettings"));
+const AdminPepperwahlMail = lazy(() => import("./pages/AdminPepperwahlMail"));
 import SubWallPage from "./pages/SubWallPage";
 import SurveyFunnelPage from "./pages/SurveyFunnelPage";
 import SurveyPage from "./pages/SurveyPage";
@@ -286,6 +287,7 @@ const App = () => (
                 <Route path="redirect-router" element={<AdminRedirectRouter />} />
                 <Route path="link-health" element={<AdminLinkHealth />} />
                 <Route path="telegram-settings" element={<AdminTelegramSettings />} />
+                <Route path="pepperwahl-mail" element={<AdminPepperwahlMail />} />
               </Route>
 
               {/* Advertiser Dashboard routes */}
