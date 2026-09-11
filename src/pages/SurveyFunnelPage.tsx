@@ -155,16 +155,7 @@ export default function SurveyFunnelPage() {
         // Wait for spinner duration before showing result
         await delay(spinnerDuration * 1000);
 
-        if (data.result === 'next_step') {
-          // Intermediate pre-qualification step passed — advance to next question
-          // without showing a redirect. Used for Pepperwahl multi-question funnels.
-          setStep(data.next_step_index);
-          setSurvey(data.next_survey);
-          setAnswers({});
-          setResultData(null);
-          setPhase('survey');
-
-        } else if (data.result === 'passed') {
+        if (data.result === 'passed') {
           setResultData({
             type: 'pass',
             message: data.message,
@@ -238,7 +229,7 @@ export default function SurveyFunnelPage() {
             }, 3000); // Show pass message for 3 seconds
           }
 
-        } else if (data.result === 'failed' || data.result === 'fail') {
+        } else {
           // Failed — close pre-opened tab
           if (preOpenedTab && !preOpenedTab.closed) preOpenedTab.close();
           setResultData({

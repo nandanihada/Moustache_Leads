@@ -207,49 +207,39 @@ def _process_inbox_entry(inbox_id: str):
     existing_offer_id  = inbox.get('moustache_offer_id')  or (existing_inbox or {}).get('moustache_offer_id')
 
     # ─────────────────────────────────────────────────────────────────────────
-    # STEP 1 — Build Survey Funnel steps from Pepperwahl questions
+    # STEP 1 — Build a SINGLE Survey Funnel step containing ALL Pepperwahl questions
     #
-    # Each question from Pepperwahl becomes ONE funnel step with ONE question.
-    # pass_criteria uses qualify_if answers.
-    #
-    # IMPORTANT: Only the LAST step gets pass_url = survey_link.
-    # Intermediate steps have no pass_url — the funnel engine advances to the
-    # next step automatically so the user must answer ALL questions before
-    # being redirected to the Pepperwahl survey.
+    # All questions go into one step so the user answers them all on one screen
+    # before being evaluated. pass_criteria checks every question's answer
+    # against its qualify_if list. If all pass → redirect to Pepperwahl.
+    # If any fails → screen-out message.
     # ─────────────────────────────────────────────────────────────────────────
-    funnel_steps = []
-    last_q_index = len(questions) - 1
+    step_questions = []
+    pass_rules = []
     for idx, q in enumerate(questions):
         qualify_if = q.get('qualify_if', q.get('options', []))
-        is_last = (idx == last_q_index)
-        step = {
+        step_questions.append({
+            'text': q['question'],
+            'options': q.get('options', []),
+        })
+        pass_rules.append({
+            'question_index': idx,
+            'accepted_answers': qualify_if,
+        })
+
+    funnel_steps = [
+        {
             'survey_title': survey_name,
-            'questions': [
-                {
-                    'text': q['question'],
-                    'options': q.get('options', []),
-                }
-            ],
+            'questions': step_questions,
             'pass_criteria': {
-                'mode': 'all',
-                'rules': [
-                    {
-                        'question_index': 0,
-                        'accepted_answers': qualify_if,
-                    }
-                ],
+                'mode': 'all',   # ALL questions must pass
+                'rules': pass_rules,
             },
+            'pass_url': survey_link,   # redirect to Pepperwahl only after all questions pass
+            'pass_message': 'You qualify! Taking you to the survey now...',
             'fail_message': "Sorry, you don't qualify for this survey.",
         }
-        if is_last:
-            # Final question passed → user has qualified through all steps → redirect to Pepperwahl
-            step['pass_url'] = survey_link
-            step['pass_message'] = 'You qualify! Taking you to the survey now...'
-        else:
-            # Intermediate question passed → advance to next question (no redirect yet)
-            step['pass_url'] = ''
-            step['pass_message'] = 'Great answer! One more question...'
-        funnel_steps.append(step)
+    ]
 
     loi_text = f' ({loi} min)' if loi else ''
     country_text = f' [{country}]' if country else ''
