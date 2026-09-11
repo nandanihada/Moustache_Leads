@@ -797,6 +797,24 @@ def submit_step(funnel_id):
             router_partner_id = current_step.get('router_partner_id', '')
             router_scenario = current_step.get('router_scenario', 'new_tab')
 
+            # ── Inject tracking_click_id into Pepperwahl redirect URL as aff_sub ──
+            # This ensures Pepperwahl sends it back in the postback so we can
+            # match the conversion to the original click and credit the publisher.
+            tracking_click_id = data.get('tracking_click_id', '').strip()
+            if redirect_url and tracking_click_id:
+                # Replace {{user_id}} macro if present (Pepperwahl uses this)
+                redirect_url = redirect_url.replace('{{user_id}}', tracking_click_id)
+                # Also append aff_sub and sub1 for postback matching
+                sep = '&' if '?' in redirect_url else '?'
+                # Only append if not already present
+                if 'aff_sub=' not in redirect_url:
+                    redirect_url = f"{redirect_url}{sep}aff_sub={tracking_click_id}"
+                if 'sub1=' not in redirect_url:
+                    redirect_url = f"{redirect_url}&sub1={tracking_click_id}"
+            elif redirect_url:
+                # No tracking_click_id — still replace {{user_id}} macro with empty string
+                redirect_url = redirect_url.replace('{{user_id}}', '')
+
             # Update history — final pass
             if history_col is not None and session_id:
                 history_col.update_one(

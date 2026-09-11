@@ -549,6 +549,12 @@ def track_offer_click(offer_id):
         # Append source=moustacheleads to ALL offers so advertisers can identify our traffic
         separator = '&' if '?' in redirect_url else '?'
         redirect_url = f"{redirect_url}{separator}source=moustacheleads"
+
+        # ── For Pepperwahl funnel offers: inject click_id so the funnel page can
+        #    pass it through to Pepperwahl as aff_sub for postback matching ──────
+        if offer.get('offer_source') == 'pepperwahl' or offer.get('source') == 'pepperwahl' or \
+                'survey.moustacheleads.com/pr/' in redirect_url:
+            redirect_url = f"{redirect_url}&click_id={click_id}&aff_sub={click_id}"
         
         # 🔄 CHECK FOR FALLBACK REDIRECT WITH TIMER
         fallback_enabled = offer.get('fallback_redirect_enabled', False)

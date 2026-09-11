@@ -41,6 +41,8 @@ export default function SurveyFunnelPage() {
   const templateOverride = searchParams.get('template') as TemplateName | null;
   const isAdmin = searchParams.get('admin') === '1';
   const startStep = parseInt(searchParams.get('start_step') || '0', 10);
+  // click_id injected by simple_tracking.py for Pepperwahl offers — passed through to Pepperwahl as aff_sub
+  const trackingClickId = searchParams.get('click_id') || searchParams.get('aff_sub') || '';
   const baseUrl = getApiBaseUrl();
 
   // Core state
@@ -146,7 +148,7 @@ export default function SurveyFunnelPage() {
       const res = await fetch(`${baseUrl}/api/survey-funnel/${funnelId}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: session, step_index: step, answers: answersList })
+        body: JSON.stringify({ session_id: session, step_index: step, answers: answersList, tracking_click_id: trackingClickId })
       });
 
       if (res.ok) {
