@@ -62,7 +62,14 @@ def process_single_postback(postback):
                 return True, existing['conversion_id']
         
         # Try to find matching click by click_id (STRICT — click_id is REQUIRED)
-        click_id_from_pb = merged_data.get('click_id') or merged_data.get('aff_click_id')
+        # Also check aff_sub / sub1 — Pepperwahl sends our CLK-XXXXXX there
+        _raw_aff_sub = merged_data.get('aff_sub', '') or merged_data.get('sub1', '') or ''
+        _aff_sub_as_click = _raw_aff_sub if str(_raw_aff_sub).upper().startswith('CLK-') else ''
+        click_id_from_pb = (
+            merged_data.get('click_id') or
+            merged_data.get('aff_click_id') or
+            _aff_sub_as_click
+        )
         click = None
         matched_by = 'click_id'
         
@@ -82,7 +89,19 @@ def process_single_postback(postback):
         
         click = clicks_collection.find_one({'click_id': click_id_from_pb})
         
-        # If click_id was provided but not found in our system, reject
+        # If click_id was provided but not found in main clicks collection,
+        # also check funnel_clicks (Pepperwahl funnel-track clicks may live there)
+        if not click and click_id_from_pb:
+            try:
+                funnel_clicks_col = db_instance.get_collection('funnel_clicks')
+                if funnel_clicks_col is not None:
+                    click = funnel_clicks_col.find_one({'click_id': click_id_from_pb})
+                    if click:
+                        logger.info(f"✅ Click found in funnel_clicks: {click_id_from_pb}")
+                        matched_by = 'funnel_click_id'
+            except Exception:
+                pass
+
         if not click:
             user_id_from_pb = merged_data.get('user_id') or merged_data.get('affiliate_id') or merged_data.get('aff_id') or ''
             logger.warning(f"🚫 REJECTED postback {transaction_id} — click_id={click_id_from_pb} NOT FOUND in our system. user_id={user_id_from_pb}")

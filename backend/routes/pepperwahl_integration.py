@@ -269,8 +269,8 @@ def _process_inbox_entry(inbox_id: str):
         'pepperwahl_survey_id': pw_survey_id,
         'pepperwahl_survey_type': survey_type,
         'pepperwahl_redirect_url': survey_link,   # stored for reference — NOT the offer URL
-        'target_country': country,
-        'countries': [country] if country else [],
+        'target_country': country,    # Pepperwahl's intended audience — informational only
+        'countries': [],              # no platform-level geo-block — Pepperwahl handles targeting
         'loi_minutes': loi,
         'topic': topic,
         'min_age': min_age,
@@ -320,8 +320,9 @@ def _process_inbox_entry(inbox_id: str):
         'payout_type': 'CPA',
         'incentive_type': 'Incent',
         'offer_type': 'CPA',
-        'countries': [country] if country else [],
-        'allowed_countries': [country] if country else [],
+        'countries': [],              # no geo-block at tracking level — Pepperwahl handles targeting
+        'allowed_countries': [],      # no geo-block at tracking level
+        'pepperwahl_target_country': country,   # informational only — stored for reference
         'tags': ['pepperwahl', 'survey', 'pre-screening'],
         'keywords': ['survey', 'pepperwahl', topic.lower() if topic else ''],
         'source': 'pepperwahl',
