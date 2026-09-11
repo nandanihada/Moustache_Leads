@@ -797,7 +797,32 @@ def submit_step(funnel_id):
             router_partner_id = current_step.get('router_partner_id', '')
             router_scenario = current_step.get('router_scenario', 'new_tab')
 
-            # Update history
+            # ── Intermediate step (no redirect_url) → advance to next question ──
+            # This happens when Pepperwahl sends multiple pre-qualification questions.
+            # Only the final step has pass_url set; all prior steps advance the chain.
+            if not redirect_url and not use_survey_router:
+                next_step_index = step_index + 1
+                if next_step_index < len(steps):
+                    next_step = steps[next_step_index]
+                    # Update history — still in progress, moving to next step
+                    if history_col is not None and session_id:
+                        history_col.update_one(
+                            {'session_id': session_id},
+                            {'$set': {'current_step': next_step_index}}
+                        )
+                    return jsonify({
+                        'result': 'next_step',       # new result type for intermediate advance
+                        'next_step_index': next_step_index,
+                        'next_survey': {
+                            'title': next_step.get('survey_title', f'Survey {next_step_index + 1}'),
+                            'questions': next_step.get('questions', []),
+                        },
+                        'message': current_step.get('pass_message', 'Great answer! One more question...'),
+                    }), 200
+                # No more steps and no redirect — treat as final pass with no URL
+                # (falls through to normal pass logic below)
+
+            # Update history — final pass
             if history_col is not None and session_id:
                 history_col.update_one(
                     {'session_id': session_id},

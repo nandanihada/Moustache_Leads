@@ -177,6 +177,19 @@ def _process_inbox_entry(inbox_id: str):
     min_age     = payload.get('min_age')
     max_age     = payload.get('max_age')
 
+    # ── Parse expiry_date from payload (format: "YYYY-MM-DD" or ISO datetime) ──
+    expiry_date_raw = payload.get('expiry_date')
+    expiry_date_str = None   # string stored on offer (YYYY-MM-DD)
+    if expiry_date_raw:
+        try:
+            if isinstance(expiry_date_raw, str):
+                # Accept "2026-09-30" or "2026-09-30T00:00:00Z"
+                expiry_date_str = expiry_date_raw[:10]  # keep YYYY-MM-DD portion only
+            else:
+                expiry_date_str = str(expiry_date_raw)[:10]
+        except Exception:
+            expiry_date_str = None
+
     # Normalise country — WW / empty means worldwide (no geo restriction)
     if not country or country.upper() in ('WW', 'WORLDWIDE', 'ALL', 'GLOBAL'):
         country = ''
@@ -198,12 +211,18 @@ def _process_inbox_entry(inbox_id: str):
     #
     # Each question from Pepperwahl becomes ONE funnel step with ONE question.
     # pass_criteria uses qualify_if answers.
-    # The LAST step (or every step that qualifies) sets pass_url = survey_link.
+    #
+    # IMPORTANT: Only the LAST step gets pass_url = survey_link.
+    # Intermediate steps have no pass_url — the funnel engine advances to the
+    # next step automatically so the user must answer ALL questions before
+    # being redirected to the Pepperwahl survey.
     # ─────────────────────────────────────────────────────────────────────────
     funnel_steps = []
-    for q in questions:
+    last_q_index = len(questions) - 1
+    for idx, q in enumerate(questions):
         qualify_if = q.get('qualify_if', q.get('options', []))
-        funnel_steps.append({
+        is_last = (idx == last_q_index)
+        step = {
             'survey_title': survey_name,
             'questions': [
                 {
@@ -220,11 +239,17 @@ def _process_inbox_entry(inbox_id: str):
                     }
                 ],
             },
-            # On pass at this step → send user to Pepperwahl survey
-            'pass_url': survey_link,
-            'pass_message': 'You qualify! Taking you to the survey now...',
             'fail_message': "Sorry, you don't qualify for this survey.",
-        })
+        }
+        if is_last:
+            # Final question passed → user has qualified through all steps → redirect to Pepperwahl
+            step['pass_url'] = survey_link
+            step['pass_message'] = 'You qualify! Taking you to the survey now...'
+        else:
+            # Intermediate question passed → advance to next question (no redirect yet)
+            step['pass_url'] = ''
+            step['pass_message'] = 'Great answer! One more question...'
+        funnel_steps.append(step)
 
     loi_text = f' ({loi} min)' if loi else ''
     country_text = f' [{country}]' if country else ''
@@ -260,6 +285,7 @@ def _process_inbox_entry(inbox_id: str):
         'topic': topic,
         'min_age': min_age,
         'max_age': max_age,
+        'expiry_date': expiry_date_str,
         'updated_at': now,
         'stats': {'total_starts': 0, 'total_passes': 0, 'total_fails': 0},
     }
@@ -317,6 +343,7 @@ def _process_inbox_entry(inbox_id: str):
         'min_age': min_age,
         'max_age': max_age,
         'loi_minutes': loi,
+        'expiration_date': expiry_date_str,   # from Pepperwahl expiry_date field
         # Subwall automation — auto-mark as exclusive for Moustache Survey's sub-wall
         'subwall_exclusive': True,
         'show_in_offerwall': False,
