@@ -118,6 +118,7 @@ import PromoTabV2 from "./components/PromoTabV2";
 const AdminPromoAnalyticsV2 = lazy(() => import("./pages/AdminPromoAnalyticsV2"));
 const AdminAutomationDashboard = lazy(() => import("./pages/AdminAutomationDashboard"));
 const AdminSupportHub = lazy(() => import("./pages/AdminSupportHub"));
+const SuperAdminSupport = lazy(() => import("./pages/SuperAdminSupport"));
 import { AgreementPage } from "./pages/AgreementPage";
 import { SignaturePage } from "./pages/SignaturePage";
 import { AdminSearchIntelligence } from "./pages/AdminSearchIntelligence";
@@ -277,6 +278,7 @@ const App = () => (
                 <Route path="publisher-analytics" element={<AdminPublisherAnalytics />} />
                 <Route path="automation" element={<AdminAutomationDashboard />} />
                 <Route path="support-hub" element={<AdminSupportHub />} />
+                <Route path="superadmin-support" element={<SuperAdminSupport />} />
                 <Route path="search-intelligence" element={<AdminSearchIntelligence />} />
                 <Route path="platform-settings" element={<AdminPlatformSettings />} />
                 <Route path="top-offers" element={<AdminTopOffers />} />

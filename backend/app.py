@@ -130,6 +130,7 @@ redirect_receiver_bp = safe_import_blueprint('routes.redirect_receiver', 'redire
 pepperwahl_integration_bp = safe_import_blueprint('routes.pepperwahl_integration', 'pepperwahl_integration_bp')
 telegram_settings_bp = safe_import_blueprint('routes.telegram_settings', 'telegram_settings_bp')
 pepperwahl_mail_bp = safe_import_blueprint('routes.pepperwahl_mail', 'pepperwahl_mail_bp')
+superadmin_support_bp = safe_import_blueprint('routes.superadmin_support', 'superadmin_support_bp')
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
@@ -249,6 +250,7 @@ blueprints = [
     (pepperwahl_integration_bp, ''),
     (telegram_settings_bp, '/api/admin'),
     (pepperwahl_mail_bp, ''),
+    (superadmin_support_bp, ''),
 ]
 
 def create_app():
@@ -789,6 +791,31 @@ def start_background_services():
             logging.info("✅ MarketXcel auto-sync service started (every 23 hours)")
         except Exception as e:
             logging.warning(f"⚠️ MarketXcel auto-sync service failed to start: {str(e)}")
+
+        # Smart Questions Worker — fires pre-authored questions into open tickets
+        try:
+            from services.smart_questions_worker import start_worker as start_sq_worker
+            start_sq_worker()
+            logging.info("✅ Smart Questions worker started (30s tick)")
+        except Exception as e:
+            logging.warning(f"⚠️ Smart Questions worker failed to start: {str(e)}")
+
+        # Scheduled Reply Processor — fires scheduled support replies when due
+        try:
+            import threading as _sched_th
+            import time as _sched_time
+            def _sched_loop():
+                while True:
+                    try:
+                        from routes.support_messages import fire_scheduled_replies
+                        fire_scheduled_replies()
+                    except Exception as _e:
+                        logging.warning(f'Scheduled replies processor error: {_e}')
+                    _sched_time.sleep(30)
+            _sched_th.Thread(target=_sched_loop, daemon=True, name='scheduled-replies').start()
+            logging.info("✅ Scheduled reply processor started (30s tick)")
+        except Exception as e:
+            logging.warning(f"⚠️ Scheduled reply processor failed to start: {str(e)}")
 
         logging.info("✅ Background services initialization completed (9 active, 5 disabled)")
     except Exception as e:

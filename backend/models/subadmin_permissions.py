@@ -154,5 +154,6 @@ class SubadminPermissions:
             'postback-logs',
             'postback-receiver',
             'publishers',
-            'subadmin-management'
+            'subadmin-management',
+            'superadmin-support',   # Support panel — always visible to subadmins
         ]

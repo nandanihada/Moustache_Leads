@@ -181,10 +181,11 @@ const adminMenuStructure = [
   },
   {
     title: "Support",
-    url: "/admin/support-inbox",
-    icon: Mail,
-    tab: "support-inbox",
+    url: "/admin/superadmin-support",
+    icon: Shield,
+    tab: "superadmin-support",
     type: "single" as const,
+    alwaysVisible: true,
   },
   {
     title: "Referrals",
@@ -418,8 +419,8 @@ export function AdminSidebar() {
               ) : (
                 adminMenuStructure.map((item) => {
                   if (item.type === 'single') {
-                    // Single menu item (Overview)
-                    if (!hasPermission(item.tab)) return null;
+                    // Single menu item — always show if alwaysVisible, otherwise check permission
+                    if (!(item as any).alwaysVisible && !hasPermission(item.tab)) return null;
 
                     return (
                       <SidebarMenuItem key={item.title}>
@@ -437,20 +438,6 @@ export function AdminSidebar() {
                           >
                             <item.icon className="h-5 w-5" />
                             <span className="font-medium">{item.title}</span>
-                            {item.tab === 'support-inbox' && (
-                              <span className="ml-auto flex items-center gap-1">
-                                {supportTotal > 0 && (
-                                  <span className="bg-muted text-muted-foreground text-[10px] font-medium min-w-[20px] h-5 rounded-full flex items-center justify-center px-1.5">
-                                    {supportTotal}
-                                  </span>
-                                )}
-                                {supportUnread > 0 && (
-                                  <span className="bg-red-500 text-white text-[10px] font-bold min-w-[20px] h-5 rounded-full flex items-center justify-center px-1.5">
-                                    {supportUnread}
-                                  </span>
-                                )}
-                              </span>
-                            )}
                           </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
